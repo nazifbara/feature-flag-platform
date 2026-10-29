@@ -19,6 +19,12 @@ func (s *Store) ExecTx(ctx context.Context, fn func(*database.Queries) error) er
 	if err != nil {
 		return err
 	}
+	defer func() {
+		if p := recover(); p != nil {
+			_ = tx.Rollback()
+			panic(p)
+		}
+	}()
 	qtx := s.WithTx(tx)
 	err = fn(qtx)
 	if err != nil {
