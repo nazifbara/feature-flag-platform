@@ -1,10 +1,16 @@
 -- name: CreateEnv :one
 INSERT INTO environments (
   id,
-  name
+  name,
+  created_at
 ) VALUES (
-  gen_random_uuid(), $1
+  gen_random_uuid(),
+  $1,
+  clock_timestamp()
 ) RETURNING *;
 
 -- name: GetEnv :one
 SELECT * FROM environments WHERE id = $1;
+
+-- name: ListEnvs :many
+SELECT * FROM environments ORDER BY created_at ASC;

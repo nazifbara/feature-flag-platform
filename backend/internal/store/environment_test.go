@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -139,11 +140,10 @@ func TestEnvironmentCreation(t *testing.T) {
 			if wantName == "" {
 				wantName = test.name
 			}
-			// The ID is random, so it is only checked for being set.
-			want := database.Environment{Name: wantName}
-			if diff := cmp.Diff(want, got, cmpopts.IgnoreFields(database.Environment{}, "ID")); diff != "" {
-				t.Fatalf("CreateEnv() mismatch (-want +got):\n%s", diff)
+			if got.Name != wantName {
+				t.Fatalf("CreateEnv().Name = %q, want %q", got.Name, wantName)
 			}
+			// The ID is random, so it is only checked for being set.
 			if got.ID == (database.Environment{}).ID {
 				t.Fatal("CreateEnv() returned a zero ID")
 			}
@@ -349,6 +349,220 @@ func TestGetEnvReportsNonDBErrors(t *testing.T) {
 		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, connect.CodeInternal.String()))
 		if got != (database.Environment{}) {
 			t.Fatalf("GetEnv() = %+v on error, want the zero Environment", got)
+		}
+	})
+}
+
+func TestListEnvs(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	t.Run("no environments", func(t *testing.T) {
+		resetDB(t, store.db)
+		got, err := store.ListEnvs(ctx)
+		if err != nil {
+			t.Fatalf("ListEnvs(): %v", err)
+		}
+		if len(got) != 0 {
+			t.Fatalf("ListEnvs() = %+v, want no environments", got)
+		}
+	})
+
+	t.Run("one environment", func(t *testing.T) {
+		resetDB(t, store.db)
+		env, err := store.CreateEnv(ctx, "production")
+		if err != nil {
+			t.Fatalf("CreateEnv(): %v", err)
+		}
+		got, err := store.ListEnvs(ctx)
+		if err != nil {
+			t.Fatalf("ListEnvs(): %v", err)
+		}
+		if diff := cmp.Diff([]database.Environment{env}, got); diff != "" {
+			t.Fatalf("ListEnvs() mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	// Oldest first. The names are not in alphabetical order, so sorting by
+	// name instead would fail.
+	t.Run("every environment in creation order", func(t *testing.T) {
+		resetDB(t, store.db)
+		var want []database.Environment
+		for _, name := range []string{"staging", "production", "development", "qa", "demo"} {
+			env, err := store.CreateEnv(ctx, name)
+			if err != nil {
+				t.Fatalf("CreateEnv(%q): %v", name, err)
+			}
+			want = append(want, env)
+		}
+		got, err := store.ListEnvs(ctx)
+		if err != nil {
+			t.Fatalf("ListEnvs(): %v", err)
+		}
+		if diff := cmp.Diff(want, got); diff != "" {
+			t.Fatalf("ListEnvs() mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	// Each insert gets its own creation time, so environments created in
+	// one transaction keep their order too.
+	t.Run("creation order within a transaction", func(t *testing.T) {
+		resetDB(t, store.db)
+		var want []database.Environment
+		err := store.ExecTx(ctx, func(q *database.Queries) error {
+			for _, name := range []string{"staging", "production", "development", "qa", "demo"} {
+				env, err := q.CreateEnv(ctx, name)
+				if err != nil {
+					return err
+				}
+				want = append(want, env)
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("ExecTx(): %v", err)
+		}
+		got, err := store.ListEnvs(ctx)
+		if err != nil {
+			t.Fatalf("ListEnvs(): %v", err)
+		}
+		if diff := cmp.Diff(want, got); diff != "" {
+			t.Fatalf("ListEnvs() mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	// Rows usually come back in insertion order even without an ORDER BY,
+	// so the creation times are rewritten to differ from it: only sorting
+	// by created_at gives the expected order.
+	t.Run("sorted by created_at, not insertion order", func(t *testing.T) {
+		resetDB(t, store.db)
+		base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+		created := map[string]time.Time{
+			"production":  base.Add(2 * time.Hour),
+			"staging":     base,
+			"development": base.Add(time.Hour),
+		}
+		for _, name := range []string{"production", "staging", "development"} {
+			env, err := store.CreateEnv(ctx, name)
+			if err != nil {
+				t.Fatalf("CreateEnv(%q): %v", name, err)
+			}
+			if _, err := store.db.ExecContext(ctx, "UPDATE environments SET created_at = $1 WHERE id = $2", created[name], env.ID); err != nil {
+				t.Fatalf("setting created_at of %q: %v", name, err)
+			}
+		}
+		got, err := store.ListEnvs(ctx)
+		if err != nil {
+			t.Fatalf("ListEnvs(): %v", err)
+		}
+		var names []string
+		for _, env := range got {
+			names = append(names, env.Name)
+		}
+		if diff := cmp.Diff([]string{"staging", "development", "production"}, names); diff != "" {
+			t.Fatalf("ListEnvs() order mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	// Names come back as stored, trimmed and lowercased.
+	t.Run("returns normalized names", func(t *testing.T) {
+		resetDB(t, store.db)
+		for _, name := range []string{"  Production ", "STAGING"} {
+			if _, err := store.CreateEnv(ctx, name); err != nil {
+				t.Fatalf("CreateEnv(%q): %v", name, err)
+			}
+		}
+		got, err := store.ListEnvs(ctx)
+		if err != nil {
+			t.Fatalf("ListEnvs(): %v", err)
+		}
+		var names []string
+		for _, env := range got {
+			names = append(names, env.Name)
+		}
+		if diff := cmp.Diff([]string{"production", "staging"}, names, cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
+			t.Fatalf("ListEnvs() names mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	// Rejected creations, and writes rolled back in a transaction, never
+	// show up.
+	t.Run("only committed environments", func(t *testing.T) {
+		resetDB(t, store.db)
+		env, err := store.CreateEnv(ctx, "production")
+		if err != nil {
+			t.Fatalf("CreateEnv(): %v", err)
+		}
+		if _, err := store.CreateEnv(ctx, "PRODUCTION"); err == nil {
+			t.Fatal("CreateEnv() duplicate = nil error, want AlreadyExists")
+		}
+		if _, err := store.CreateEnv(ctx, "   "); err == nil {
+			t.Fatal("CreateEnv() blank = nil error, want InvalidArgument")
+		}
+		errBoom := errors.New("boom")
+		err = store.ExecTx(ctx, func(q *database.Queries) error {
+			if _, err := q.CreateEnv(ctx, "staging"); err != nil {
+				return err
+			}
+			return errBoom
+		})
+		if !errors.Is(err, errBoom) {
+			t.Fatalf("ExecTx() error = %v, want %v", err, errBoom)
+		}
+
+		got, err := store.ListEnvs(ctx)
+		if err != nil {
+			t.Fatalf("ListEnvs(): %v", err)
+		}
+		if diff := cmp.Diff([]database.Environment{env}, got); diff != "" {
+			t.Fatalf("ListEnvs() mismatch (-want +got):\n%s", diff)
+		}
+	})
+}
+
+func TestListEnvsReportsErrors(t *testing.T) {
+	store := newTestStore(t)
+	if _, err := store.CreateEnv(context.Background(), "production"); err != nil {
+		t.Fatalf("CreateEnv(): %v", err)
+	}
+
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	expired, cancelExpired := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancelExpired()
+
+	tests := map[string]struct {
+		ctx  context.Context
+		want *connect.Error
+	}{
+		"canceled context": {
+			ctx:  canceled,
+			want: connect.NewError(connect.CodeCanceled, connect.CodeCanceled.String()),
+		},
+		"expired deadline": {
+			ctx:  expired,
+			want: connect.NewError(connect.CodeDeadlineExceeded, connect.CodeDeadlineExceeded.String()),
+		},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			got, err := store.ListEnvs(test.ctx)
+			wantConnectErr(t, err, test.want)
+			if got != nil {
+				t.Fatalf("ListEnvs() = %+v on error, want nil", got)
+			}
+		})
+	}
+
+	// Run last: it closes the connection pool the other cases use.
+	t.Run("closed database is internal", func(t *testing.T) {
+		if err := store.db.Close(); err != nil {
+			t.Fatalf("closing the database: %v", err)
+		}
+		got, err := store.ListEnvs(context.Background())
+		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, connect.CodeInternal.String()))
+		if got != nil {
+			t.Fatalf("ListEnvs() = %+v on error, want nil", got)
 		}
 	})
 }

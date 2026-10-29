@@ -37,3 +37,11 @@ func (s *Store) GetEnv(ctx context.Context, id uuid.UUID) (database.Environment,
 	}
 	return env, nil
 }
+
+func (s *Store) ListEnvs(ctx context.Context) ([]database.Environment, error) {
+	envs, err := s.Queries.ListEnvs(ctx)
+	if err != nil {
+		return nil, ffserrors.FromDBErr(err)
+	}
+	return envs, nil
+}
