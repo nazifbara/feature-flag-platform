@@ -30,3 +30,8 @@ gen/go/**/*.go
 gen/ts/**/*.ts
 backend/internal/database
 *.log
+
+# Editor backups, undo and swap files
+*~
+*.swp
+*.swo
