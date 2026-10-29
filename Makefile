@@ -20,6 +20,13 @@ sqlc:
 up:
 	goose postgres $(DB_URL) up
 
+reset-test:
+	goose postgres $(TEST_DB_URL) reset
+	goose postgres $(TEST_DB_URL) up
+
+db-integration-test: reset-test
+	go test ./backend/internal/store/... -count=1
+
 down:
 	goose postgres $(DB_URL) down
 
