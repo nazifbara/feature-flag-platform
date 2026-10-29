@@ -25,7 +25,7 @@ reset-test:
 	goose postgres $(TEST_DB_URL) up
 
 db-integration-test: reset-test
-	go test ./backend/internal/store/... -count=1
+	go test ./backend/internal/store/... -count=1 -cover
 
 down:
 	goose postgres $(DB_URL) down
