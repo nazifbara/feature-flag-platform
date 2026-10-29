@@ -8,6 +8,8 @@ import (
 	"connectrpc.com/connect/v2"
 	"github.com/nazifbara/flagsvc/backend/internal/database"
 	"github.com/nazifbara/flagsvc/backend/internal/ffserrors"
+
+	"github.com/google/uuid"
 )
 
 func (s *Store) CreateEnv(ctx context.Context, name string) (database.Environment, error) {
@@ -22,6 +24,14 @@ func (s *Store) CreateEnv(ctx context.Context, name string) (database.Environmen
 		return database.Environment{}, connect.NewError(connect.CodeInvalidArgument, "can't create an environment with a name over 100 characters")
 	}
 	env, err := s.Queries.CreateEnv(ctx, name)
+	if err != nil {
+		return database.Environment{}, ffserrors.FromDBErr(err)
+	}
+	return env, nil
+}
+
+func (s *Store) GetEnv(ctx context.Context, id uuid.UUID) (database.Environment, error) {
+	env, err := s.Queries.GetEnv(ctx, id)
 	if err != nil {
 		return database.Environment{}, ffserrors.FromDBErr(err)
 	}

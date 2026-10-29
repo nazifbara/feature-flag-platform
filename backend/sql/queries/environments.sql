@@ -5,3 +5,6 @@ INSERT INTO environments (
 ) VALUES (
   gen_random_uuid(), $1
 ) RETURNING *;
+
+-- name: GetEnv :one
+SELECT * FROM environments WHERE id = $1;

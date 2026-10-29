@@ -6,10 +6,12 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect/v2"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/google/uuid"
 	"github.com/nazifbara/flagsvc/backend/internal/database"
 )
 
@@ -232,6 +234,121 @@ func TestEnvironmentCreationRejectsDuplicateName(t *testing.T) {
 		}
 		if other.ID == first.ID {
 			t.Fatalf("CreateEnv() reused ID %v", first.ID)
+		}
+	})
+}
+
+func TestGetEnv(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	// Several environments, so a lookup that ignores the ID and returns
+	// any row is caught.
+	created := make(map[string]database.Environment)
+	for _, name := range []string{"development", "staging", "production"} {
+		env, err := store.CreateEnv(ctx, name)
+		if err != nil {
+			t.Fatalf("CreateEnv(%q): %v", name, err)
+		}
+		created[name] = env
+	}
+
+	for name, want := range created {
+		t.Run("finds "+name+" by its ID", func(t *testing.T) {
+			got, err := store.GetEnv(ctx, want.ID)
+			if err != nil {
+				t.Fatalf("GetEnv(%v): %v", want.ID, err)
+			}
+			if diff := cmp.Diff(want, got); diff != "" {
+				t.Fatalf("GetEnv(%v) mismatch (-want +got):\n%s", want.ID, diff)
+			}
+		})
+	}
+
+	// The name comes back as it was stored, trimmed and lowercased.
+	t.Run("returns the normalized name", func(t *testing.T) {
+		env, err := store.CreateEnv(ctx, "  QA  ")
+		if err != nil {
+			t.Fatalf("CreateEnv(): %v", err)
+		}
+		got, err := store.GetEnv(ctx, env.ID)
+		if err != nil {
+			t.Fatalf("GetEnv(%v): %v", env.ID, err)
+		}
+		if got.Name != "qa" {
+			t.Fatalf("GetEnv(%v).Name = %q, want %q", env.ID, got.Name, "qa")
+		}
+	})
+
+	notFound := connect.NewError(connect.CodeNotFound, connect.CodeNotFound.String())
+	t.Run("unknown ID is not found", func(t *testing.T) {
+		got, err := store.GetEnv(ctx, uuid.New())
+		wantConnectErr(t, err, notFound)
+		if got != (database.Environment{}) {
+			t.Fatalf("GetEnv() = %+v on error, want the zero Environment", got)
+		}
+	})
+	t.Run("zero ID is not found", func(t *testing.T) {
+		_, err := store.GetEnv(ctx, uuid.Nil)
+		wantConnectErr(t, err, notFound)
+	})
+	t.Run("deleted environment is not found", func(t *testing.T) {
+		env, err := store.CreateEnv(ctx, "temporary")
+		if err != nil {
+			t.Fatalf("CreateEnv(): %v", err)
+		}
+		resetDB(t, store.db)
+		_, err = store.GetEnv(ctx, env.ID)
+		wantConnectErr(t, err, notFound)
+	})
+}
+
+// Failures that are neither a missing row nor a Postgres error still
+// surface as errors with a matching code, never as an empty environment.
+func TestGetEnvReportsNonDBErrors(t *testing.T) {
+	store := newTestStore(t)
+	env, err := store.CreateEnv(context.Background(), "production")
+	if err != nil {
+		t.Fatalf("CreateEnv(): %v", err)
+	}
+
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	expired, cancelExpired := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancelExpired()
+
+	tests := map[string]struct {
+		ctx  context.Context
+		want *connect.Error
+	}{
+		"canceled context": {
+			ctx:  canceled,
+			want: connect.NewError(connect.CodeCanceled, connect.CodeCanceled.String()),
+		},
+		"expired deadline": {
+			ctx:  expired,
+			want: connect.NewError(connect.CodeDeadlineExceeded, connect.CodeDeadlineExceeded.String()),
+		},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			got, err := store.GetEnv(test.ctx, env.ID)
+			wantConnectErr(t, err, test.want)
+			if got != (database.Environment{}) {
+				t.Fatalf("GetEnv() = %+v on error, want the zero Environment", got)
+			}
+		})
+	}
+
+	// Run last: it closes the connection pool the other cases use.
+	t.Run("closed database is internal", func(t *testing.T) {
+		if err := store.db.Close(); err != nil {
+			t.Fatalf("closing the database: %v", err)
+		}
+		got, err := store.GetEnv(context.Background(), env.ID)
+		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, connect.CodeInternal.String()))
+		if got != (database.Environment{}) {
+			t.Fatalf("GetEnv() = %+v on error, want the zero Environment", got)
 		}
 	})
 }
