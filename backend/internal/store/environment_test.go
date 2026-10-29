@@ -68,6 +68,8 @@ func TestEnvironmentCreation(t *testing.T) {
 	tooLong := connect.NewError(connect.CodeInvalidArgument, "can't create an environment with a name over 100 characters")
 	tests := map[string]struct {
 		name string
+		// want is the stored name, when it differs from name.
+		want string
 		err  *connect.Error
 	}{
 		"reject empty name": {
@@ -114,6 +116,11 @@ func TestEnvironmentCreation(t *testing.T) {
 			name: strings.Repeat("é", 101),
 			err:  tooLong,
 		},
+		// Surrounding whitespace is trimmed before the limit is checked.
+		"accept 100 characters with surrounding whitespace": {
+			name: "  " + strings.Repeat("a", 100) + "  ",
+			want: strings.Repeat("a", 100),
+		},
 	}
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -126,13 +133,57 @@ func TestEnvironmentCreation(t *testing.T) {
 			if err != nil {
 				t.Fatalf("CreateEnv() unexpected error: %v", err)
 			}
+			wantName := test.want
+			if wantName == "" {
+				wantName = test.name
+			}
 			// The ID is random, so it is only checked for being set.
-			want := database.Environment{Name: test.name}
+			want := database.Environment{Name: wantName}
 			if diff := cmp.Diff(want, got, cmpopts.IgnoreFields(database.Environment{}, "ID")); diff != "" {
 				t.Fatalf("CreateEnv() mismatch (-want +got):\n%s", diff)
 			}
 			if got.ID == (database.Environment{}).ID {
 				t.Fatal("CreateEnv() returned a zero ID")
+			}
+		})
+	}
+}
+
+// Names are stored trimmed and lowercased, both in what CreateEnv returns
+// and in the row it writes.
+func TestEnvironmentCreationNormalizesName(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	tests := map[string]struct{ name, want string }{
+		"capitalized":          {"Prod", "prod"},
+		"all caps":             {"PRODUCTION", "production"},
+		"mixed case":           {"sTaGiNg", "staging"},
+		"non-ASCII letters":    {"ÉCOLE", "école"},
+		"dotted capital I":     {"İzmir", "izmir"},
+		"surrounding spaces":   {"  prod  ", "prod"},
+		"tabs and newlines":    {"\tprod\n", "prod"},
+		"spaces and case":      {" Staging EU ", "staging eu"},
+		"inner spaces kept":    {"staging  eu", "staging  eu"},
+		"already normalized":   {"prod", "prod"},
+		"100 uppercase letter": {strings.Repeat("A", 100), strings.Repeat("a", 100)},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			resetDB(t, store.db)
+			got, err := store.CreateEnv(ctx, test.name)
+			if err != nil {
+				t.Fatalf("CreateEnv(%q): %v", test.name, err)
+			}
+			if got.Name != test.want {
+				t.Errorf("CreateEnv(%q).Name = %q, want %q", test.name, got.Name, test.want)
+			}
+			var stored string
+			if err := store.db.QueryRowContext(ctx, "SELECT name FROM environments WHERE id = $1", got.ID).Scan(&stored); err != nil {
+				t.Fatalf("reading back environment %v: %v", got.ID, err)
+			}
+			if stored != test.want {
+				t.Errorf("stored name = %q, want %q", stored, test.want)
 			}
 		})
 	}
@@ -153,6 +204,9 @@ func TestEnvironmentCreationRejectsDuplicateName(t *testing.T) {
 		"mixed case":          {"staging", "sTaGiNg"},
 		"non-ASCII letters":   {"école", "ÉCOLE"},
 		"inner spaces differ": {"staging eu", "Staging EU"},
+		"surrounding spaces":  {"prod", "  prod  "},
+		"tabs and newlines":   {"prod", "\tprod\n"},
+		"spaces and case":     {"prod", " PROD "},
 	}
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
