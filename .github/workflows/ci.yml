@@ -12,6 +12,25 @@ jobs:
     name: Tests
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:16-alpine   # same image as docker-compose.yml
+        env:
+          POSTGRES_USER: testuser
+          POSTGRES_PASSWORD: testpassword
+          POSTGRES_DB: feature-flag-test
+        ports:
+          - 5432:5432
+        # Don't start the steps until Postgres accepts connections.
+        options: >-
+          --health-cmd "pg_isready -U testuser -d feature-flag-test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      TEST_DB_URL: postgres://testuser:testpassword@localhost:5432/feature-flag-test?sslmode=disable
+
     steps:
       - name: Check out code
         uses: actions/checkout@v6
@@ -61,6 +80,12 @@ jobs:
 
       - name: Run go vet
         run: go vet ./...
+
+      - name: Install goose
+        run: go install github.com/pressly/goose/v3/cmd/goose@v3.27.1
+
+      - name: Migrate test database
+        run: goose -dir ./backend/sql/schema postgres "$TEST_DB_URL" up
 
       - name: Run go tests
         run: go test ./... -cover -race
