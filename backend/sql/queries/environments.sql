@@ -18,3 +18,7 @@ SELECT * FROM environments ORDER BY created_at ASC;
 -- name: UpdateEnv :one
 UPDATE environments SET name = $2 WHERE id = $1
 RETURNING *;
+
+-- name: DeleteEnv :one
+DELETE FROM environments WHERE id = $1
+RETURNING *;

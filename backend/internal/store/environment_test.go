@@ -881,3 +881,182 @@ func TestUpdateEnvReportsErrors(t *testing.T) {
 		}
 	})
 }
+
+func TestDeleteEnv(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	notFound := connect.NewError(connect.CodeNotFound, connect.CodeNotFound.String())
+
+	// names gives the names ListEnvs returns, in order.
+	names := func(t *testing.T) []string {
+		t.Helper()
+		envs, err := store.ListEnvs(ctx)
+		if err != nil {
+			t.Fatalf("ListEnvs(): %v", err)
+		}
+		var out []string
+		for _, env := range envs {
+			out = append(out, env.Name)
+		}
+		return out
+	}
+
+	t.Run("deletes and returns the environment as it was", func(t *testing.T) {
+		resetDB(t, store.db)
+		env := mustCreateEnv(t, store, "staging")
+		got, err := store.DeleteEnv(ctx, env.ID)
+		if err != nil {
+			t.Fatalf("DeleteEnv(): %v", err)
+		}
+		if diff := cmp.Diff(env, got); diff != "" {
+			t.Fatalf("DeleteEnv() mismatch (-want +got):\n%s", diff)
+		}
+		_, err = store.GetEnv(ctx, env.ID)
+		wantConnectErr(t, err, notFound)
+	})
+
+	// Only the given environment goes, and the rest keep their order.
+	t.Run("leaves other environments alone", func(t *testing.T) {
+		resetDB(t, store.db)
+		dev := mustCreateEnv(t, store, "development")
+		staging := mustCreateEnv(t, store, "staging")
+		prod := mustCreateEnv(t, store, "production")
+		if _, err := store.DeleteEnv(ctx, staging.ID); err != nil {
+			t.Fatalf("DeleteEnv(): %v", err)
+		}
+		for _, env := range []database.Environment{dev, prod} {
+			if diff := cmp.Diff(env, mustGetEnv(t, store, env.ID)); diff != "" {
+				t.Fatalf("%s changed (-want +got):\n%s", env.Name, diff)
+			}
+		}
+		if diff := cmp.Diff([]string{"development", "production"}, names(t)); diff != "" {
+			t.Fatalf("ListEnvs() mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("deleting twice is not found", func(t *testing.T) {
+		resetDB(t, store.db)
+		env := mustCreateEnv(t, store, "staging")
+		if _, err := store.DeleteEnv(ctx, env.ID); err != nil {
+			t.Fatalf("DeleteEnv() first call: %v", err)
+		}
+		got, err := store.DeleteEnv(ctx, env.ID)
+		wantConnectErr(t, err, notFound)
+		if got != (database.Environment{}) {
+			t.Fatalf("DeleteEnv() = %+v on error, want the zero Environment", got)
+		}
+	})
+
+	t.Run("unknown ID deletes nothing", func(t *testing.T) {
+		resetDB(t, store.db)
+		mustCreateEnv(t, store, "development")
+		mustCreateEnv(t, store, "production")
+		for _, id := range []uuid.UUID{uuid.New(), uuid.Nil} {
+			_, err := store.DeleteEnv(ctx, id)
+			wantConnectErr(t, err, notFound)
+		}
+		if diff := cmp.Diff([]string{"development", "production"}, names(t)); diff != "" {
+			t.Fatalf("ListEnvs() mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	// A deleted environment's name is free again, and the new environment
+	// is a different one.
+	t.Run("name can be reused", func(t *testing.T) {
+		resetDB(t, store.db)
+		old := mustCreateEnv(t, store, "staging")
+		if _, err := store.DeleteEnv(ctx, old.ID); err != nil {
+			t.Fatalf("DeleteEnv(): %v", err)
+		}
+		reborn := mustCreateEnv(t, store, "Staging")
+		if reborn.ID == old.ID {
+			t.Fatalf("recreated environment reused ID %v", old.ID)
+		}
+		_, err := store.GetEnv(ctx, old.ID)
+		wantConnectErr(t, err, notFound)
+	})
+
+	// A recreated environment is new, so it goes to the end of the list.
+	t.Run("recreated environment is listed last", func(t *testing.T) {
+		resetDB(t, store.db)
+		staging := mustCreateEnv(t, store, "staging")
+		mustCreateEnv(t, store, "production")
+		if _, err := store.DeleteEnv(ctx, staging.ID); err != nil {
+			t.Fatalf("DeleteEnv(): %v", err)
+		}
+		mustCreateEnv(t, store, "staging")
+		if diff := cmp.Diff([]string{"production", "staging"}, names(t)); diff != "" {
+			t.Fatalf("ListEnvs() mismatch (-want +got):\n%s", diff)
+		}
+	})
+}
+
+// A delete made through ExecTx is undone when the transaction rolls back.
+func TestDeleteEnvRolledBack(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	env := mustCreateEnv(t, store, "staging")
+
+	errBoom := errors.New("boom")
+	err := store.ExecTx(ctx, func(q *database.Queries) error {
+		if _, err := q.DeleteEnv(ctx, env.ID); err != nil {
+			return err
+		}
+		return errBoom
+	})
+	if !errors.Is(err, errBoom) {
+		t.Fatalf("ExecTx() error = %v, want %v", err, errBoom)
+	}
+	if diff := cmp.Diff(env, mustGetEnv(t, store, env.ID)); diff != "" {
+		t.Fatalf("environment changed after rollback (-want +got):\n%s", diff)
+	}
+}
+
+func TestDeleteEnvReportsErrors(t *testing.T) {
+	store := newTestStore(t)
+	env := mustCreateEnv(t, store, "staging")
+
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	expired, cancelExpired := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancelExpired()
+
+	tests := map[string]struct {
+		ctx  context.Context
+		want *connect.Error
+	}{
+		"canceled context": {
+			ctx:  canceled,
+			want: connect.NewError(connect.CodeCanceled, connect.CodeCanceled.String()),
+		},
+		"expired deadline": {
+			ctx:  expired,
+			want: connect.NewError(connect.CodeDeadlineExceeded, connect.CodeDeadlineExceeded.String()),
+		},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			got, err := store.DeleteEnv(test.ctx, env.ID)
+			wantConnectErr(t, err, test.want)
+			if got != (database.Environment{}) {
+				t.Fatalf("DeleteEnv() = %+v on error, want the zero Environment", got)
+			}
+			// The failed delete left the environment in place.
+			if diff := cmp.Diff(env, mustGetEnv(t, store, env.ID)); diff != "" {
+				t.Fatalf("environment changed (-want +got):\n%s", diff)
+			}
+		})
+	}
+
+	// Run last: it closes the connection pool the other cases use.
+	t.Run("closed database is internal", func(t *testing.T) {
+		if err := store.db.Close(); err != nil {
+			t.Fatalf("closing the database: %v", err)
+		}
+		got, err := store.DeleteEnv(context.Background(), env.ID)
+		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, connect.CodeInternal.String()))
+		if got != (database.Environment{}) {
+			t.Fatalf("DeleteEnv() = %+v on error, want the zero Environment", got)
+		}
+	})
+}
