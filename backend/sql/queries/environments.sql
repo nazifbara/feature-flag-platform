@@ -14,3 +14,7 @@ SELECT * FROM environments WHERE id = $1;
 
 -- name: ListEnvs :many
 SELECT * FROM environments ORDER BY created_at ASC;
+
+-- name: UpdateEnv :one
+UPDATE environments SET name = $2 WHERE id = $1
+RETURNING *;

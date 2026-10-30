@@ -566,3 +566,318 @@ func TestListEnvsReportsErrors(t *testing.T) {
 		}
 	})
 }
+
+// mustCreateEnv creates an environment or fails the test.
+func mustCreateEnv(t *testing.T, store *Store, name string) database.Environment {
+	t.Helper()
+	env, err := store.CreateEnv(context.Background(), name)
+	if err != nil {
+		t.Fatalf("CreateEnv(%q): %v", name, err)
+	}
+	return env
+}
+
+// mustGetEnv reads an environment back or fails the test.
+func mustGetEnv(t *testing.T, store *Store, id uuid.UUID) database.Environment {
+	t.Helper()
+	env, err := store.GetEnv(context.Background(), id)
+	if err != nil {
+		t.Fatalf("GetEnv(%v): %v", id, err)
+	}
+	return env
+}
+
+func TestUpdateEnv(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	// Only the name changes: the ID and creation time stay, and the change
+	// is saved, not just returned.
+	t.Run("renames the environment", func(t *testing.T) {
+		resetDB(t, store.db)
+		env := mustCreateEnv(t, store, "staging")
+		got, err := store.UpdateEnv(ctx, env.ID, "preprod")
+		if err != nil {
+			t.Fatalf("UpdateEnv(): %v", err)
+		}
+		want := database.Environment{ID: env.ID, Name: "preprod", CreatedAt: env.CreatedAt}
+		if diff := cmp.Diff(want, got); diff != "" {
+			t.Fatalf("UpdateEnv() mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff(want, mustGetEnv(t, store, env.ID)); diff != "" {
+			t.Fatalf("GetEnv() after UpdateEnv() mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("leaves other environments alone", func(t *testing.T) {
+		resetDB(t, store.db)
+		dev := mustCreateEnv(t, store, "development")
+		staging := mustCreateEnv(t, store, "staging")
+		prod := mustCreateEnv(t, store, "production")
+		if _, err := store.UpdateEnv(ctx, staging.ID, "preprod"); err != nil {
+			t.Fatalf("UpdateEnv(): %v", err)
+		}
+		for _, env := range []database.Environment{dev, prod} {
+			if diff := cmp.Diff(env, mustGetEnv(t, store, env.ID)); diff != "" {
+				t.Fatalf("%s changed (-want +got):\n%s", env.Name, diff)
+			}
+		}
+	})
+
+	// created_at is kept, so a renamed environment keeps its place in the
+	// list.
+	t.Run("keeps its place in the list", func(t *testing.T) {
+		resetDB(t, store.db)
+		mustCreateEnv(t, store, "development")
+		staging := mustCreateEnv(t, store, "staging")
+		mustCreateEnv(t, store, "production")
+		if _, err := store.UpdateEnv(ctx, staging.ID, "aaa"); err != nil {
+			t.Fatalf("UpdateEnv(): %v", err)
+		}
+		got, err := store.ListEnvs(ctx)
+		if err != nil {
+			t.Fatalf("ListEnvs(): %v", err)
+		}
+		var names []string
+		for _, env := range got {
+			names = append(names, env.Name)
+		}
+		if diff := cmp.Diff([]string{"development", "aaa", "production"}, names); diff != "" {
+			t.Fatalf("ListEnvs() order mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	// Same normalization as CreateEnv, in what is returned and what is
+	// stored.
+	t.Run("normalizes the new name", func(t *testing.T) {
+		tests := map[string]struct{ name, want string }{
+			"capitalized":         {"Preprod", "preprod"},
+			"all caps":            {"PREPROD", "preprod"},
+			"non-ASCII letters":   {"ÉCOLE", "école"},
+			"surrounding spaces":  {"  preprod  ", "preprod"},
+			"tabs and newlines":   {"\tpreprod\n", "preprod"},
+			"inner spaces kept":   {" Staging  EU ", "staging  eu"},
+			"100 characters":      {strings.Repeat("A", 100), strings.Repeat("a", 100)},
+			"100 after trimming":  {"  " + strings.Repeat("a", 100) + "  ", strings.Repeat("a", 100)},
+			"100 multibyte chars": {strings.Repeat("É", 100), strings.Repeat("é", 100)},
+		}
+		for name, test := range tests {
+			t.Run(name, func(t *testing.T) {
+				resetDB(t, store.db)
+				env := mustCreateEnv(t, store, "staging")
+				got, err := store.UpdateEnv(ctx, env.ID, test.name)
+				if err != nil {
+					t.Fatalf("UpdateEnv(%q): %v", test.name, err)
+				}
+				if got.Name != test.want {
+					t.Errorf("UpdateEnv(%q).Name = %q, want %q", test.name, got.Name, test.want)
+				}
+				if stored := mustGetEnv(t, store, env.ID).Name; stored != test.want {
+					t.Errorf("stored name = %q, want %q", stored, test.want)
+				}
+			})
+		}
+	})
+
+	// Renaming to its own name, in any case or spacing, is not a conflict
+	// with itself.
+	t.Run("own name accepted", func(t *testing.T) {
+		for _, name := range []string{"production", "PRODUCTION", " Production "} {
+			t.Run(name, func(t *testing.T) {
+				resetDB(t, store.db)
+				env := mustCreateEnv(t, store, "production")
+				got, err := store.UpdateEnv(ctx, env.ID, name)
+				if err != nil {
+					t.Fatalf("UpdateEnv(%q): %v", name, err)
+				}
+				if diff := cmp.Diff(env, got); diff != "" {
+					t.Fatalf("UpdateEnv(%q) mismatch (-want +got):\n%s", name, diff)
+				}
+			})
+		}
+	})
+
+	// Once an environment is renamed, its old name is free again.
+	t.Run("old name can be reused", func(t *testing.T) {
+		resetDB(t, store.db)
+		prod := mustCreateEnv(t, store, "prod")
+		if _, err := store.UpdateEnv(ctx, prod.ID, "production"); err != nil {
+			t.Fatalf("UpdateEnv(): %v", err)
+		}
+		staging := mustCreateEnv(t, store, "staging")
+		if _, err := store.UpdateEnv(ctx, staging.ID, "prod"); err != nil {
+			t.Fatalf("UpdateEnv() to the freed name: %v", err)
+		}
+		mustCreateEnv(t, store, "staging")
+	})
+}
+
+func TestUpdateEnvRejectsInvalidName(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	empty := connect.NewError(connect.CodeInvalidArgument, "can't update an environment with an empty name")
+	tooLong := connect.NewError(connect.CodeInvalidArgument, "can't update an environment with a name over 100 characters")
+
+	tests := map[string]struct {
+		name string
+		want *connect.Error
+	}{
+		"empty name":               {"", empty},
+		"single space":             {" ", empty},
+		"tabs and newlines":        {"\t\n\r ", empty},
+		"non-breaking spaces":      {"  ", empty},
+		"101 characters":           {strings.Repeat("a", 101), tooLong},
+		"101 multibyte characters": {strings.Repeat("é", 101), tooLong},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			resetDB(t, store.db)
+			env := mustCreateEnv(t, store, "staging")
+			got, err := store.UpdateEnv(ctx, env.ID, test.name)
+			wantConnectErr(t, err, test.want)
+			if got != (database.Environment{}) {
+				t.Fatalf("UpdateEnv() = %+v on error, want the zero Environment", got)
+			}
+			// The rejected name was never written.
+			if diff := cmp.Diff(env, mustGetEnv(t, store, env.ID)); diff != "" {
+				t.Fatalf("environment changed (-want +got):\n%s", diff)
+			}
+		})
+	}
+
+	// Validation comes first, so an invalid name is reported even for an ID
+	// that doesn't exist.
+	t.Run("invalid name checked before the ID", func(t *testing.T) {
+		resetDB(t, store.db)
+		_, err := store.UpdateEnv(ctx, uuid.New(), "   ")
+		wantConnectErr(t, err, empty)
+	})
+}
+
+// Names stay unique regardless of case and surrounding whitespace when
+// renaming, as when creating.
+func TestUpdateEnvRejectsDuplicateName(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	exists := connect.NewError(connect.CodeAlreadyExists, connect.CodeAlreadyExists.String())
+
+	for _, name := range []string{"production", "Production", "PRODUCTION", "  production  ", "\tProduction\n"} {
+		t.Run(name, func(t *testing.T) {
+			resetDB(t, store.db)
+			prod := mustCreateEnv(t, store, "production")
+			staging := mustCreateEnv(t, store, "staging")
+			got, err := store.UpdateEnv(ctx, staging.ID, name)
+			wantConnectErr(t, err, exists)
+			if got != (database.Environment{}) {
+				t.Fatalf("UpdateEnv() = %+v on error, want the zero Environment", got)
+			}
+			// Neither environment changed.
+			for _, env := range []database.Environment{prod, staging} {
+				if diff := cmp.Diff(env, mustGetEnv(t, store, env.ID)); diff != "" {
+					t.Fatalf("%s changed (-want +got):\n%s", env.Name, diff)
+				}
+			}
+		})
+	}
+}
+
+func TestUpdateEnvNotFound(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	notFound := connect.NewError(connect.CodeNotFound, connect.CodeNotFound.String())
+
+	t.Run("unknown ID", func(t *testing.T) {
+		resetDB(t, store.db)
+		env := mustCreateEnv(t, store, "staging")
+		got, err := store.UpdateEnv(ctx, uuid.New(), "preprod")
+		wantConnectErr(t, err, notFound)
+		if got != (database.Environment{}) {
+			t.Fatalf("UpdateEnv() = %+v on error, want the zero Environment", got)
+		}
+		// No other environment was renamed instead.
+		if diff := cmp.Diff(env, mustGetEnv(t, store, env.ID)); diff != "" {
+			t.Fatalf("environment changed (-want +got):\n%s", diff)
+		}
+	})
+	t.Run("zero ID", func(t *testing.T) {
+		resetDB(t, store.db)
+		_, err := store.UpdateEnv(ctx, uuid.Nil, "preprod")
+		wantConnectErr(t, err, notFound)
+	})
+	t.Run("deleted environment", func(t *testing.T) {
+		resetDB(t, store.db)
+		env := mustCreateEnv(t, store, "staging")
+		resetDB(t, store.db)
+		_, err := store.UpdateEnv(ctx, env.ID, "preprod")
+		wantConnectErr(t, err, notFound)
+	})
+}
+
+// A rename made through ExecTx is undone when the transaction rolls back.
+func TestUpdateEnvRolledBack(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	env := mustCreateEnv(t, store, "staging")
+
+	errBoom := errors.New("boom")
+	err := store.ExecTx(ctx, func(q *database.Queries) error {
+		if _, err := q.UpdateEnv(ctx, database.UpdateEnvParams{ID: env.ID, Name: "preprod"}); err != nil {
+			return err
+		}
+		return errBoom
+	})
+	if !errors.Is(err, errBoom) {
+		t.Fatalf("ExecTx() error = %v, want %v", err, errBoom)
+	}
+	if diff := cmp.Diff(env, mustGetEnv(t, store, env.ID)); diff != "" {
+		t.Fatalf("environment changed after rollback (-want +got):\n%s", diff)
+	}
+}
+
+func TestUpdateEnvReportsErrors(t *testing.T) {
+	store := newTestStore(t)
+	env := mustCreateEnv(t, store, "staging")
+
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	expired, cancelExpired := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancelExpired()
+
+	tests := map[string]struct {
+		ctx  context.Context
+		want *connect.Error
+	}{
+		"canceled context": {
+			ctx:  canceled,
+			want: connect.NewError(connect.CodeCanceled, connect.CodeCanceled.String()),
+		},
+		"expired deadline": {
+			ctx:  expired,
+			want: connect.NewError(connect.CodeDeadlineExceeded, connect.CodeDeadlineExceeded.String()),
+		},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			got, err := store.UpdateEnv(test.ctx, env.ID, "preprod")
+			wantConnectErr(t, err, test.want)
+			if got != (database.Environment{}) {
+				t.Fatalf("UpdateEnv() = %+v on error, want the zero Environment", got)
+			}
+			if diff := cmp.Diff(env, mustGetEnv(t, store, env.ID)); diff != "" {
+				t.Fatalf("environment changed (-want +got):\n%s", diff)
+			}
+		})
+	}
+
+	// Run last: it closes the connection pool the other cases use.
+	t.Run("closed database is internal", func(t *testing.T) {
+		if err := store.db.Close(); err != nil {
+			t.Fatalf("closing the database: %v", err)
+		}
+		got, err := store.UpdateEnv(context.Background(), env.ID, "preprod")
+		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, connect.CodeInternal.String()))
+		if got != (database.Environment{}) {
+			t.Fatalf("UpdateEnv() = %+v on error, want the zero Environment", got)
+		}
+	})
+}
