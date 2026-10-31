@@ -7,6 +7,7 @@ import (
 	"unicode"
 
 	"connectrpc.com/connect/v2"
+	"github.com/google/uuid"
 	"github.com/nazifbara/flagsvc/backend/internal/database"
 	"github.com/nazifbara/flagsvc/backend/internal/ffserrors"
 )
@@ -46,6 +47,14 @@ func (s *Store) CreateFlag(ctx context.Context, key string) (database.Flag, erro
 		return database.Flag{}, err
 	}
 	flag, err := s.Queries.CreateFlag(ctx, key)
+	if err != nil {
+		return database.Flag{}, ffserrors.FromDBErr(err)
+	}
+	return flag, nil
+}
+
+func (s *Store) GetFlag(ctx context.Context, id uuid.UUID) (database.Flag, error) {
+	flag, err := s.Queries.GetFlag(ctx, id)
 	if err != nil {
 		return database.Flag{}, ffserrors.FromDBErr(err)
 	}
