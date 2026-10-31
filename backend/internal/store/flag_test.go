@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -420,6 +421,325 @@ func TestGetFlagReportsErrors(t *testing.T) {
 		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, connect.CodeInternal.String()))
 		if got != (database.Flag{}) {
 			t.Fatalf("GetFlag() = %+v on error, want the zero Flag", got)
+		}
+	})
+}
+
+func mustCreateFlag(t *testing.T, store *Store, key string) database.Flag {
+	t.Helper()
+	f, err := store.CreateFlag(context.Background(), key)
+	if err != nil {
+		t.Fatalf("CreateFlag(%q): %v", key, err)
+	}
+	return f
+}
+
+func TestUpdateFlag(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	// The key and updated_at change; the ID and created_at stay, and the
+	// change is saved, not just returned.
+	t.Run("changes the key", func(t *testing.T) {
+		resetDB(t, store.db)
+		f := mustCreateFlag(t, store, "new-checkout")
+		got, err := store.UpdateFlag(ctx, f.ID, "checkout-v2")
+		if err != nil {
+			t.Fatalf("UpdateFlag(): %v", err)
+		}
+		if got.ID != f.ID || got.Key != "checkout-v2" || !got.CreatedAt.Equal(f.CreatedAt) {
+			t.Errorf("UpdateFlag() = %+v, want ID %v, key %q and created_at %v", got, f.ID, "checkout-v2", f.CreatedAt)
+		}
+		if !got.UpdatedAt.After(f.UpdatedAt) {
+			t.Errorf("UpdateFlag() updated_at = %v, want it after %v", got.UpdatedAt, f.UpdatedAt)
+		}
+		if diff := cmp.Diff(got, storedFlag(t, store, f.ID)); diff != "" {
+			t.Fatalf("stored flag mismatch (-returned +stored):\n%s", diff)
+		}
+	})
+
+	t.Run("leaves other flags alone", func(t *testing.T) {
+		resetDB(t, store.db)
+		a := mustCreateFlag(t, store, "a")
+		b := mustCreateFlag(t, store, "b")
+		c := mustCreateFlag(t, store, "c")
+		if _, err := store.UpdateFlag(ctx, b.ID, "bb"); err != nil {
+			t.Fatalf("UpdateFlag(): %v", err)
+		}
+		for _, f := range []database.Flag{a, c} {
+			if diff := cmp.Diff(f, storedFlag(t, store, f.ID)); diff != "" {
+				t.Fatalf("%s changed (-want +got):\n%s", f.Key, diff)
+			}
+		}
+	})
+
+	// The clock is read per statement, not per transaction, so each update
+	// in one transaction gets a later time.
+	t.Run("updates in one transaction get increasing times", func(t *testing.T) {
+		resetDB(t, store.db)
+		f := mustCreateFlag(t, store, "a")
+		var updates []database.Flag
+		err := store.ExecTx(ctx, func(q *database.Queries) error {
+			for _, key := range []string{"b", "c", "d"} {
+				u, err := q.UpdateFlag(ctx, database.UpdateFlagParams{ID: f.ID, Key: key})
+				if err != nil {
+					return err
+				}
+				updates = append(updates, u)
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("ExecTx(): %v", err)
+		}
+		for i := 1; i < len(updates); i++ {
+			if !updates[i].UpdatedAt.After(updates[i-1].UpdatedAt) {
+				t.Errorf("%q updated_at %v not after %q updated_at %v", updates[i].Key, updates[i].UpdatedAt, updates[i-1].Key, updates[i-1].UpdatedAt)
+			}
+		}
+	})
+
+	// Same normalization as CreateFlag, in what is returned and what is
+	// stored.
+	t.Run("normalizes the new key", func(t *testing.T) {
+		tests := map[string]struct{ key, want string }{
+			"capitalized":        {"Checkout-V2", "checkout-v2"},
+			"all caps":           {"CHECKOUT-V2", "checkout-v2"},
+			"surrounding spaces": {"  checkout-v2  ", "checkout-v2"},
+			"tabs and newlines":  {"\tcheckout-v2\n", "checkout-v2"},
+			"100 characters":     {strings.Repeat("A", 100), strings.Repeat("a", 100)},
+			"100 after trimming": {"  " + strings.Repeat("a", 100) + "  ", strings.Repeat("a", 100)},
+		}
+		for name, test := range tests {
+			t.Run(name, func(t *testing.T) {
+				resetDB(t, store.db)
+				f := mustCreateFlag(t, store, "new-checkout")
+				got, err := store.UpdateFlag(ctx, f.ID, test.key)
+				if err != nil {
+					t.Fatalf("UpdateFlag(%q): %v", test.key, err)
+				}
+				if got.Key != test.want {
+					t.Errorf("UpdateFlag(%q).Key = %q, want %q", test.key, got.Key, test.want)
+				}
+				if stored := storedFlag(t, store, f.ID).Key; stored != test.want {
+					t.Errorf("stored key = %q, want %q", stored, test.want)
+				}
+			})
+		}
+	})
+
+	// Updating to its own key, in any case or spacing, is not a conflict
+	// with itself. It still counts as an update, so updated_at moves.
+	t.Run("own key accepted", func(t *testing.T) {
+		for _, key := range []string{"new-checkout", "NEW-CHECKOUT", " New-Checkout "} {
+			t.Run(key, func(t *testing.T) {
+				resetDB(t, store.db)
+				f := mustCreateFlag(t, store, "new-checkout")
+				got, err := store.UpdateFlag(ctx, f.ID, key)
+				if err != nil {
+					t.Fatalf("UpdateFlag(%q): %v", key, err)
+				}
+				if got.ID != f.ID || got.Key != f.Key || !got.CreatedAt.Equal(f.CreatedAt) {
+					t.Errorf("UpdateFlag(%q) = %+v, want ID, key and created_at of %+v", key, got, f)
+				}
+				if !got.UpdatedAt.After(f.UpdatedAt) {
+					t.Errorf("UpdateFlag(%q) updated_at = %v, want it after %v", key, got.UpdatedAt, f.UpdatedAt)
+				}
+			})
+		}
+	})
+
+	// Once a flag's key changes, its old key is free again.
+	t.Run("old key can be reused", func(t *testing.T) {
+		resetDB(t, store.db)
+		f := mustCreateFlag(t, store, "checkout")
+		if _, err := store.UpdateFlag(ctx, f.ID, "checkout-v1"); err != nil {
+			t.Fatalf("UpdateFlag(): %v", err)
+		}
+		other := mustCreateFlag(t, store, "dark-mode")
+		if _, err := store.UpdateFlag(ctx, other.ID, "checkout"); err != nil {
+			t.Fatalf("UpdateFlag() to the freed key: %v", err)
+		}
+		mustCreateFlag(t, store, "dark-mode")
+	})
+}
+
+func TestUpdateFlagRejectsInvalidKey(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	invalid := func(msg string) *connect.Error {
+		return connect.NewError(connect.CodeInvalidArgument, msg)
+	}
+	empty := invalid("can't update a flag with an empty key")
+	whitespace := invalid("can't update a flag with whitespace in its key")
+	tooLong := invalid("can't update a flag with a key over 100 characters")
+	badChar := func(r string) *connect.Error {
+		return invalid("can't update a flag with " + r + " in its key: only letters, digits and - are allowed")
+	}
+
+	tests := map[string]struct {
+		key  string
+		want *connect.Error
+	}{
+		"empty":                    {"", empty},
+		"only spaces":              {"   ", empty},
+		"only non-breaking spaces": {"  ", empty},
+		"inner space":              {"new checkout", whitespace},
+		"inner tab":                {"new\tcheckout", whitespace},
+		"underscore":               {"new_checkout", badChar("'_' (U+005F)")},
+		"accented":                 {"école", badChar("'é' (U+00E9)")},
+		"Kelvin sign":              {"Key", badChar("'K' (U+212A)")},
+		"101 characters":           {strings.Repeat("a", 101), tooLong},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			resetDB(t, store.db)
+			f := mustCreateFlag(t, store, "new-checkout")
+			got, err := store.UpdateFlag(ctx, f.ID, test.key)
+			wantConnectErr(t, err, test.want)
+			if got != (database.Flag{}) {
+				t.Fatalf("UpdateFlag() = %+v on error, want the zero Flag", got)
+			}
+			// The rejected key was never written.
+			if diff := cmp.Diff(f, storedFlag(t, store, f.ID)); diff != "" {
+				t.Fatalf("flag changed (-want +got):\n%s", diff)
+			}
+		})
+	}
+
+	// Validation comes first, so an invalid key is reported even for an ID
+	// that doesn't exist.
+	t.Run("invalid key checked before the ID", func(t *testing.T) {
+		resetDB(t, store.db)
+		_, err := store.UpdateFlag(ctx, uuid.New(), "   ")
+		wantConnectErr(t, err, empty)
+	})
+}
+
+// Keys stay unique regardless of case and surrounding whitespace when
+// updating, as when creating.
+func TestUpdateFlagRejectsDuplicateKey(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	exists := connect.NewError(connect.CodeAlreadyExists, connect.CodeAlreadyExists.String())
+
+	for _, key := range []string{"new-checkout", "New-Checkout", "NEW-CHECKOUT", "  new-checkout  ", "\tNew-Checkout\n"} {
+		t.Run(key, func(t *testing.T) {
+			resetDB(t, store.db)
+			taken := mustCreateFlag(t, store, "new-checkout")
+			f := mustCreateFlag(t, store, "dark-mode")
+			got, err := store.UpdateFlag(ctx, f.ID, key)
+			wantConnectErr(t, err, exists)
+			if got != (database.Flag{}) {
+				t.Fatalf("UpdateFlag() = %+v on error, want the zero Flag", got)
+			}
+			// Neither flag changed.
+			for _, want := range []database.Flag{taken, f} {
+				if diff := cmp.Diff(want, storedFlag(t, store, want.ID)); diff != "" {
+					t.Fatalf("%s changed (-want +got):\n%s", want.Key, diff)
+				}
+			}
+		})
+	}
+}
+
+func TestUpdateFlagNotFound(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	notFound := connect.NewError(connect.CodeNotFound, connect.CodeNotFound.String())
+
+	t.Run("unknown ID", func(t *testing.T) {
+		resetDB(t, store.db)
+		f := mustCreateFlag(t, store, "new-checkout")
+		got, err := store.UpdateFlag(ctx, uuid.New(), "checkout-v2")
+		wantConnectErr(t, err, notFound)
+		if got != (database.Flag{}) {
+			t.Fatalf("UpdateFlag() = %+v on error, want the zero Flag", got)
+		}
+		// No other flag was updated instead.
+		if diff := cmp.Diff(f, storedFlag(t, store, f.ID)); diff != "" {
+			t.Fatalf("flag changed (-want +got):\n%s", diff)
+		}
+	})
+	t.Run("zero ID", func(t *testing.T) {
+		resetDB(t, store.db)
+		_, err := store.UpdateFlag(ctx, uuid.Nil, "checkout-v2")
+		wantConnectErr(t, err, notFound)
+	})
+	t.Run("deleted flag", func(t *testing.T) {
+		resetDB(t, store.db)
+		f := mustCreateFlag(t, store, "new-checkout")
+		resetDB(t, store.db)
+		_, err := store.UpdateFlag(ctx, f.ID, "checkout-v2")
+		wantConnectErr(t, err, notFound)
+	})
+}
+
+// An update made through ExecTx is undone when the transaction rolls back.
+func TestUpdateFlagRolledBack(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	f := mustCreateFlag(t, store, "new-checkout")
+
+	errBoom := errors.New("boom")
+	err := store.ExecTx(ctx, func(q *database.Queries) error {
+		if _, err := q.UpdateFlag(ctx, database.UpdateFlagParams{ID: f.ID, Key: "checkout-v2"}); err != nil {
+			return err
+		}
+		return errBoom
+	})
+	if !errors.Is(err, errBoom) {
+		t.Fatalf("ExecTx() error = %v, want %v", err, errBoom)
+	}
+	if diff := cmp.Diff(f, storedFlag(t, store, f.ID)); diff != "" {
+		t.Fatalf("flag changed after rollback (-want +got):\n%s", diff)
+	}
+}
+
+func TestUpdateFlagReportsErrors(t *testing.T) {
+	store := newTestStore(t)
+	f := mustCreateFlag(t, store, "new-checkout")
+
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	expired, cancelExpired := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancelExpired()
+
+	tests := map[string]struct {
+		ctx  context.Context
+		want *connect.Error
+	}{
+		"canceled context": {
+			ctx:  canceled,
+			want: connect.NewError(connect.CodeCanceled, connect.CodeCanceled.String()),
+		},
+		"expired deadline": {
+			ctx:  expired,
+			want: connect.NewError(connect.CodeDeadlineExceeded, connect.CodeDeadlineExceeded.String()),
+		},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			got, err := store.UpdateFlag(test.ctx, f.ID, "checkout-v2")
+			wantConnectErr(t, err, test.want)
+			if got != (database.Flag{}) {
+				t.Fatalf("UpdateFlag() = %+v on error, want the zero Flag", got)
+			}
+			if diff := cmp.Diff(f, storedFlag(t, store, f.ID)); diff != "" {
+				t.Fatalf("flag changed (-want +got):\n%s", diff)
+			}
+		})
+	}
+
+	// Run last: it closes the connection pool the other cases use.
+	t.Run("closed database is internal", func(t *testing.T) {
+		if err := store.db.Close(); err != nil {
+			t.Fatalf("closing the database: %v", err)
+		}
+		got, err := store.UpdateFlag(context.Background(), f.ID, "checkout-v2")
+		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, connect.CodeInternal.String()))
+		if got != (database.Flag{}) {
+			t.Fatalf("UpdateFlag() = %+v on error, want the zero Flag", got)
 		}
 	})
 }
