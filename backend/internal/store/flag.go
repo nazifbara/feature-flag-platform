@@ -60,3 +60,15 @@ func (s *Store) GetFlag(ctx context.Context, id uuid.UUID) (database.Flag, error
 	}
 	return flag, nil
 }
+
+func (s *Store) UpdateFlag(ctx context.Context, id uuid.UUID, key string) (database.Flag, error) {
+	key, err := normalizeFlagKey("update", key)
+	if err != nil {
+		return database.Flag{}, err
+	}
+	flag, err := s.Queries.UpdateFlag(ctx, database.UpdateFlagParams{ID: id, Key: key})
+	if err != nil {
+		return database.Flag{}, ffserrors.FromDBErr(err)
+	}
+	return flag, err
+}
