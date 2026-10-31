@@ -280,3 +280,146 @@ func TestCreateFlagReportsErrors(t *testing.T) {
 		}
 	})
 }
+
+func TestGetFlag(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	// Several flags, so a lookup that ignores the ID and returns any row is
+	// caught.
+	created := make(map[string]database.Flag)
+	for _, key := range []string{"new-checkout", "dark-mode", "v2-api"} {
+		f, err := store.CreateFlag(ctx, key)
+		if err != nil {
+			t.Fatalf("CreateFlag(%q): %v", key, err)
+		}
+		created[key] = f
+	}
+
+	for key, want := range created {
+		t.Run("finds "+key+" by its ID", func(t *testing.T) {
+			got, err := store.GetFlag(ctx, want.ID)
+			if err != nil {
+				t.Fatalf("GetFlag(%v): %v", want.ID, err)
+			}
+			if diff := cmp.Diff(want, got); diff != "" {
+				t.Fatalf("GetFlag(%v) mismatch (-want +got):\n%s", want.ID, diff)
+			}
+		})
+	}
+
+	// The key comes back as it was stored, trimmed and lowercased.
+	t.Run("returns the normalized key", func(t *testing.T) {
+		f, err := store.CreateFlag(ctx, "  Beta-Banner  ")
+		if err != nil {
+			t.Fatalf("CreateFlag(): %v", err)
+		}
+		got, err := store.GetFlag(ctx, f.ID)
+		if err != nil {
+			t.Fatalf("GetFlag(%v): %v", f.ID, err)
+		}
+		if got.Key != "beta-banner" {
+			t.Fatalf("GetFlag(%v).Key = %q, want %q", f.ID, got.Key, "beta-banner")
+		}
+	})
+
+	// A new flag's timestamps are equal, so this catches created_at and
+	// updated_at being read into the wrong fields.
+	t.Run("returns distinct created_at and updated_at", func(t *testing.T) {
+		f, err := store.CreateFlag(ctx, "aged")
+		if err != nil {
+			t.Fatalf("CreateFlag(): %v", err)
+		}
+		if _, err := store.db.Exec("UPDATE flags SET created_at = created_at - interval '1 day' WHERE id = $1", f.ID); err != nil {
+			t.Fatalf("backdating created_at: %v", err)
+		}
+		want := storedFlag(t, store, f.ID)
+		got, err := store.GetFlag(ctx, f.ID)
+		if err != nil {
+			t.Fatalf("GetFlag(%v): %v", f.ID, err)
+		}
+		if diff := cmp.Diff(want, got); diff != "" {
+			t.Fatalf("GetFlag(%v) mismatch (-stored +got):\n%s", f.ID, diff)
+		}
+	})
+
+	notFound := connect.NewError(connect.CodeNotFound, connect.CodeNotFound.String())
+	t.Run("unknown ID is not found", func(t *testing.T) {
+		got, err := store.GetFlag(ctx, uuid.New())
+		wantConnectErr(t, err, notFound)
+		if got != (database.Flag{}) {
+			t.Fatalf("GetFlag() = %+v on error, want the zero Flag", got)
+		}
+	})
+	t.Run("zero ID is not found", func(t *testing.T) {
+		_, err := store.GetFlag(ctx, uuid.Nil)
+		wantConnectErr(t, err, notFound)
+	})
+	// Flags and environments live in separate tables, so an environment's
+	// ID never finds a flag.
+	t.Run("environment ID is not found", func(t *testing.T) {
+		env, err := store.CreateEnv(ctx, "production")
+		if err != nil {
+			t.Fatalf("CreateEnv(): %v", err)
+		}
+		_, err = store.GetFlag(ctx, env.ID)
+		wantConnectErr(t, err, notFound)
+	})
+	t.Run("deleted flag is not found", func(t *testing.T) {
+		f, err := store.CreateFlag(ctx, "temporary")
+		if err != nil {
+			t.Fatalf("CreateFlag(): %v", err)
+		}
+		resetDB(t, store.db)
+		_, err = store.GetFlag(ctx, f.ID)
+		wantConnectErr(t, err, notFound)
+	})
+}
+
+func TestGetFlagReportsErrors(t *testing.T) {
+	store := newTestStore(t)
+	f, err := store.CreateFlag(context.Background(), "new-checkout")
+	if err != nil {
+		t.Fatalf("CreateFlag(): %v", err)
+	}
+
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	expired, cancelExpired := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancelExpired()
+
+	tests := map[string]struct {
+		ctx  context.Context
+		want *connect.Error
+	}{
+		"canceled context": {
+			ctx:  canceled,
+			want: connect.NewError(connect.CodeCanceled, connect.CodeCanceled.String()),
+		},
+		"expired deadline": {
+			ctx:  expired,
+			want: connect.NewError(connect.CodeDeadlineExceeded, connect.CodeDeadlineExceeded.String()),
+		},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			got, err := store.GetFlag(test.ctx, f.ID)
+			wantConnectErr(t, err, test.want)
+			if got != (database.Flag{}) {
+				t.Fatalf("GetFlag() = %+v on error, want the zero Flag", got)
+			}
+		})
+	}
+
+	// Run last: it closes the connection pool the other cases use.
+	t.Run("closed database is internal", func(t *testing.T) {
+		if err := store.db.Close(); err != nil {
+			t.Fatalf("closing the database: %v", err)
+		}
+		got, err := store.GetFlag(context.Background(), f.ID)
+		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, connect.CodeInternal.String()))
+		if got != (database.Flag{}) {
+			t.Fatalf("GetFlag() = %+v on error, want the zero Flag", got)
+		}
+	})
+}

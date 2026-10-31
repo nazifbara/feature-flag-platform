@@ -9,3 +9,6 @@ INSERT INTO flags (
 )
 SELECT gen_random_uuid(), $1, ts, ts FROM now
 RETURNING *;
+
+-- name: GetFlag :one
+SELECT * FROM flags WHERE id = $1;
