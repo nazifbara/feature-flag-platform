@@ -24,6 +24,7 @@ func TestFromDBErr(t *testing.T) {
 		"wrapped no rows":          {fmt.Errorf("get: %w", sql.ErrNoRows), connect.CodeNotFound},
 		"unique violation":         {&pq.Error{Code: "23505"}, connect.CodeAlreadyExists},
 		"wrapped unique violation": {fmt.Errorf("insert: %w", &pq.Error{Code: "23505"}), connect.CodeAlreadyExists},
+		"foreign key violation":    {&pq.Error{Code: "23503"}, connect.CodeNotFound},
 		"query canceled":           {&pq.Error{Code: "57014"}, connect.CodeCanceled},
 		// Anything unrecognized is internal, never nil.
 		"other Postgres error": {&pq.Error{Code: "22001"}, connect.CodeInternal},
