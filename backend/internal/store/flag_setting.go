@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"connectrpc.com/connect/v2"
+	"github.com/google/uuid"
 	"github.com/nazifbara/flagsvc/backend/internal/database"
 	"github.com/nazifbara/flagsvc/backend/internal/ffserrors"
 )
@@ -50,4 +51,14 @@ func (s *Store) UpdateFlagSetting(ctx context.Context, arg database.UpdateFlagSe
 		return database.FlagSetting{}, ffserrors.FromDBErr(err)
 	}
 	return setting, nil
+}
+
+// ListSettingsByFlag gets flag's settings in all environments, ordered
+// by when each environment was created.
+func (s *Store) ListSettingsByFlag(ctx context.Context, flagID uuid.UUID) ([]database.FlagSetting, error) {
+	settings, err := s.Queries.ListSettingsByFlag(ctx, flagID)
+	if err != nil {
+		return nil, ffserrors.FromDBErr(err)
+	}
+	return settings, nil
 }

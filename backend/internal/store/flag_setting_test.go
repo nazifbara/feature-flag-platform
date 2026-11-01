@@ -824,3 +824,212 @@ func TestUpdateFlagSettingReportsErrors(t *testing.T) {
 		}
 	})
 }
+
+func TestListSettingsByFlag(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	// envNames gives the environment name of each setting, in order.
+	envNames := func(t *testing.T, settings []database.FlagSetting, envs []database.Environment) []string {
+		t.Helper()
+		names := make(map[uuid.UUID]string)
+		for _, e := range envs {
+			names[e.ID] = e.Name
+		}
+		var out []string
+		for _, s := range settings {
+			out = append(out, names[s.EnvironmentID])
+		}
+		return out
+	}
+	list := func(t *testing.T, flagID uuid.UUID) []database.FlagSetting {
+		t.Helper()
+		got, err := store.ListSettingsByFlag(ctx, flagID)
+		if err != nil {
+			t.Fatalf("ListSettingsByFlag(%v): %v", flagID, err)
+		}
+		return got
+	}
+
+	t.Run("returns the flag's settings as stored", func(t *testing.T) {
+		resetDB(t, store.db)
+		flag := mustCreateFlag(t, store, "new-checkout")
+		staging := mustCreateEnv(t, store, "staging")
+		prod := mustCreateEnv(t, store, "production")
+		want := []database.FlagSetting{
+			mustCreateFlagSetting(t, store, database.CreateFlagSettingParams{FlagID: flag.ID, EnvironmentID: staging.ID, Enabled: true, Fallthrough: 1}),
+			mustCreateFlagSetting(t, store, database.CreateFlagSettingParams{FlagID: flag.ID, EnvironmentID: prod.ID, Fallthrough: 0.25}),
+		}
+		if diff := cmp.Diff(want, list(t, flag.ID)); diff != "" {
+			t.Fatalf("ListSettingsByFlag() mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	// Settings follow the environments' order, not the order the settings
+	// were made in.
+	t.Run("ordered by environment creation", func(t *testing.T) {
+		resetDB(t, store.db)
+		flag := mustCreateFlag(t, store, "new-checkout")
+		envs := []database.Environment{
+			mustCreateEnv(t, store, "development"),
+			mustCreateEnv(t, store, "staging"),
+			mustCreateEnv(t, store, "production"),
+		}
+		for _, i := range []int{2, 0, 1} {
+			mustCreateFlagSetting(t, store, database.CreateFlagSettingParams{FlagID: flag.ID, EnvironmentID: envs[i].ID})
+		}
+		if diff := cmp.Diff([]string{"development", "staging", "production"}, envNames(t, list(t, flag.ID), envs)); diff != "" {
+			t.Fatalf("ListSettingsByFlag() order mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	// The order comes from the environments' created_at, so changing it
+	// reorders the list.
+	t.Run("follows environment created_at", func(t *testing.T) {
+		resetDB(t, store.db)
+		flag := mustCreateFlag(t, store, "new-checkout")
+		envs := []database.Environment{mustCreateEnv(t, store, "a"), mustCreateEnv(t, store, "b"), mustCreateEnv(t, store, "c")}
+		for _, e := range envs {
+			mustCreateFlagSetting(t, store, database.CreateFlagSettingParams{FlagID: flag.ID, EnvironmentID: e.ID})
+		}
+		if _, err := store.db.Exec("UPDATE environments SET created_at = created_at - interval '1 day' WHERE id = $1", envs[2].ID); err != nil {
+			t.Fatalf("backdating environment c: %v", err)
+		}
+		if diff := cmp.Diff([]string{"c", "a", "b"}, envNames(t, list(t, flag.ID), envs)); diff != "" {
+			t.Fatalf("ListSettingsByFlag() order mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	// Environments created at the same moment are ordered by ID, so the
+	// order is the same every time.
+	t.Run("ties broken by environment ID", func(t *testing.T) {
+		resetDB(t, store.db)
+		flag := mustCreateFlag(t, store, "new-checkout")
+		envs := []database.Environment{mustCreateEnv(t, store, "a"), mustCreateEnv(t, store, "b"), mustCreateEnv(t, store, "c")}
+		for _, e := range envs {
+			mustCreateFlagSetting(t, store, database.CreateFlagSettingParams{FlagID: flag.ID, EnvironmentID: e.ID})
+		}
+		if _, err := store.db.Exec("UPDATE environments SET created_at = '2026-01-01T00:00:00Z'"); err != nil {
+			t.Fatalf("equalizing created_at: %v", err)
+		}
+		got := list(t, flag.ID)
+		for i := 1; i < len(got); i++ {
+			if got[i-1].EnvironmentID.String() >= got[i].EnvironmentID.String() {
+				t.Fatalf("environment IDs not ascending: %v then %v", got[i-1].EnvironmentID, got[i].EnvironmentID)
+			}
+		}
+		if len(got) != len(envs) {
+			t.Fatalf("ListSettingsByFlag() returned %d settings, want %d", len(got), len(envs))
+		}
+	})
+
+	// Other flags' settings in the same environments are left out.
+	t.Run("only the given flag", func(t *testing.T) {
+		resetDB(t, store.db)
+		flags := []database.Flag{mustCreateFlag(t, store, "a"), mustCreateFlag(t, store, "b")}
+		envs := []database.Environment{mustCreateEnv(t, store, "staging"), mustCreateEnv(t, store, "production")}
+		for _, f := range flags {
+			for _, e := range envs {
+				mustCreateFlagSetting(t, store, database.CreateFlagSettingParams{FlagID: f.ID, EnvironmentID: e.ID})
+			}
+		}
+		for _, f := range flags {
+			got := list(t, f.ID)
+			if len(got) != len(envs) {
+				t.Fatalf("ListSettingsByFlag(%s) returned %d settings, want %d", f.Key, len(got), len(envs))
+			}
+			for _, s := range got {
+				if s.FlagID != f.ID {
+					t.Fatalf("ListSettingsByFlag(%s) returned a setting of flag %v", f.Key, s.FlagID)
+				}
+			}
+		}
+	})
+
+	// An environment's settings go with it, so it drops out of the list.
+	t.Run("deleted environment is left out", func(t *testing.T) {
+		resetDB(t, store.db)
+		flag := mustCreateFlag(t, store, "new-checkout")
+		envs := []database.Environment{mustCreateEnv(t, store, "staging"), mustCreateEnv(t, store, "production")}
+		for _, e := range envs {
+			mustCreateFlagSetting(t, store, database.CreateFlagSettingParams{FlagID: flag.ID, EnvironmentID: e.ID})
+		}
+		if _, err := store.DeleteEnv(ctx, envs[0].ID); err != nil {
+			t.Fatalf("DeleteEnv(): %v", err)
+		}
+		if diff := cmp.Diff([]string{"production"}, envNames(t, list(t, flag.ID), envs)); diff != "" {
+			t.Fatalf("ListSettingsByFlag() mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	// No settings is not an error, whether or not the flag exists.
+	t.Run("empty", func(t *testing.T) {
+		resetDB(t, store.db)
+		flag := mustCreateFlag(t, store, "new-checkout")
+		other := mustCreateFlag(t, store, "dark-mode")
+		env := mustCreateEnv(t, store, "production")
+		s := mustCreateFlagSetting(t, store, database.CreateFlagSettingParams{FlagID: other.ID, EnvironmentID: env.ID})
+		tests := map[string]uuid.UUID{
+			"flag without settings": flag.ID,
+			"unknown flag":          uuid.New(),
+			"zero ID":               uuid.Nil,
+			// Neither is a flag ID.
+			"environment ID": env.ID,
+			"setting ID":     s.ID,
+		}
+		for name, id := range tests {
+			t.Run(name, func(t *testing.T) {
+				if got := list(t, id); len(got) != 0 {
+					t.Fatalf("ListSettingsByFlag(%v) = %+v, want none", id, got)
+				}
+			})
+		}
+	})
+}
+
+func TestListSettingsByFlagReportsErrors(t *testing.T) {
+	store := newTestStore(t)
+	flag := mustCreateFlag(t, store, "new-checkout")
+	env := mustCreateEnv(t, store, "production")
+	mustCreateFlagSetting(t, store, database.CreateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID})
+
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	expired, cancelExpired := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancelExpired()
+
+	tests := map[string]struct {
+		ctx  context.Context
+		want *connect.Error
+	}{
+		"canceled context": {
+			ctx:  canceled,
+			want: connect.NewError(connect.CodeCanceled, connect.CodeCanceled.String()),
+		},
+		"expired deadline": {
+			ctx:  expired,
+			want: connect.NewError(connect.CodeDeadlineExceeded, connect.CodeDeadlineExceeded.String()),
+		},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			got, err := store.ListSettingsByFlag(test.ctx, flag.ID)
+			wantConnectErr(t, err, test.want)
+			if got != nil {
+				t.Fatalf("ListSettingsByFlag() = %+v on error, want nil", got)
+			}
+		})
+	}
+
+	// Run last: it closes the connection pool the other cases use.
+	t.Run("closed database is internal", func(t *testing.T) {
+		if err := store.db.Close(); err != nil {
+			t.Fatalf("closing the database: %v", err)
+		}
+		got, err := store.ListSettingsByFlag(context.Background(), flag.ID)
+		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, connect.CodeInternal.String()))
+		if got != nil {
+			t.Fatalf("ListSettingsByFlag() = %+v on error, want nil", got)
+		}
+	})
+}
