@@ -1,0 +1,13 @@
+-- name: CreateFlagSetting :one
+WITH now AS(SELECT clock_timestamp() AS ts)
+INSERT INTO flag_settings (
+  id,
+  flag_id,
+  environment_id,
+  enabled,
+  fallthrough,
+  created_at,
+  updated_at
+)
+SELECT gen_random_uuid(), $1, $2, $3, $4, ts, ts FROM now
+RETURNING *;
