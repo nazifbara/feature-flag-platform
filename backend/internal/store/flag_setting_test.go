@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"math"
 	"testing"
 	"time"
@@ -521,6 +522,306 @@ func TestGetFlagSettingReportsErrors(t *testing.T) {
 		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, connect.CodeInternal.String()))
 		if got != (database.FlagSetting{}) {
 			t.Fatalf("GetFlagSetting() = %+v on error, want the zero FlagSetting", got)
+		}
+	})
+}
+
+func TestUpdateFlagSetting(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	// enabled, fallthrough and updated_at change; the ID, the pair and
+	// created_at stay, and the change is saved, not just returned.
+	t.Run("replaces the setting", func(t *testing.T) {
+		resetDB(t, store.db)
+		flag := mustCreateFlag(t, store, "new-checkout")
+		env := mustCreateEnv(t, store, "production")
+		s := mustCreateFlagSetting(t, store, database.CreateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Fallthrough: 0.25})
+		got, err := store.UpdateFlagSetting(ctx, database.UpdateFlagSettingParams{
+			FlagID:        flag.ID,
+			EnvironmentID: env.ID,
+			Enabled:       true,
+			Fallthrough:   0.75,
+		})
+		if err != nil {
+			t.Fatalf("UpdateFlagSetting(): %v", err)
+		}
+		if got.ID != s.ID || got.FlagID != flag.ID || got.EnvironmentID != env.ID || !got.CreatedAt.Equal(s.CreatedAt) {
+			t.Errorf("UpdateFlagSetting() = %+v, want the ID, flag, environment and created_at of %+v", got, s)
+		}
+		if !got.Enabled || got.Fallthrough != 0.75 {
+			t.Errorf("UpdateFlagSetting() enabled, fallthrough = %v, %v, want true, 0.75", got.Enabled, got.Fallthrough)
+		}
+		if !got.UpdatedAt.After(s.UpdatedAt) {
+			t.Errorf("UpdateFlagSetting() updated_at = %v, want it after %v", got.UpdatedAt, s.UpdatedAt)
+		}
+		if diff := cmp.Diff(got, storedFlagSetting(t, store, s.ID)); diff != "" {
+			t.Fatalf("stored setting mismatch (-returned +stored):\n%s", diff)
+		}
+	})
+
+	// Every value in [0, 1] is kept as given, with either enabled state,
+	// including turning a setting off and back to nobody.
+	t.Run("stores enabled and fallthrough as given", func(t *testing.T) {
+		tests := map[string]struct {
+			enabled  bool
+			fraction float32
+		}{
+			"disabled, nobody":    {false, 0},
+			"enabled, everybody":  {true, 1},
+			"half":                {true, 0.5},
+			"not exact in binary": {true, 0.1},
+			"smallest above 0":    {true, math.SmallestNonzeroFloat32},
+			"largest below 1":     {true, math.Nextafter32(1, 0)},
+		}
+		for name, test := range tests {
+			t.Run(name, func(t *testing.T) {
+				resetDB(t, store.db)
+				flag := mustCreateFlag(t, store, "new-checkout")
+				env := mustCreateEnv(t, store, "production")
+				s := mustCreateFlagSetting(t, store, database.CreateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: !test.enabled, Fallthrough: 0.3})
+				got, err := store.UpdateFlagSetting(ctx, database.UpdateFlagSettingParams{
+					FlagID:        flag.ID,
+					EnvironmentID: env.ID,
+					Enabled:       test.enabled,
+					Fallthrough:   test.fraction,
+				})
+				if err != nil {
+					t.Fatalf("UpdateFlagSetting(): %v", err)
+				}
+				for _, s := range []database.FlagSetting{got, storedFlagSetting(t, store, s.ID)} {
+					if s.Enabled != test.enabled || s.Fallthrough != test.fraction {
+						t.Errorf("enabled, fallthrough = %v, %v, want %v, %v", s.Enabled, s.Fallthrough, test.enabled, test.fraction)
+					}
+				}
+			})
+		}
+	})
+
+	// Only the setting for the given pair changes, not the flag's settings
+	// in other environments or other flags' settings in this one.
+	t.Run("leaves other settings alone", func(t *testing.T) {
+		resetDB(t, store.db)
+		flags := []database.Flag{mustCreateFlag(t, store, "a"), mustCreateFlag(t, store, "b")}
+		envs := []database.Environment{mustCreateEnv(t, store, "staging"), mustCreateEnv(t, store, "production")}
+		var others []database.FlagSetting
+		for i, f := range flags {
+			for j, e := range envs {
+				s := mustCreateFlagSetting(t, store, database.CreateFlagSettingParams{FlagID: f.ID, EnvironmentID: e.ID, Fallthrough: 0.5})
+				if i != 0 || j != 0 {
+					others = append(others, s)
+				}
+			}
+		}
+		if _, err := store.UpdateFlagSetting(ctx, database.UpdateFlagSettingParams{FlagID: flags[0].ID, EnvironmentID: envs[0].ID, Enabled: true, Fallthrough: 1}); err != nil {
+			t.Fatalf("UpdateFlagSetting(): %v", err)
+		}
+		for _, want := range others {
+			if diff := cmp.Diff(want, storedFlagSetting(t, store, want.ID)); diff != "" {
+				t.Fatalf("other setting changed (-want +got):\n%s", diff)
+			}
+		}
+	})
+
+	// Writing the same values again still counts as an update.
+	t.Run("same values still move updated_at", func(t *testing.T) {
+		resetDB(t, store.db)
+		flag := mustCreateFlag(t, store, "new-checkout")
+		env := mustCreateEnv(t, store, "production")
+		s := mustCreateFlagSetting(t, store, database.CreateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: 0.5})
+		got, err := store.UpdateFlagSetting(ctx, database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: 0.5})
+		if err != nil {
+			t.Fatalf("UpdateFlagSetting(): %v", err)
+		}
+		if !got.UpdatedAt.After(s.UpdatedAt) {
+			t.Errorf("UpdateFlagSetting() updated_at = %v, want it after %v", got.UpdatedAt, s.UpdatedAt)
+		}
+	})
+
+	// The clock is read per statement, not per transaction, so each update
+	// in one transaction gets a later time.
+	t.Run("updates in one transaction get increasing times", func(t *testing.T) {
+		resetDB(t, store.db)
+		flag := mustCreateFlag(t, store, "new-checkout")
+		env := mustCreateEnv(t, store, "production")
+		mustCreateFlagSetting(t, store, database.CreateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID})
+		var updates []database.FlagSetting
+		err := store.ExecTx(ctx, func(q *database.Queries) error {
+			for _, f := range []float32{0.25, 0.5, 0.75} {
+				u, err := q.UpdateFlagSetting(ctx, database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: f})
+				if err != nil {
+					return err
+				}
+				updates = append(updates, u)
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("ExecTx(): %v", err)
+		}
+		for i := 1; i < len(updates); i++ {
+			if !updates[i].UpdatedAt.After(updates[i-1].UpdatedAt) {
+				t.Errorf("update %d updated_at %v not after update %d updated_at %v", i, updates[i].UpdatedAt, i-1, updates[i-1].UpdatedAt)
+			}
+		}
+	})
+}
+
+func TestUpdateFlagSettingRejectsInvalidFallthrough(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	outside := connect.NewError(connect.CodeInvalidArgument, "can't update a flag setting with a fallthrough outside [0, 1]")
+
+	tests := map[string]float32{
+		"negative":          -0.5,
+		"just below 0":      -math.SmallestNonzeroFloat32,
+		"just above 1":      math.Nextafter32(1, 2),
+		"a percentage":      50,
+		"NaN":               float32(math.NaN()),
+		"positive infinity": float32(math.Inf(1)),
+		"negative infinity": float32(math.Inf(-1)),
+	}
+	for name, fraction := range tests {
+		t.Run(name, func(t *testing.T) {
+			resetDB(t, store.db)
+			flag := mustCreateFlag(t, store, "new-checkout")
+			env := mustCreateEnv(t, store, "production")
+			s := mustCreateFlagSetting(t, store, database.CreateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Fallthrough: 0.5})
+			got, err := store.UpdateFlagSetting(ctx, database.UpdateFlagSettingParams{
+				FlagID:        flag.ID,
+				EnvironmentID: env.ID,
+				Enabled:       true,
+				Fallthrough:   fraction,
+			})
+			wantConnectErr(t, err, outside)
+			if got != (database.FlagSetting{}) {
+				t.Fatalf("UpdateFlagSetting() = %+v on error, want the zero FlagSetting", got)
+			}
+			// The rejected values were never written.
+			if diff := cmp.Diff(s, storedFlagSetting(t, store, s.ID)); diff != "" {
+				t.Fatalf("setting changed (-want +got):\n%s", diff)
+			}
+		})
+	}
+
+	// Validation comes first, so a bad fallthrough is reported even for a
+	// pair with no setting.
+	t.Run("fallthrough checked before the IDs", func(t *testing.T) {
+		resetDB(t, store.db)
+		_, err := store.UpdateFlagSetting(ctx, database.UpdateFlagSettingParams{FlagID: uuid.New(), EnvironmentID: uuid.New(), Fallthrough: 2})
+		wantConnectErr(t, err, outside)
+	})
+}
+
+func TestUpdateFlagSettingNotFound(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	notFound := connect.NewError(connect.CodeNotFound, connect.CodeNotFound.String())
+
+	flag := mustCreateFlag(t, store, "new-checkout")
+	env := mustCreateEnv(t, store, "production")
+	s := mustCreateFlagSetting(t, store, database.CreateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Fallthrough: 0.5})
+	// Both exist, but have no setting together.
+	lonely := mustCreateFlag(t, store, "beta-banner")
+
+	tests := map[string]database.UpdateFlagSettingParams{
+		"unknown flag":        {FlagID: uuid.New(), EnvironmentID: env.ID},
+		"unknown environment": {FlagID: flag.ID, EnvironmentID: uuid.New()},
+		"zero IDs":            {},
+		"no setting yet":      {FlagID: lonely.ID, EnvironmentID: env.ID},
+		"setting ID as flag":  {FlagID: s.ID, EnvironmentID: env.ID},
+		// Easy to do with two fields of the same type.
+		"IDs swapped": {FlagID: env.ID, EnvironmentID: flag.ID},
+	}
+	for name, arg := range tests {
+		t.Run(name, func(t *testing.T) {
+			arg.Enabled, arg.Fallthrough = true, 1
+			got, err := store.UpdateFlagSetting(ctx, arg)
+			wantConnectErr(t, err, notFound)
+			if got != (database.FlagSetting{}) {
+				t.Fatalf("UpdateFlagSetting() = %+v on error, want the zero FlagSetting", got)
+			}
+			// No other setting was updated instead, and none was created.
+			if diff := cmp.Diff(s, storedFlagSetting(t, store, s.ID)); diff != "" {
+				t.Fatalf("setting changed (-want +got):\n%s", diff)
+			}
+			if n := flagSettingCount(t, store); n != 1 {
+				t.Fatalf("%d flag settings, want 1", n)
+			}
+		})
+	}
+}
+
+// An update made through ExecTx is undone when the transaction rolls back.
+func TestUpdateFlagSettingRolledBack(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	flag := mustCreateFlag(t, store, "new-checkout")
+	env := mustCreateEnv(t, store, "production")
+	s := mustCreateFlagSetting(t, store, database.CreateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Fallthrough: 0.5})
+
+	errBoom := errors.New("boom")
+	err := store.ExecTx(ctx, func(q *database.Queries) error {
+		if _, err := q.UpdateFlagSetting(ctx, database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: 1}); err != nil {
+			return err
+		}
+		return errBoom
+	})
+	if !errors.Is(err, errBoom) {
+		t.Fatalf("ExecTx() error = %v, want %v", err, errBoom)
+	}
+	if diff := cmp.Diff(s, storedFlagSetting(t, store, s.ID)); diff != "" {
+		t.Fatalf("setting changed after rollback (-want +got):\n%s", diff)
+	}
+}
+
+func TestUpdateFlagSettingReportsErrors(t *testing.T) {
+	store := newTestStore(t)
+	flag := mustCreateFlag(t, store, "new-checkout")
+	env := mustCreateEnv(t, store, "production")
+	s := mustCreateFlagSetting(t, store, database.CreateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Fallthrough: 0.5})
+	arg := database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: 1}
+
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	expired, cancelExpired := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancelExpired()
+
+	tests := map[string]struct {
+		ctx  context.Context
+		want *connect.Error
+	}{
+		"canceled context": {
+			ctx:  canceled,
+			want: connect.NewError(connect.CodeCanceled, connect.CodeCanceled.String()),
+		},
+		"expired deadline": {
+			ctx:  expired,
+			want: connect.NewError(connect.CodeDeadlineExceeded, connect.CodeDeadlineExceeded.String()),
+		},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			got, err := store.UpdateFlagSetting(test.ctx, arg)
+			wantConnectErr(t, err, test.want)
+			if got != (database.FlagSetting{}) {
+				t.Fatalf("UpdateFlagSetting() = %+v on error, want the zero FlagSetting", got)
+			}
+			if diff := cmp.Diff(s, storedFlagSetting(t, store, s.ID)); diff != "" {
+				t.Fatalf("setting changed (-want +got):\n%s", diff)
+			}
+		})
+	}
+
+	// Run last: it closes the connection pool the other cases use.
+	t.Run("closed database is internal", func(t *testing.T) {
+		if err := store.db.Close(); err != nil {
+			t.Fatalf("closing the database: %v", err)
+		}
+		got, err := store.UpdateFlagSetting(context.Background(), arg)
+		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, connect.CodeInternal.String()))
+		if got != (database.FlagSetting{}) {
+			t.Fatalf("UpdateFlagSetting() = %+v on error, want the zero FlagSetting", got)
 		}
 	})
 }
