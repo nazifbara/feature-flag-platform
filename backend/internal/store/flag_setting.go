@@ -29,3 +29,12 @@ func (s *Store) CreateFlagSetting(ctx context.Context, arg database.CreateFlagSe
 	}
 	return setting, nil
 }
+
+// GetFlagSetting gets a flag's settings in one environment.
+func (s *Store) GetFlagSetting(ctx context.Context, arg database.GetFlagSettingParams) (database.FlagSetting, error) {
+	setting, err := s.Queries.GetFlagSetting(ctx, arg)
+	if err != nil {
+		return database.FlagSetting{}, ffserrors.FromDBErr(err)
+	}
+	return setting, nil
+}
