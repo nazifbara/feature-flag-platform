@@ -743,3 +743,213 @@ func TestUpdateFlagReportsErrors(t *testing.T) {
 		}
 	})
 }
+
+func TestDeleteFlag(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	notFound := connect.NewError(connect.CodeNotFound, connect.CodeNotFound.String())
+
+	t.Run("deletes and returns the flag as it was", func(t *testing.T) {
+		resetDB(t, store.db)
+		f := mustCreateFlag(t, store, "new-checkout")
+		got, err := store.DeleteFlag(ctx, f.ID)
+		if err != nil {
+			t.Fatalf("DeleteFlag(): %v", err)
+		}
+		if diff := cmp.Diff(f, got); diff != "" {
+			t.Fatalf("DeleteFlag() mismatch (-want +got):\n%s", diff)
+		}
+		_, err = store.GetFlag(ctx, f.ID)
+		wantConnectErr(t, err, notFound)
+	})
+
+	// The returned flag is the last saved version, not the created one.
+	t.Run("returns the flag after updates", func(t *testing.T) {
+		resetDB(t, store.db)
+		f := mustCreateFlag(t, store, "new-checkout")
+		updated, err := store.UpdateFlag(ctx, f.ID, "checkout-v2")
+		if err != nil {
+			t.Fatalf("UpdateFlag(): %v", err)
+		}
+		got, err := store.DeleteFlag(ctx, f.ID)
+		if err != nil {
+			t.Fatalf("DeleteFlag(): %v", err)
+		}
+		if diff := cmp.Diff(updated, got); diff != "" {
+			t.Fatalf("DeleteFlag() mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("leaves other flags alone", func(t *testing.T) {
+		resetDB(t, store.db)
+		a := mustCreateFlag(t, store, "a")
+		b := mustCreateFlag(t, store, "b")
+		c := mustCreateFlag(t, store, "c")
+		if _, err := store.DeleteFlag(ctx, b.ID); err != nil {
+			t.Fatalf("DeleteFlag(): %v", err)
+		}
+		if n := flagCount(t, store); n != 2 {
+			t.Fatalf("%d flags after delete, want 2", n)
+		}
+		for _, f := range []database.Flag{a, c} {
+			if diff := cmp.Diff(f, storedFlag(t, store, f.ID)); diff != "" {
+				t.Fatalf("%s changed (-want +got):\n%s", f.Key, diff)
+			}
+		}
+	})
+
+	// The flag's settings go with it, in every environment; other flags'
+	// settings and the environments themselves stay.
+	t.Run("deletes the flag's settings", func(t *testing.T) {
+		resetDB(t, store.db)
+		f := mustCreateFlag(t, store, "new-checkout")
+		other := mustCreateFlag(t, store, "dark-mode")
+		envs := []database.Environment{mustCreateEnv(t, store, "staging"), mustCreateEnv(t, store, "production")}
+		var kept []database.FlagSetting
+		for _, e := range envs {
+			mustCreateFlagSetting(t, store, database.CreateFlagSettingParams{FlagID: f.ID, EnvironmentID: e.ID})
+			kept = append(kept, mustCreateFlagSetting(t, store, database.CreateFlagSettingParams{FlagID: other.ID, EnvironmentID: e.ID, Fallthrough: 0.5}))
+		}
+		if _, err := store.DeleteFlag(ctx, f.ID); err != nil {
+			t.Fatalf("DeleteFlag(): %v", err)
+		}
+		for _, e := range envs {
+			_, err := store.GetFlagSetting(ctx, database.GetFlagSettingParams{FlagID: f.ID, EnvironmentID: e.ID})
+			wantConnectErr(t, err, notFound)
+			if diff := cmp.Diff(e, mustGetEnv(t, store, e.ID)); diff != "" {
+				t.Fatalf("environment %s changed (-want +got):\n%s", e.Name, diff)
+			}
+		}
+		if n := flagSettingCount(t, store); n != len(kept) {
+			t.Fatalf("%d flag settings after delete, want %d", n, len(kept))
+		}
+		for _, s := range kept {
+			if diff := cmp.Diff(s, storedFlagSetting(t, store, s.ID)); diff != "" {
+				t.Fatalf("other flag's setting changed (-want +got):\n%s", diff)
+			}
+		}
+	})
+
+	t.Run("deleting twice is not found", func(t *testing.T) {
+		resetDB(t, store.db)
+		f := mustCreateFlag(t, store, "new-checkout")
+		if _, err := store.DeleteFlag(ctx, f.ID); err != nil {
+			t.Fatalf("DeleteFlag() first call: %v", err)
+		}
+		got, err := store.DeleteFlag(ctx, f.ID)
+		wantConnectErr(t, err, notFound)
+		if got != (database.Flag{}) {
+			t.Fatalf("DeleteFlag() = %+v on error, want the zero Flag", got)
+		}
+	})
+
+	t.Run("unknown ID deletes nothing", func(t *testing.T) {
+		resetDB(t, store.db)
+		f := mustCreateFlag(t, store, "new-checkout")
+		env := mustCreateEnv(t, store, "production")
+		// An environment's ID never matches a flag.
+		for _, id := range []uuid.UUID{uuid.New(), uuid.Nil, env.ID} {
+			got, err := store.DeleteFlag(ctx, id)
+			wantConnectErr(t, err, notFound)
+			if got != (database.Flag{}) {
+				t.Fatalf("DeleteFlag(%v) = %+v on error, want the zero Flag", id, got)
+			}
+		}
+		if diff := cmp.Diff(f, storedFlag(t, store, f.ID)); diff != "" {
+			t.Fatalf("flag changed (-want +got):\n%s", diff)
+		}
+	})
+
+	// A deleted flag's key is free again, and the new flag is a different
+	// one with no settings carried over.
+	t.Run("key can be reused", func(t *testing.T) {
+		resetDB(t, store.db)
+		old := mustCreateFlag(t, store, "new-checkout")
+		env := mustCreateEnv(t, store, "production")
+		mustCreateFlagSetting(t, store, database.CreateFlagSettingParams{FlagID: old.ID, EnvironmentID: env.ID, Enabled: true})
+		if _, err := store.DeleteFlag(ctx, old.ID); err != nil {
+			t.Fatalf("DeleteFlag(): %v", err)
+		}
+		reborn := mustCreateFlag(t, store, "New-Checkout")
+		if reborn.ID == old.ID {
+			t.Fatalf("recreated flag reused ID %v", old.ID)
+		}
+		_, err := store.GetFlagSetting(ctx, database.GetFlagSettingParams{FlagID: reborn.ID, EnvironmentID: env.ID})
+		wantConnectErr(t, err, notFound)
+	})
+}
+
+// A delete made through ExecTx is undone when the transaction rolls back,
+// settings included.
+func TestDeleteFlagRolledBack(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	f := mustCreateFlag(t, store, "new-checkout")
+	env := mustCreateEnv(t, store, "production")
+	s := mustCreateFlagSetting(t, store, database.CreateFlagSettingParams{FlagID: f.ID, EnvironmentID: env.ID, Fallthrough: 0.5})
+
+	errBoom := errors.New("boom")
+	err := store.ExecTx(ctx, func(q *database.Queries) error {
+		if _, err := q.DeleteFlag(ctx, f.ID); err != nil {
+			return err
+		}
+		return errBoom
+	})
+	if !errors.Is(err, errBoom) {
+		t.Fatalf("ExecTx() error = %v, want %v", err, errBoom)
+	}
+	if diff := cmp.Diff(f, storedFlag(t, store, f.ID)); diff != "" {
+		t.Fatalf("flag changed after rollback (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(s, storedFlagSetting(t, store, s.ID)); diff != "" {
+		t.Fatalf("setting changed after rollback (-want +got):\n%s", diff)
+	}
+}
+
+func TestDeleteFlagReportsErrors(t *testing.T) {
+	store := newTestStore(t)
+	f := mustCreateFlag(t, store, "new-checkout")
+
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	expired, cancelExpired := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancelExpired()
+
+	tests := map[string]struct {
+		ctx  context.Context
+		want *connect.Error
+	}{
+		"canceled context": {
+			ctx:  canceled,
+			want: connect.NewError(connect.CodeCanceled, connect.CodeCanceled.String()),
+		},
+		"expired deadline": {
+			ctx:  expired,
+			want: connect.NewError(connect.CodeDeadlineExceeded, connect.CodeDeadlineExceeded.String()),
+		},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			got, err := store.DeleteFlag(test.ctx, f.ID)
+			wantConnectErr(t, err, test.want)
+			if got != (database.Flag{}) {
+				t.Fatalf("DeleteFlag() = %+v on error, want the zero Flag", got)
+			}
+			if diff := cmp.Diff(f, storedFlag(t, store, f.ID)); diff != "" {
+				t.Fatalf("flag changed (-want +got):\n%s", diff)
+			}
+		})
+	}
+
+	// Run last: it closes the connection pool the other cases use.
+	t.Run("closed database is internal", func(t *testing.T) {
+		if err := store.db.Close(); err != nil {
+			t.Fatalf("closing the database: %v", err)
+		}
+		got, err := store.DeleteFlag(context.Background(), f.ID)
+		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, connect.CodeInternal.String()))
+		if got != (database.Flag{}) {
+			t.Fatalf("DeleteFlag() = %+v on error, want the zero Flag", got)
+		}
+	})
+}
