@@ -14,3 +14,9 @@ RETURNING *;
 
 -- name: GetFlagSetting :one
 SELECT * FROM flag_settings WHERE flag_id = $1 AND environment_id = $2;
+
+-- name: UpdateFlagSetting :one
+UPDATE flag_settings
+SET enabled = $3, fallthrough = $4, updated_at = clock_timestamp()
+WHERE flag_id = $1 AND environment_id = $2
+RETURNING *;

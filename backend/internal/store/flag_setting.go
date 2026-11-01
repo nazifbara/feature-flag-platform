@@ -38,3 +38,16 @@ func (s *Store) GetFlagSetting(ctx context.Context, arg database.GetFlagSettingP
 	}
 	return setting, nil
 }
+
+// UpdateFlagSetting replaces a flag's settings in one environment, applying
+// the same fallthrough rule as CreateFlagSetting.
+func (s *Store) UpdateFlagSetting(ctx context.Context, arg database.UpdateFlagSettingParams) (database.FlagSetting, error) {
+	if err := checkFallthrough("update", arg.Fallthrough); err != nil {
+		return database.FlagSetting{}, err
+	}
+	setting, err := s.Queries.UpdateFlagSetting(ctx, arg)
+	if err != nil {
+		return database.FlagSetting{}, ffserrors.FromDBErr(err)
+	}
+	return setting, nil
+}
