@@ -339,11 +339,10 @@ func TestFlagSettingsDeletedWithOwner(t *testing.T) {
 		}
 	})
 
-	// There is no DeleteFlag yet, so the flag is deleted directly.
 	t.Run("deleting a flag", func(t *testing.T) {
 		flag, otherFlag, _, _ := setup(t)
-		if _, err := store.db.Exec("DELETE FROM flags WHERE id = $1", flag.ID); err != nil {
-			t.Fatalf("deleting the flag: %v", err)
+		if _, err := store.DeleteFlag(ctx, flag.ID); err != nil {
+			t.Fatalf("DeleteFlag(): %v", err)
 		}
 		if n := countWhere(t, "flag_id", flag.ID); n != 0 {
 			t.Errorf("%d settings left for the deleted flag, want 0", n)

@@ -16,3 +16,7 @@ SELECT * FROM flags WHERE id = $1;
 -- name: UpdateFlag :one
 UPDATE flags SET updated_at = clock_timestamp(), key = $2 WHERE id = $1
 RETURNING *;
+
+-- name: DeleteFlag :one
+DELETE FROM flags WHERE id = $1
+RETURNING *;
