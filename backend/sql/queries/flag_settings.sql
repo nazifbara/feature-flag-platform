@@ -11,3 +11,6 @@ INSERT INTO flag_settings (
 )
 SELECT gen_random_uuid(), $1, $2, $3, $4, ts, ts FROM now
 RETURNING *;
+
+-- name: GetFlagSetting :one
+SELECT * FROM flag_settings WHERE flag_id = $1 AND environment_id = $2;
