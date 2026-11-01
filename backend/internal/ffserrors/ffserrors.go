@@ -23,6 +23,8 @@ func FromDBErr(err error) error {
 		switch pqErr.Code {
 		case "23505": // unique_violation
 			return connect.NewError(connect.CodeAlreadyExists, connect.CodeAlreadyExists.String()).WithCause(err)
+		case "23503": // foreign_key_violation
+			return connect.NewError(connect.CodeNotFound, connect.CodeNotFound.String()).WithCause(err)
 		case "57014": // query_canceled
 			return connect.NewError(connect.CodeCanceled, connect.CodeCanceled.String()).WithCause(err)
 		}
