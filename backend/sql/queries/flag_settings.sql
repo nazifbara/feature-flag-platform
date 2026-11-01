@@ -20,3 +20,9 @@ UPDATE flag_settings
 SET enabled = $3, fallthrough = $4, updated_at = clock_timestamp()
 WHERE flag_id = $1 AND environment_id = $2
 RETURNING *;
+
+-- name: ListSettingsByFlag :many
+SELECT fs.* FROM flag_settings fs
+JOIN environments e ON e.id = fs.environment_id
+WHERE fs.flag_id = $1
+ORDER BY e.created_at ASC, e.id ASC;
