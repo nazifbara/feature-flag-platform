@@ -28,8 +28,8 @@ func flagCount(t *testing.T, store *Store) int {
 func storedFlag(t *testing.T, store *Store, id uuid.UUID) database.Flag {
 	t.Helper()
 	var f database.Flag
-	err := store.db.QueryRow("SELECT id, key, created_at, updated_at FROM flags WHERE id = $1", id).
-		Scan(&f.ID, &f.Key, &f.CreatedAt, &f.UpdatedAt)
+	err := store.db.QueryRow("SELECT id, key, salt, created_at, updated_at FROM flags WHERE id = $1", id).
+		Scan(&f.ID, &f.Key, &f.Salt, &f.CreatedAt, &f.UpdatedAt)
 	if err != nil {
 		t.Fatalf("reading flag %v: %v", id, err)
 	}
@@ -52,6 +52,10 @@ func TestCreateFlag(t *testing.T) {
 		}
 		if got.ID == uuid.Nil() {
 			t.Error("CreateFlag() returned a zero ID")
+		}
+		// Evaluating a flag without a salt is an error.
+		if got.Salt == "" {
+			t.Error("CreateFlag() returned an empty salt")
 		}
 		// A new flag has never been updated.
 		if !got.UpdatedAt.Equal(got.CreatedAt) {
@@ -82,6 +86,22 @@ func TestCreateFlag(t *testing.T) {
 		}
 	})
 
+	// Flags sharing a salt would roll out to the same users.
+	t.Run("each flag gets its own salt", func(t *testing.T) {
+		resetDB(t, store.db)
+		a, err := store.CreateFlag(ctx, "new-checkout")
+		if err != nil {
+			t.Fatalf("CreateFlag(): %v", err)
+		}
+		b, err := store.CreateFlag(ctx, "dark-mode")
+		if err != nil {
+			t.Fatalf("CreateFlag(): %v", err)
+		}
+		if a.Salt == b.Salt {
+			t.Fatalf("CreateFlag() reused salt %q", a.Salt)
+		}
+	})
+
 	// The clock is read per flag, not per transaction, so flags created
 	// together still get increasing times.
 	t.Run("flags created in one transaction get increasing times", func(t *testing.T) {
@@ -89,7 +109,7 @@ func TestCreateFlag(t *testing.T) {
 		var flags []database.Flag
 		err := store.ExecTx(ctx, func(q *database.Queries) error {
 			for _, key := range []string{"a", "b", "c"} {
-				f, err := q.CreateFlag(ctx, key)
+				f, err := q.CreateFlag(ctx, database.CreateFlagParams{Key: key, Salt: "s4lt-" + key})
 				if err != nil {
 					return err
 				}
@@ -449,6 +469,10 @@ func TestUpdateFlag(t *testing.T) {
 		}
 		if got.ID != f.ID || got.Key != "checkout-v2" || !got.CreatedAt.Equal(f.CreatedAt) {
 			t.Errorf("UpdateFlag() = %+v, want ID %v, key %q and created_at %v", got, f.ID, "checkout-v2", f.CreatedAt)
+		}
+		// A new salt would reshuffle the flag's users.
+		if got.Salt != f.Salt {
+			t.Errorf("UpdateFlag() salt = %q, want it kept as %q", got.Salt, f.Salt)
 		}
 		if !got.UpdatedAt.After(f.UpdatedAt) {
 			t.Errorf("UpdateFlag() updated_at = %v, want it after %v", got.UpdatedAt, f.UpdatedAt)
@@ -873,6 +897,9 @@ func TestDeleteFlag(t *testing.T) {
 		reborn := mustCreateFlag(t, store, "New-Checkout")
 		if reborn.ID == old.ID {
 			t.Fatalf("recreated flag reused ID %v", old.ID)
+		}
+		if reborn.Salt == old.Salt {
+			t.Fatalf("recreated flag reused salt %q", old.Salt)
 		}
 		_, err := store.GetFlagSetting(ctx, database.GetFlagSettingParams{FlagID: reborn.ID, EnvironmentID: env.ID})
 		wantConnectErr(t, err, notFound)

@@ -1,6 +1,11 @@
 package utils
 
-import connect "connectrpc.com/connect/v2"
+import (
+	"crypto/rand"
+	"encoding/hex"
+
+	connect "connectrpc.com/connect/v2"
+)
 
 func CodeToText(code connect.Code) string {
 	var text string
@@ -13,4 +18,10 @@ func CodeToText(code connect.Code) string {
 		text = "something went wrong"
 	}
 	return text
+}
+
+func GenerateSalt(length int) string {
+	bytes := make([]byte, length)
+	_, _ = rand.Read(bytes)
+	return hex.EncodeToString(bytes)
 }
