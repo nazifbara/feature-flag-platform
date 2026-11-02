@@ -10,6 +10,7 @@ import (
 	"connectrpc.com/connect/v2"
 	"github.com/nazifbara/flagsvc/backend/internal/database"
 	"github.com/nazifbara/flagsvc/backend/internal/ffserrors"
+	"github.com/nazifbara/flagsvc/backend/internal/utils"
 )
 
 // normalizeFlagKey trims and lowercases key and checks it only holds ASCII
@@ -46,7 +47,10 @@ func (s *Store) CreateFlag(ctx context.Context, key string) (database.Flag, erro
 	if err != nil {
 		return database.Flag{}, err
 	}
-	flag, err := s.Queries.CreateFlag(ctx, key)
+	flag, err := s.Queries.CreateFlag(
+		ctx,
+		database.CreateFlagParams{Key: key, Salt: utils.GenerateSalt(16)},
+	)
 	if err != nil {
 		return database.Flag{}, ffserrors.FromDBErr(err)
 	}

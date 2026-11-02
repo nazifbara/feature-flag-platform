@@ -4,10 +4,11 @@ WITH now AS (SELECT clock_timestamp() AS ts)
 INSERT INTO flags (
   id,
   key,
+  salt,
   created_at,
   updated_at
 )
-SELECT gen_random_uuid(), $1, ts, ts FROM now
+SELECT gen_random_uuid(), $1, $2, ts, ts FROM now
 RETURNING *;
 
 -- name: GetFlag :one
