@@ -9,6 +9,9 @@ import (
 	"uuid"
 )
 
+// testFlagID is the flag the tests evaluate. The pinned buckets depend on it.
+var testFlagID = uuid.MustParse("0192e4a0-7b3c-7d4e-9f10-0000000000f1")
+
 func TestEvaluate(t *testing.T) {
 	mustNewRule := func(id uuid.UUID, serve float32, clauses ...Clause) Rule {
 		r, err := NewRule(id, clauses, serve)
@@ -22,7 +25,7 @@ func TestEvaluate(t *testing.T) {
 		for _, key := range allowlist {
 			users[key] = struct{}{}
 		}
-		cfg, err := NewFlagConfig(enabled, "s4lt", "new-checkout", users, rules, fall)
+		cfg, err := NewFlagConfig(enabled, "s4lt", testFlagID, users, rules, fall)
 		if err != nil {
 			t.Fatalf("NewFlagConfig(): %v", err)
 		}
@@ -36,13 +39,13 @@ func TestEvaluate(t *testing.T) {
 	country := mustNewRule(countryID, 0.5, mustNewClause(t, "country", eqOp, StringClause, "BJ"))
 	off := mustNewRule(offID, 0, mustNewClause(t, "country", eqOp, StringClause, "FR"))
 
-	// Buckets for salt "s4lt" and flag key "new-checkout":
+	// Buckets for salt "s4lt" and testFlagID:
 	// carol 0.0986, bob 0.5244, minBucket 0, maxBucket 0.9999.
 	alice := "user-alice"
-	bob := "user-bob"
-	carol := "user-carol"
-	minBucket := "user-18439"
-	maxBucket := "user-9504"
+	bob := "user-bob-109"
+	carol := "user-carol-8404"
+	minBucket := "user-5830"
+	maxBucket := "user-2214"
 
 	tests := map[string]struct {
 		config     FlagConfig
@@ -147,7 +150,7 @@ func TestEvaluate(t *testing.T) {
 		// NewFlagConfig rejects an empty allowlist key, so this config is
 		// built by hand to show an empty key can't be allowlisted either.
 		"empty key rejected before the allowlist": {
-			config:     FlagConfig{enabled: true, salt: "s4lt", key: "new-checkout", allowlist: map[string]struct{}{"": {}}},
+			config:     FlagConfig{enabled: true, salt: "s4lt", id: testFlagID, allowlist: map[string]struct{}{"": {}}},
 			attributes: map[string][]any{"key": {""}},
 			errStr:     "the key attribute value is required",
 		},
@@ -323,17 +326,17 @@ func TestEvaluate(t *testing.T) {
 			wantReason: FallthroughReason,
 		},
 
-		// Configs without a salt or key aren't reachable through
+		// Configs without a salt or ID aren't reachable through
 		// NewFlagConfig, so they're built by hand.
 		"config with no salt rejected": {
-			config:     FlagConfig{enabled: true, key: "new-checkout", fall: 1},
+			config:     FlagConfig{enabled: true, id: testFlagID, fall: 1},
 			attributes: map[string][]any{"key": {bob}},
 			errStr:     "flag config with no salt",
 		},
-		"config with no key rejected": {
+		"config with no id rejected": {
 			config:     FlagConfig{enabled: true, salt: "s4lt", fall: 1},
 			attributes: map[string][]any{"key": {bob}},
-			errStr:     "flag config with no key",
+			errStr:     "flag config with no id",
 		},
 		"config checked before the allowlist": {
 			config:     FlagConfig{enabled: true, allowlist: map[string]struct{}{alice: {}}},
@@ -343,9 +346,9 @@ func TestEvaluate(t *testing.T) {
 		"config checked before the key attribute": {
 			config:     FlagConfig{enabled: true, salt: "s4lt"},
 			attributes: map[string][]any{},
-			errStr:     "flag config with no key",
+			errStr:     "flag config with no id",
 		},
-		"disabled config with no salt or key is off": {
+		"disabled config with no salt or id is off": {
 			config:     FlagConfig{},
 			attributes: map[string][]any{"key": {bob}},
 			wantOn:     false,
@@ -381,7 +384,7 @@ func TestEvaluateUnwrapsRuleError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRule(): %v", err)
 	}
-	cfg, err := NewFlagConfig(true, "s4lt", "new-checkout", nil, []Rule{rule}, 0)
+	cfg, err := NewFlagConfig(true, "s4lt", testFlagID, nil, []Rule{rule}, 0)
 	if err != nil {
 		t.Fatalf("NewFlagConfig(): %v", err)
 	}
@@ -396,27 +399,29 @@ func TestEvaluateUnwrapsRuleError(t *testing.T) {
 // values are pinned on purpose.
 func TestBucketIsStable(t *testing.T) {
 	tests := []struct {
-		salt, flagKey, userKey string
-		want                   float32
+		salt    string
+		flagID  uuid.UUID
+		userKey string
+		want    float32
 	}{
-		{"s4lt", "new-checkout", "user-bob", 0.5244},
-		{"s4lt", "new-checkout", "user-carol", 0.0986},
-		{"s4lt", "new-checkout", "user-18439", 0},
-		{"s4lt", "new-checkout", "user-9504", 0.9999},
+		{"s4lt", testFlagID, "user-bob-109", 0.5244},
+		{"s4lt", testFlagID, "user-carol-8404", 0.0986},
+		{"s4lt", testFlagID, "user-5830", 0},
+		{"s4lt", testFlagID, "user-2214", 0.9999},
 	}
 	for _, tc := range tests {
-		if got := bucket(tc.salt, tc.flagKey, tc.userKey); got != tc.want {
-			t.Errorf("bucket(%q, %q, %q) = %v, want %v", tc.salt, tc.flagKey, tc.userKey, got, tc.want)
+		if got := bucket(tc.salt, tc.flagID, tc.userKey); got != tc.want {
+			t.Errorf("bucket(%q, %v, %q) = %v, want %v", tc.salt, tc.flagID, tc.userKey, got, tc.want)
 		}
 	}
 }
 
 func TestBucketDependsOnEveryInput(t *testing.T) {
-	base := bucket("s4lt", "new-checkout", "user-bob")
+	base := bucket("s4lt", testFlagID, "user-bob")
 	tests := map[string]float32{
-		"salt":     bucket("pepper", "new-checkout", "user-bob"),
-		"flag key": bucket("s4lt", "dark-mode", "user-bob"),
-		"user key": bucket("s4lt", "new-checkout", "user-dave"),
+		"salt":     bucket("pepper", testFlagID, "user-bob"),
+		"flag ID":  bucket("s4lt", uuid.MustParse("0192e4a0-7b3c-7d4e-9f10-0000000000f2"), "user-bob"),
+		"user key": bucket("s4lt", testFlagID, "user-dave"),
 	}
 	for input, got := range tests {
 		if got == base {
@@ -430,8 +435,8 @@ func TestEvaluateRollout(t *testing.T) {
 	// below is a fixed number and the test can't flake.
 	const users = 20000
 	// on reports, for each user, whether a flag with only a fallthrough is on.
-	on := func(salt, flagKey string, fall float32) []bool {
-		cfg, err := NewFlagConfig(true, salt, flagKey, nil, nil, fall)
+	on := func(salt string, flagID uuid.UUID, fall float32) []bool {
+		cfg, err := NewFlagConfig(true, salt, flagID, nil, nil, fall)
 		if err != nil {
 			t.Fatalf("NewFlagConfig(): %v", err)
 		}
@@ -470,7 +475,7 @@ func TestEvaluateRollout(t *testing.T) {
 
 	t.Run("share of each result follows the rollout", func(t *testing.T) {
 		for _, fall := range []float32{0.01, 0.1, 0.5, 0.9, 0.99} {
-			results := on("s4lt", "new-checkout", fall)
+			results := on("s4lt", testFlagID, fall)
 			near(t, fmt.Sprintf("share on at %v", fall), share(results, true), float64(fall))
 			near(t, fmt.Sprintf("share off at %v", fall), share(results, false), 1-float64(fall))
 		}
@@ -478,8 +483,8 @@ func TestEvaluateRollout(t *testing.T) {
 
 	// Raising a rollout only adds users; nobody who had the feature loses it.
 	t.Run("raising the rollout keeps users on", func(t *testing.T) {
-		low := on("s4lt", "new-checkout", 0.2)
-		high := on("s4lt", "new-checkout", 0.3)
+		low := on("s4lt", testFlagID, 0.2)
+		high := on("s4lt", testFlagID, 0.3)
 		for i := range low {
 			if low[i] && !high[i] {
 				t.Fatalf("user-%d on at 0.2 but off at 0.3", i)
@@ -488,9 +493,10 @@ func TestEvaluateRollout(t *testing.T) {
 	})
 
 	// Two flags at 50% shouldn't give the feature to the same half of users.
+	// The ID keeps them apart even if they ever share a salt.
 	t.Run("flags roll out independently", func(t *testing.T) {
-		a := on("s4lt", "new-checkout", 0.5)
-		b := on("s4lt", "dark-mode", 0.5)
+		a := on("s4lt", testFlagID, 0.5)
+		b := on("s4lt", uuid.MustParse("0192e4a0-7b3c-7d4e-9f10-0000000000f2"), 0.5)
 		both := make([]bool, users)
 		for i := range both {
 			both[i] = a[i] && b[i]
@@ -500,8 +506,8 @@ func TestEvaluateRollout(t *testing.T) {
 
 	// Changing the salt is how a rollout gets reshuffled.
 	t.Run("new salt reshuffles users", func(t *testing.T) {
-		a := on("s4lt", "new-checkout", 0.5)
-		b := on("pepper", "new-checkout", 0.5)
+		a := on("s4lt", testFlagID, 0.5)
+		b := on("pepper", testFlagID, 0.5)
 		moved := make([]bool, users)
 		for i := range moved {
 			moved[i] = a[i] != b[i]
@@ -509,12 +515,12 @@ func TestEvaluateRollout(t *testing.T) {
 		near(t, "share of users whose result changed", share(moved, true), 0.5)
 	})
 
-	t.Run("same salt keeps every user's result", func(t *testing.T) {
-		a := on("s4lt", "new-checkout", 0.5)
-		b := on("s4lt", "new-checkout", 0.5)
+	t.Run("same salt and ID keep every user's result", func(t *testing.T) {
+		a := on("s4lt", testFlagID, 0.5)
+		b := on("s4lt", testFlagID, 0.5)
 		for i := range a {
 			if a[i] != b[i] {
-				t.Fatalf("user-%d got %v then %v with the same salt", i, a[i], b[i])
+				t.Fatalf("user-%d got %v then %v with the same salt and ID", i, a[i], b[i])
 			}
 		}
 	})
@@ -529,7 +535,7 @@ func TestEvaluateRaisingRolloutKeepsUsersOnProperty(t *testing.T) {
 		}
 		attributes := map[string][]any{"key": {userKey}}
 		at := func(fall float32) bool {
-			cfg, err := NewFlagConfig(true, salt, "new-checkout", nil, nil, fall)
+			cfg, err := NewFlagConfig(true, salt, testFlagID, nil, nil, fall)
 			if err != nil {
 				t.Fatalf("NewFlagConfig(): %v", err)
 			}
