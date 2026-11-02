@@ -3,7 +3,7 @@ CREATE TABLE rules (
   id UUID PRIMARY KEY,
   flag_setting_id UUID NOT NULL REFERENCES flag_settings (id) ON DELETE CASCADE,
   position INTEGER NOT NULL,
-  name VARCHAR(200),
+  name VARCHAR(200) NOT NULL,
   serve REAL NOT NULL CHECK (serve >= 0 AND serve <= 1),
   clauses JSONB NOT NULL CHECK (jsonb_typeof(clauses) = 'array' AND clauses <> '[]'::jsonb),
   created_at TIMESTAMPTZ NOT NULL,
