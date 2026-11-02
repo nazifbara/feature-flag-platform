@@ -4,12 +4,11 @@ import (
 	"context"
 	"strings"
 	"unicode/utf8"
+	"uuid"
 
 	"connectrpc.com/connect/v2"
 	"github.com/nazifbara/flagsvc/backend/internal/database"
 	"github.com/nazifbara/flagsvc/backend/internal/ffserrors"
-
-	"github.com/google/uuid"
 )
 
 // normalizeEnvName trims and lowercases name and checks it fits the column.

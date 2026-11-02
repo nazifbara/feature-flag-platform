@@ -6,3 +6,8 @@ sql:
     gen:
       go:
         out: "./backend/internal/database"
+        overrides:
+          - db_type: "uuid"
+            go_type:
+              import: "uuid"
+              type: "UUID"

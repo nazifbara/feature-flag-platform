@@ -6,8 +6,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+	"uuid"
 
-	"github.com/google/uuid"
 	"github.com/nazifbara/flagsvc/backend/internal/database"
 )
 
@@ -29,7 +29,7 @@ func waitTxDone(t *testing.T, q *database.Queries) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		if _, err := q.GetEnv(context.Background(), uuid.Nil); errors.Is(err, sql.ErrTxDone) {
+		if _, err := q.GetEnv(context.Background(), uuid.Nil()); errors.Is(err, sql.ErrTxDone) {
 			return
 		}
 		time.Sleep(10 * time.Millisecond)

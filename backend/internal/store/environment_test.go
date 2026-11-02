@@ -8,11 +8,11 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"uuid"
 
 	"connectrpc.com/connect/v2"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	"github.com/google/uuid"
 	"github.com/nazifbara/flagsvc/backend/internal/database"
 )
 
@@ -289,7 +289,7 @@ func TestGetEnv(t *testing.T) {
 		}
 	})
 	t.Run("zero ID is not found", func(t *testing.T) {
-		_, err := store.GetEnv(ctx, uuid.Nil)
+		_, err := store.GetEnv(ctx, uuid.Nil())
 		wantConnectErr(t, err, notFound)
 	})
 	t.Run("deleted environment is not found", func(t *testing.T) {
@@ -801,7 +801,7 @@ func TestUpdateEnvNotFound(t *testing.T) {
 	})
 	t.Run("zero ID", func(t *testing.T) {
 		resetDB(t, store.db)
-		_, err := store.UpdateEnv(ctx, uuid.Nil, "preprod")
+		_, err := store.UpdateEnv(ctx, uuid.Nil(), "preprod")
 		wantConnectErr(t, err, notFound)
 	})
 	t.Run("deleted environment", func(t *testing.T) {
@@ -951,7 +951,7 @@ func TestDeleteEnv(t *testing.T) {
 		resetDB(t, store.db)
 		mustCreateEnv(t, store, "development")
 		mustCreateEnv(t, store, "production")
-		for _, id := range []uuid.UUID{uuid.New(), uuid.Nil} {
+		for _, id := range []uuid.UUID{uuid.New(), uuid.Nil()} {
 			_, err := store.DeleteEnv(ctx, id)
 			wantConnectErr(t, err, notFound)
 		}

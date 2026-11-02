@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 	"unicode"
+	"uuid"
 
 	"connectrpc.com/connect/v2"
-	"github.com/google/uuid"
 	"github.com/nazifbara/flagsvc/backend/internal/database"
 	"github.com/nazifbara/flagsvc/backend/internal/ffserrors"
 )
