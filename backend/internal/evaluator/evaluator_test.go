@@ -57,13 +57,13 @@ func TestEvaluate(t *testing.T) {
 		// The master switch wins over everything, including bad input.
 		"disabled flag is off": {
 			config:     mustNewFlagConfig(false, []string{alice}, 1, pro),
-			attributes: map[string][]any{"key": {alice}, "isPro": {true}},
+			attributes: map[string][]any{"user_key": {alice}, "isPro": {true}},
 			wantOn:     false,
 			wantReason: MasterSwitchReason,
 		},
 		"disabled flag ignores an invalid key": {
 			config:     mustNewFlagConfig(false, nil, 1, pro),
-			attributes: map[string][]any{"key": {42.0}},
+			attributes: map[string][]any{"user_key": {42.0}},
 			wantOn:     false,
 			wantReason: MasterSwitchReason,
 		},
@@ -75,7 +75,7 @@ func TestEvaluate(t *testing.T) {
 		},
 		"disabled flag ignores an empty key": {
 			config:     mustNewFlagConfig(false, nil, 1, pro),
-			attributes: map[string][]any{"key": {""}},
+			attributes: map[string][]any{"user_key": {""}},
 			wantOn:     false,
 			wantReason: MasterSwitchReason,
 		},
@@ -88,123 +88,129 @@ func TestEvaluate(t *testing.T) {
 
 		"allowlisted key is on": {
 			config:     mustNewFlagConfig(true, []string{bob, alice}, 0, off),
-			attributes: map[string][]any{"key": {alice}},
+			attributes: map[string][]any{"user_key": {alice}},
 			wantOn:     true,
 			wantReason: AllowlistMatchReason,
 		},
 		// The allowlist bypasses the rules, even one that would serve 0.
 		"allowlist checked before rules": {
 			config:     mustNewFlagConfig(true, []string{alice}, 0, off),
-			attributes: map[string][]any{"key": {alice}, "country": {"FR"}},
+			attributes: map[string][]any{"user_key": {alice}, "country": {"FR"}},
 			wantOn:     true,
 			wantReason: AllowlistMatchReason,
 		},
 		"allowlist checked before erroring rules": {
 			config:     mustNewFlagConfig(true, []string{alice}, 0, pro),
-			attributes: map[string][]any{"key": {alice}, "isPro": {"true"}},
+			attributes: map[string][]any{"user_key": {alice}, "isPro": {"true"}},
 			wantOn:     true,
 			wantReason: AllowlistMatchReason,
 		},
 		"key not in allowlist goes on to rules": {
 			config:     mustNewFlagConfig(true, []string{alice}, 0, country),
-			attributes: map[string][]any{"key": {carol}, "country": {"BJ"}},
+			attributes: map[string][]any{"user_key": {carol}, "country": {"BJ"}},
 			wantOn:     true,
 			wantReason: RuleMatchReason + countryID.String(),
 		},
 		"missing key rejected": {
 			config:     mustNewFlagConfig(true, []string{alice}, 0, country),
 			attributes: map[string][]any{"country": {"BJ"}},
-			errStr:     "the key attribute is required",
+			errStr:     "the user_key attribute is required",
 		},
 		// The key is required even when there is no allowlist to check it against.
 		"missing key rejected without an allowlist": {
 			config:     mustNewFlagConfig(true, nil, 1),
 			attributes: map[string][]any{"country": {"BJ"}},
-			errStr:     "the key attribute is required",
+			errStr:     "the user_key attribute is required",
 		},
 		"missing key rejected before erroring rules": {
 			config:     mustNewFlagConfig(true, nil, 0, pro),
 			attributes: map[string][]any{"isPro": {"true"}},
-			errStr:     "the key attribute is required",
+			errStr:     "the user_key attribute is required",
+		},
+		// A flag's key is a different thing; "key" isn't read as the user's.
+		"old key attribute name rejected": {
+			config:     mustNewFlagConfig(true, []string{alice}, 1),
+			attributes: map[string][]any{"key": {alice}},
+			errStr:     "the user_key attribute is required",
 		},
 		"no attributes rejected": {
 			config:     mustNewFlagConfig(true, []string{alice}, 0.3, pro),
 			attributes: map[string][]any{},
-			errStr:     "the key attribute is required",
+			errStr:     "the user_key attribute is required",
 		},
 		"nil attributes rejected": {
 			config:     mustNewFlagConfig(true, nil, 0.3),
 			attributes: nil,
-			errStr:     "the key attribute is required",
+			errStr:     "the user_key attribute is required",
 		},
 		"empty key rejected": {
 			config:     mustNewFlagConfig(true, nil, 1),
-			attributes: map[string][]any{"key": {""}},
-			errStr:     "the key attribute value is required",
+			attributes: map[string][]any{"user_key": {""}},
+			errStr:     "the user_key attribute value is required",
 		},
 		"empty key rejected before erroring rules": {
 			config:     mustNewFlagConfig(true, nil, 0, pro),
-			attributes: map[string][]any{"key": {""}, "isPro": {"true"}},
-			errStr:     "the key attribute value is required",
+			attributes: map[string][]any{"user_key": {""}, "isPro": {"true"}},
+			errStr:     "the user_key attribute value is required",
 		},
 		// NewFlagConfig rejects an empty allowlist key, so this config is
 		// built by hand to show an empty key can't be allowlisted either.
 		"empty key rejected before the allowlist": {
 			config:     FlagConfig{enabled: true, salt: "s4lt", id: testFlagID, allowlist: map[string]struct{}{"": {}}},
-			attributes: map[string][]any{"key": {""}},
-			errStr:     "the key attribute value is required",
+			attributes: map[string][]any{"user_key": {""}},
+			errStr:     "the user_key attribute value is required",
 		},
 		// Only an empty string is rejected; whitespace is a key like any other.
 		"blank key accepted": {
 			config:     mustNewFlagConfig(true, nil, 1),
-			attributes: map[string][]any{"key": {" "}},
+			attributes: map[string][]any{"user_key": {" "}},
 			wantOn:     true,
 			wantReason: FallthroughReason,
 		},
 		"key with multiple values rejected": {
 			config:     mustNewFlagConfig(true, []string{alice}, 0, country),
-			attributes: map[string][]any{"key": {alice, bob}},
-			errStr:     "the key attribute must have exactly one value, got: 2",
+			attributes: map[string][]any{"user_key": {alice, bob}},
+			errStr:     "the user_key attribute must have exactly one value, got: 2",
 		},
 		"non-string key rejected": {
 			config:     mustNewFlagConfig(true, []string{alice}, 0, country),
-			attributes: map[string][]any{"key": {true}},
-			errStr:     "the key attribute must be a string",
+			attributes: map[string][]any{"user_key": {true}},
+			errStr:     "the user_key attribute must be a string",
 		},
 		"key with no value rejected": {
 			config:     mustNewFlagConfig(true, []string{alice}, 0, country),
-			attributes: map[string][]any{"key": {}},
-			errStr:     "the key attribute must have exactly one value, got: 0",
+			attributes: map[string][]any{"user_key": {}},
+			errStr:     "the user_key attribute must have exactly one value, got: 0",
 		},
 		// The key is validated even when there is no allowlist to check it against.
 		"invalid key rejected without an allowlist": {
 			config:     mustNewFlagConfig(true, nil, 0, country),
-			attributes: map[string][]any{"key": {42.0}, "country": {"BJ"}},
-			errStr:     "the key attribute must be a string",
+			attributes: map[string][]any{"user_key": {42.0}, "country": {"BJ"}},
+			errStr:     "the user_key attribute must be a string",
 		},
 
 		"matching rule serves its value": {
 			config:     mustNewFlagConfig(true, nil, 0, pro),
-			attributes: map[string][]any{"key": {bob}, "isPro": {true}},
+			attributes: map[string][]any{"user_key": {bob}, "isPro": {true}},
 			wantOn:     true,
 			wantReason: RuleMatchReason + proID.String(),
 		},
 		// A rule serving 0 is still a match, not a fallthrough.
 		"matching rule serving 0": {
 			config:     mustNewFlagConfig(true, nil, 1, off),
-			attributes: map[string][]any{"key": {bob}, "country": {"FR"}},
+			attributes: map[string][]any{"user_key": {bob}, "country": {"FR"}},
 			wantOn:     false,
 			wantReason: RuleMatchReason + offID.String(),
 		},
 		"first matching rule wins": {
 			config:     mustNewFlagConfig(true, nil, 0, pro, country),
-			attributes: map[string][]any{"key": {bob}, "isPro": {true}, "country": {"BJ"}},
+			attributes: map[string][]any{"user_key": {bob}, "isPro": {true}, "country": {"BJ"}},
 			wantOn:     true,
 			wantReason: RuleMatchReason + proID.String(),
 		},
 		"later rule matches when earlier ones don't": {
 			config:     mustNewFlagConfig(true, nil, 0, pro, off, country),
-			attributes: map[string][]any{"key": {bob}, "isPro": {false}, "country": {"BJ"}},
+			attributes: map[string][]any{"user_key": {bob}, "isPro": {false}, "country": {"BJ"}},
 			wantOn:     false,
 			wantReason: RuleMatchReason + countryID.String(),
 		},
@@ -212,26 +218,26 @@ func TestEvaluate(t *testing.T) {
 		// never surface.
 		"match stops before a later erroring rule": {
 			config:     mustNewFlagConfig(true, nil, 0, country, pro),
-			attributes: map[string][]any{"key": {bob}, "country": {"BJ"}, "isPro": {"true"}},
+			attributes: map[string][]any{"user_key": {bob}, "country": {"BJ"}, "isPro": {"true"}},
 			wantOn:     false,
 			wantReason: RuleMatchReason + countryID.String(),
 		},
 
 		"no rule matches serves fall": {
 			config:     mustNewFlagConfig(true, []string{alice}, 0.2, pro, country),
-			attributes: map[string][]any{"key": {carol}, "isPro": {false}, "country": {"US"}},
+			attributes: map[string][]any{"user_key": {carol}, "isPro": {false}, "country": {"US"}},
 			wantOn:     true,
 			wantReason: FallthroughReason,
 		},
 		"no rules serves fall": {
 			config:     mustNewFlagConfig(true, nil, 0.7),
-			attributes: map[string][]any{"key": {bob}, "country": {"BJ"}},
+			attributes: map[string][]any{"user_key": {bob}, "country": {"BJ"}},
 			wantOn:     true,
 			wantReason: FallthroughReason,
 		},
 		"only a key serves fall": {
 			config:     mustNewFlagConfig(true, []string{alice}, 0.3, pro),
-			attributes: map[string][]any{"key": {bob}},
+			attributes: map[string][]any{"user_key": {bob}},
 			wantOn:     false,
 			wantReason: FallthroughReason,
 		},
@@ -239,45 +245,45 @@ func TestEvaluate(t *testing.T) {
 		// On a rule error the flag is off, whatever its fallthrough value.
 		"rule error is wrapped with its index and is off": {
 			config:     mustNewFlagConfig(true, nil, 1, country, pro),
-			attributes: map[string][]any{"key": {bob}, "country": {"FR"}, "isPro": {"true"}},
+			attributes: map[string][]any{"user_key": {bob}, "country": {"FR"}, "isPro": {"true"}},
 			errStr:     `rule at index 1 errors with: clause at index 0 errors: invalid value for attribute "isPro": invalid value true`,
 		},
 
 		// The user is on when their bucket is strictly below the rollout.
 		"partial rule is on for a user below it": {
 			config:     mustNewFlagConfig(true, nil, 0, country),
-			attributes: map[string][]any{"key": {carol}, "country": {"BJ"}},
+			attributes: map[string][]any{"user_key": {carol}, "country": {"BJ"}},
 			wantOn:     true,
 			wantReason: RuleMatchReason + countryID.String(),
 		},
 		"partial rule is off for a user above it": {
 			config:     mustNewFlagConfig(true, nil, 1, country),
-			attributes: map[string][]any{"key": {bob}, "country": {"BJ"}},
+			attributes: map[string][]any{"user_key": {bob}, "country": {"BJ"}},
 			wantOn:     false,
 			wantReason: RuleMatchReason + countryID.String(),
 		},
 		"partial fall is on for a user below it": {
 			config:     mustNewFlagConfig(true, nil, 0.5),
-			attributes: map[string][]any{"key": {carol}},
+			attributes: map[string][]any{"user_key": {carol}},
 			wantOn:     true,
 			wantReason: FallthroughReason,
 		},
 		"partial fall is off for a user above it": {
 			config:     mustNewFlagConfig(true, nil, 0.5),
-			attributes: map[string][]any{"key": {bob}},
+			attributes: map[string][]any{"user_key": {bob}},
 			wantOn:     false,
 			wantReason: FallthroughReason,
 		},
 		// A matched rule's serve decides, not fall, and the other way round.
 		"matched rule ignores fall": {
 			config:     mustNewFlagConfig(true, nil, 1, mustNewRule(countryID, 0.1, mustNewClause(t, "country", eqOp, StringClause, "BJ"))),
-			attributes: map[string][]any{"key": {bob}, "country": {"BJ"}},
+			attributes: map[string][]any{"user_key": {bob}, "country": {"BJ"}},
 			wantOn:     false,
 			wantReason: RuleMatchReason + countryID.String(),
 		},
 		"fallthrough ignores unmatched rule serve": {
 			config:     mustNewFlagConfig(true, nil, 0, pro),
-			attributes: map[string][]any{"key": {carol}, "isPro": {false}},
+			attributes: map[string][]any{"user_key": {carol}, "isPro": {false}},
 			wantOn:     false,
 			wantReason: FallthroughReason,
 		},
@@ -285,43 +291,43 @@ func TestEvaluate(t *testing.T) {
 		// for everyone and 1 is on for everyone.
 		"rule serve equal to the bucket is off": {
 			config:     mustNewFlagConfig(true, nil, 1, mustNewRule(countryID, 0.5244, mustNewClause(t, "country", eqOp, StringClause, "BJ"))),
-			attributes: map[string][]any{"key": {bob}, "country": {"BJ"}},
+			attributes: map[string][]any{"user_key": {bob}, "country": {"BJ"}},
 			wantOn:     false,
 			wantReason: RuleMatchReason + countryID.String(),
 		},
 		"rule serve just above the bucket is on": {
 			config:     mustNewFlagConfig(true, nil, 0, mustNewRule(countryID, 0.5245, mustNewClause(t, "country", eqOp, StringClause, "BJ"))),
-			attributes: map[string][]any{"key": {bob}, "country": {"BJ"}},
+			attributes: map[string][]any{"user_key": {bob}, "country": {"BJ"}},
 			wantOn:     true,
 			wantReason: RuleMatchReason + countryID.String(),
 		},
 		"fall equal to the bucket is off": {
 			config:     mustNewFlagConfig(true, nil, 0.5244),
-			attributes: map[string][]any{"key": {bob}},
+			attributes: map[string][]any{"user_key": {bob}},
 			wantOn:     false,
 			wantReason: FallthroughReason,
 		},
 		"rule serve 0 is off for the lowest bucket": {
 			config:     mustNewFlagConfig(true, nil, 1, off),
-			attributes: map[string][]any{"key": {minBucket}, "country": {"FR"}},
+			attributes: map[string][]any{"user_key": {minBucket}, "country": {"FR"}},
 			wantOn:     false,
 			wantReason: RuleMatchReason + offID.String(),
 		},
 		"fall 0 is off for the lowest bucket": {
 			config:     mustNewFlagConfig(true, nil, 0),
-			attributes: map[string][]any{"key": {minBucket}},
+			attributes: map[string][]any{"user_key": {minBucket}},
 			wantOn:     false,
 			wantReason: FallthroughReason,
 		},
 		"rule serve 1 is on for the highest bucket": {
 			config:     mustNewFlagConfig(true, nil, 0, pro),
-			attributes: map[string][]any{"key": {maxBucket}, "isPro": {true}},
+			attributes: map[string][]any{"user_key": {maxBucket}, "isPro": {true}},
 			wantOn:     true,
 			wantReason: RuleMatchReason + proID.String(),
 		},
 		"fall 1 is on for the highest bucket": {
 			config:     mustNewFlagConfig(true, nil, 1),
-			attributes: map[string][]any{"key": {maxBucket}},
+			attributes: map[string][]any{"user_key": {maxBucket}},
 			wantOn:     true,
 			wantReason: FallthroughReason,
 		},
@@ -330,27 +336,27 @@ func TestEvaluate(t *testing.T) {
 		// NewFlagConfig, so they're built by hand.
 		"config with no salt rejected": {
 			config:     FlagConfig{enabled: true, id: testFlagID, fall: 1},
-			attributes: map[string][]any{"key": {bob}},
+			attributes: map[string][]any{"user_key": {bob}},
 			errStr:     "flag config with no salt",
 		},
 		"config with no id rejected": {
 			config:     FlagConfig{enabled: true, salt: "s4lt", fall: 1},
-			attributes: map[string][]any{"key": {bob}},
+			attributes: map[string][]any{"user_key": {bob}},
 			errStr:     "flag config with no id",
 		},
 		"config checked before the allowlist": {
 			config:     FlagConfig{enabled: true, allowlist: map[string]struct{}{alice: {}}},
-			attributes: map[string][]any{"key": {alice}},
+			attributes: map[string][]any{"user_key": {alice}},
 			errStr:     "flag config with no salt",
 		},
-		"config checked before the key attribute": {
+		"config checked before the user_key attribute": {
 			config:     FlagConfig{enabled: true, salt: "s4lt"},
 			attributes: map[string][]any{},
 			errStr:     "flag config with no id",
 		},
 		"disabled config with no salt or id is off": {
 			config:     FlagConfig{},
-			attributes: map[string][]any{"key": {bob}},
+			attributes: map[string][]any{"user_key": {bob}},
 			wantOn:     false,
 			wantReason: MasterSwitchReason,
 		},
@@ -389,7 +395,7 @@ func TestEvaluateUnwrapsRuleError(t *testing.T) {
 		t.Fatalf("NewFlagConfig(): %v", err)
 	}
 
-	_, _, err = Evaluate(cfg, map[string][]any{"key": {"user-alice"}})
+	_, _, err = Evaluate(cfg, map[string][]any{"user_key": {"user-alice"}})
 	if !errors.Is(err, errBoom) {
 		t.Fatalf("Evaluate() error = %v, want it to wrap %v", err, errBoom)
 	}
@@ -442,7 +448,7 @@ func TestEvaluateRollout(t *testing.T) {
 		}
 		out := make([]bool, users)
 		for i := range out {
-			out[i], _, err = Evaluate(cfg, map[string][]any{"key": {fmt.Sprintf("user-%d", i)}})
+			out[i], _, err = Evaluate(cfg, map[string][]any{"user_key": {fmt.Sprintf("user-%d", i)}})
 			if err != nil {
 				t.Fatalf("Evaluate(): %v", err)
 			}
@@ -533,7 +539,7 @@ func TestEvaluateRaisingRolloutKeepsUsersOnProperty(t *testing.T) {
 		if salt == "" || userKey == "" {
 			return true
 		}
-		attributes := map[string][]any{"key": {userKey}}
+		attributes := map[string][]any{"user_key": {userKey}}
 		at := func(fall float32) bool {
 			cfg, err := NewFlagConfig(true, salt, testFlagID, nil, nil, fall)
 			if err != nil {

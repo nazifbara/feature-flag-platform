@@ -24,27 +24,27 @@ func Evaluate(flagConfig FlagConfig, attributes map[string][]any) (on bool, reas
 	if flagConfig.id == uuid.Nil() {
 		return false, "", errors.New("flag config with no id")
 	}
-	key, ok := attributes["key"]
-	keyString := ""
+	userKey, ok := attributes["user_key"]
+	userKeyString := ""
 	if ok {
-		if len(key) != 1 {
-			return false, "", fmt.Errorf("the key attribute must have exactly one value, got: %d", len(key))
+		if len(userKey) != 1 {
+			return false, "", fmt.Errorf("the user_key attribute must have exactly one value, got: %d", len(userKey))
 		}
-		keyString, ok = key[0].(string)
+		userKeyString, ok = userKey[0].(string)
 		if !ok {
-			return false, "", errors.New("the key attribute must be a string")
+			return false, "", errors.New("the user_key attribute must be a string")
 		}
-		if keyString == "" {
-			return false, "", fmt.Errorf("the key attribute value is required")
+		if userKeyString == "" {
+			return false, "", fmt.Errorf("the user_key attribute value is required")
 		}
-		if _, ok = flagConfig.allowlist[keyString]; ok {
+		if _, ok = flagConfig.allowlist[userKeyString]; ok {
 			return true, AllowlistMatchReason, nil
 		}
 	} else {
-		return false, "", errors.New("the key attribute is required")
+		return false, "", errors.New("the user_key attribute is required")
 	}
 
-	userBucket := bucket(flagConfig.salt, flagConfig.id, keyString)
+	userBucket := bucket(flagConfig.salt, flagConfig.id, userKeyString)
 
 	for i, rule := range flagConfig.rules {
 		serve, matched, err := rule.Match(attributes)
