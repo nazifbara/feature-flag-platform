@@ -26,3 +26,10 @@ SELECT fs.* FROM flag_settings fs
 JOIN environments e ON e.id = fs.environment_id
 WHERE fs.flag_id = $1
 ORDER BY e.created_at ASC, e.id ASC;
+
+-- name: ListSettingsByEnv :many
+SELECT sqlc.embed(fs), f.key
+FROM flag_settings fs
+JOIN flags f ON f.id = fs.flag_id
+WHERE fs.environment_id = $1
+ORDER BY f.key;
