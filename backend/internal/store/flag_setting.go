@@ -62,3 +62,13 @@ func (s *Store) ListSettingsByFlag(ctx context.Context, flagID uuid.UUID) ([]dat
 	}
 	return settings, nil
 }
+
+// ListSettingsByEnv gets an environment's settings for all flags, each with
+// its flag's key, ordered by key.
+func (s *Store) ListSettingsByEnv(ctx context.Context, environmentID uuid.UUID) ([]database.ListSettingsByEnvRow, error) {
+	settings, err := s.Queries.ListSettingsByEnv(ctx, environmentID)
+	if err != nil {
+		return nil, ffserrors.FromDBErr(err)
+	}
+	return settings, nil
+}

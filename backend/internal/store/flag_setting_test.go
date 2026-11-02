@@ -1033,3 +1033,184 @@ func TestListSettingsByFlagReportsErrors(t *testing.T) {
 		}
 	})
 }
+
+func TestListSettingsByEnv(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	list := func(t *testing.T, envID uuid.UUID) []database.ListSettingsByEnvRow {
+		t.Helper()
+		got, err := store.ListSettingsByEnv(ctx, envID)
+		if err != nil {
+			t.Fatalf("ListSettingsByEnv(%v): %v", envID, err)
+		}
+		return got
+	}
+	keys := func(rows []database.ListSettingsByEnvRow) []string {
+		var out []string
+		for _, r := range rows {
+			out = append(out, r.Key)
+		}
+		return out
+	}
+
+	// Each setting comes back as stored, paired with its own flag's key.
+	t.Run("returns each setting with its flag's key", func(t *testing.T) {
+		resetDB(t, store.db)
+		env := mustCreateEnv(t, store, "production")
+		a := mustCreateFlag(t, store, "a")
+		b := mustCreateFlag(t, store, "b")
+		want := []database.ListSettingsByEnvRow{
+			{FlagSetting: mustCreateFlagSetting(t, store, database.CreateFlagSettingParams{FlagID: a.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: 1}), Key: "a"},
+			{FlagSetting: mustCreateFlagSetting(t, store, database.CreateFlagSettingParams{FlagID: b.ID, EnvironmentID: env.ID, Fallthrough: 0.25}), Key: "b"},
+		}
+		if diff := cmp.Diff(want, list(t, env.ID)); diff != "" {
+			t.Fatalf("ListSettingsByEnv() mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	// Rows follow the keys, not the order the flags or settings were made in.
+	t.Run("ordered by key", func(t *testing.T) {
+		resetDB(t, store.db)
+		env := mustCreateEnv(t, store, "production")
+		flags := []database.Flag{mustCreateFlag(t, store, "c"), mustCreateFlag(t, store, "a"), mustCreateFlag(t, store, "b")}
+		for _, i := range []int{1, 2, 0} {
+			mustCreateFlagSetting(t, store, database.CreateFlagSettingParams{FlagID: flags[i].ID, EnvironmentID: env.ID})
+		}
+		if diff := cmp.Diff([]string{"a", "b", "c"}, keys(list(t, env.ID))); diff != "" {
+			t.Fatalf("ListSettingsByEnv() order mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	// The key is read from the flag, so a new key shows, in its new place.
+	t.Run("follows a flag's new key", func(t *testing.T) {
+		resetDB(t, store.db)
+		env := mustCreateEnv(t, store, "production")
+		a := mustCreateFlag(t, store, "a")
+		b := mustCreateFlag(t, store, "b")
+		for _, f := range []database.Flag{a, b} {
+			mustCreateFlagSetting(t, store, database.CreateFlagSettingParams{FlagID: f.ID, EnvironmentID: env.ID})
+		}
+		if _, err := store.UpdateFlag(ctx, a.ID, "c"); err != nil {
+			t.Fatalf("UpdateFlag(): %v", err)
+		}
+		got := list(t, env.ID)
+		if diff := cmp.Diff([]string{"b", "c"}, keys(got)); diff != "" {
+			t.Fatalf("ListSettingsByEnv() mismatch (-want +got):\n%s", diff)
+		}
+		if got[1].FlagSetting.FlagID != a.ID {
+			t.Fatalf("key %q paired with flag %v, want %v", got[1].Key, got[1].FlagSetting.FlagID, a.ID)
+		}
+	})
+
+	// A flag's settings in other environments are left out.
+	t.Run("only the given environment", func(t *testing.T) {
+		resetDB(t, store.db)
+		flags := []database.Flag{mustCreateFlag(t, store, "a"), mustCreateFlag(t, store, "b")}
+		envs := []database.Environment{mustCreateEnv(t, store, "staging"), mustCreateEnv(t, store, "production")}
+		for _, f := range flags {
+			for _, e := range envs {
+				mustCreateFlagSetting(t, store, database.CreateFlagSettingParams{FlagID: f.ID, EnvironmentID: e.ID})
+			}
+		}
+		for _, e := range envs {
+			got := list(t, e.ID)
+			if len(got) != len(flags) {
+				t.Fatalf("ListSettingsByEnv(%s) returned %d rows, want %d", e.Name, len(got), len(flags))
+			}
+			for _, r := range got {
+				if r.FlagSetting.EnvironmentID != e.ID {
+					t.Fatalf("ListSettingsByEnv(%s) returned a setting of environment %v", e.Name, r.FlagSetting.EnvironmentID)
+				}
+			}
+		}
+	})
+
+	// A flag's settings go with it, so it drops out of the list.
+	t.Run("deleted flag is left out", func(t *testing.T) {
+		resetDB(t, store.db)
+		env := mustCreateEnv(t, store, "production")
+		a := mustCreateFlag(t, store, "a")
+		b := mustCreateFlag(t, store, "b")
+		for _, f := range []database.Flag{a, b} {
+			mustCreateFlagSetting(t, store, database.CreateFlagSettingParams{FlagID: f.ID, EnvironmentID: env.ID})
+		}
+		if _, err := store.DeleteFlag(ctx, a.ID); err != nil {
+			t.Fatalf("DeleteFlag(): %v", err)
+		}
+		if diff := cmp.Diff([]string{"b"}, keys(list(t, env.ID))); diff != "" {
+			t.Fatalf("ListSettingsByEnv() mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	// No settings is not an error, whether or not the environment exists.
+	t.Run("empty", func(t *testing.T) {
+		resetDB(t, store.db)
+		env := mustCreateEnv(t, store, "staging")
+		other := mustCreateEnv(t, store, "production")
+		flag := mustCreateFlag(t, store, "new-checkout")
+		s := mustCreateFlagSetting(t, store, database.CreateFlagSettingParams{FlagID: flag.ID, EnvironmentID: other.ID})
+		tests := map[string]uuid.UUID{
+			"environment without settings": env.ID,
+			"unknown environment":          uuid.New(),
+			"zero ID":                      uuid.Nil,
+			// Neither is an environment ID.
+			"flag ID":    flag.ID,
+			"setting ID": s.ID,
+		}
+		for name, id := range tests {
+			t.Run(name, func(t *testing.T) {
+				if got := list(t, id); len(got) != 0 {
+					t.Fatalf("ListSettingsByEnv(%v) = %+v, want none", id, got)
+				}
+			})
+		}
+	})
+}
+
+func TestListSettingsByEnvReportsErrors(t *testing.T) {
+	store := newTestStore(t)
+	flag := mustCreateFlag(t, store, "new-checkout")
+	env := mustCreateEnv(t, store, "production")
+	mustCreateFlagSetting(t, store, database.CreateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID})
+
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	expired, cancelExpired := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancelExpired()
+
+	tests := map[string]struct {
+		ctx  context.Context
+		want *connect.Error
+	}{
+		"canceled context": {
+			ctx:  canceled,
+			want: connect.NewError(connect.CodeCanceled, connect.CodeCanceled.String()),
+		},
+		"expired deadline": {
+			ctx:  expired,
+			want: connect.NewError(connect.CodeDeadlineExceeded, connect.CodeDeadlineExceeded.String()),
+		},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			got, err := store.ListSettingsByEnv(test.ctx, env.ID)
+			wantConnectErr(t, err, test.want)
+			if got != nil {
+				t.Fatalf("ListSettingsByEnv() = %+v on error, want nil", got)
+			}
+		})
+	}
+
+	// Run last: it closes the connection pool the other cases use.
+	t.Run("closed database is internal", func(t *testing.T) {
+		if err := store.db.Close(); err != nil {
+			t.Fatalf("closing the database: %v", err)
+		}
+		got, err := store.ListSettingsByEnv(context.Background(), env.ID)
+		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, connect.CodeInternal.String()))
+		if got != nil {
+			t.Fatalf("ListSettingsByEnv() = %+v on error, want nil", got)
+		}
+	})
+}
