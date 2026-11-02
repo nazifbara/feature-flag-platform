@@ -6,10 +6,10 @@ import (
 	"math"
 	"testing"
 	"time"
+	"uuid"
 
 	"connectrpc.com/connect/v2"
 	"github.com/google/go-cmp/cmp"
-	"github.com/google/uuid"
 	"github.com/nazifbara/flagsvc/backend/internal/database"
 )
 
@@ -63,7 +63,7 @@ func TestCreateFlagSetting(t *testing.T) {
 		if err != nil {
 			t.Fatalf("CreateFlagSetting(): %v", err)
 		}
-		if got.ID == uuid.Nil {
+		if got.ID == uuid.Nil() {
 			t.Error("CreateFlagSetting() returned a zero ID")
 		}
 		if got.FlagID != flag.ID || got.EnvironmentID != env.ID {
@@ -274,8 +274,8 @@ func TestCreateFlagSettingNotFound(t *testing.T) {
 		"unknown flag":        {uuid.New(), env.ID},
 		"unknown environment": {flag.ID, uuid.New()},
 		"both unknown":        {uuid.New(), uuid.New()},
-		"zero flag ID":        {uuid.Nil, env.ID},
-		"zero environment ID": {flag.ID, uuid.Nil},
+		"zero flag ID":        {uuid.Nil(), env.ID},
+		"zero environment ID": {flag.ID, uuid.Nil()},
 		// Easy to do with two arguments of the same type.
 		"IDs swapped": {env.ID, flag.ID},
 	}
@@ -972,7 +972,7 @@ func TestListSettingsByFlag(t *testing.T) {
 		tests := map[string]uuid.UUID{
 			"flag without settings": flag.ID,
 			"unknown flag":          uuid.New(),
-			"zero ID":               uuid.Nil,
+			"zero ID":               uuid.Nil(),
 			// Neither is a flag ID.
 			"environment ID": env.ID,
 			"setting ID":     s.ID,
@@ -1153,7 +1153,7 @@ func TestListSettingsByEnv(t *testing.T) {
 		tests := map[string]uuid.UUID{
 			"environment without settings": env.ID,
 			"unknown environment":          uuid.New(),
-			"zero ID":                      uuid.Nil,
+			"zero ID":                      uuid.Nil(),
 			// Neither is an environment ID.
 			"flag ID":    flag.ID,
 			"setting ID": s.ID,

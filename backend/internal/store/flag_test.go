@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"uuid"
 
 	"connectrpc.com/connect/v2"
 	"github.com/google/go-cmp/cmp"
-	"github.com/google/uuid"
 	"github.com/nazifbara/flagsvc/backend/internal/database"
 )
 
@@ -50,7 +50,7 @@ func TestCreateFlag(t *testing.T) {
 		if got.Key != "new-checkout" {
 			t.Errorf("CreateFlag().Key = %q, want %q", got.Key, "new-checkout")
 		}
-		if got.ID == uuid.Nil {
+		if got.ID == uuid.Nil() {
 			t.Error("CreateFlag() returned a zero ID")
 		}
 		// A new flag has never been updated.
@@ -353,7 +353,7 @@ func TestGetFlag(t *testing.T) {
 		}
 	})
 	t.Run("zero ID is not found", func(t *testing.T) {
-		_, err := store.GetFlag(ctx, uuid.Nil)
+		_, err := store.GetFlag(ctx, uuid.Nil())
 		wantConnectErr(t, err, notFound)
 	})
 	// Flags and environments live in separate tables, so an environment's
@@ -663,7 +663,7 @@ func TestUpdateFlagNotFound(t *testing.T) {
 	})
 	t.Run("zero ID", func(t *testing.T) {
 		resetDB(t, store.db)
-		_, err := store.UpdateFlag(ctx, uuid.Nil, "checkout-v2")
+		_, err := store.UpdateFlag(ctx, uuid.Nil(), "checkout-v2")
 		wantConnectErr(t, err, notFound)
 	})
 	t.Run("deleted flag", func(t *testing.T) {
@@ -848,7 +848,7 @@ func TestDeleteFlag(t *testing.T) {
 		f := mustCreateFlag(t, store, "new-checkout")
 		env := mustCreateEnv(t, store, "production")
 		// An environment's ID never matches a flag.
-		for _, id := range []uuid.UUID{uuid.New(), uuid.Nil, env.ID} {
+		for _, id := range []uuid.UUID{uuid.New(), uuid.Nil(), env.ID} {
 			got, err := store.DeleteFlag(ctx, id)
 			wantConnectErr(t, err, notFound)
 			if got != (database.Flag{}) {
