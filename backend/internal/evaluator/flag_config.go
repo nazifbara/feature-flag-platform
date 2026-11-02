@@ -10,8 +10,9 @@ import (
 
 // FlagConfig represents the flag setting
 type FlagConfig struct {
-	// key identifies the flag
-	key string
+	// id identifies the flag and is mixed into the hash, so flags stay
+	// independent and renaming one moves nobody
+	id uuid.UUID
 	// salt is mixed into the hash that buckets users for percentage rollouts
 	salt string
 	// enabled is the master switch. When true we procces with the
@@ -29,7 +30,7 @@ type FlagConfig struct {
 }
 
 // NewFlagConfig ensure the creation of a valid FlagConfig
-func NewFlagConfig(enabled bool, flagSalt, flagKey string, allowlist map[string]struct{}, rules []Rule, fall float32) (FlagConfig, error) {
+func NewFlagConfig(enabled bool, flagSalt string, flagID uuid.UUID, allowlist map[string]struct{}, rules []Rule, fall float32) (FlagConfig, error) {
 	rulesCopy := slices.Clone(rules)
 	allowlistCopy := maps.Clone(allowlist)
 
@@ -37,8 +38,8 @@ func NewFlagConfig(enabled bool, flagSalt, flagKey string, allowlist map[string]
 		return FlagConfig{}, fmt.Errorf("the flagSalt is required")
 	}
 
-	if flagKey == "" {
-		return FlagConfig{}, fmt.Errorf("the flagKey is required")
+	if flagID == uuid.Nil() {
+		return FlagConfig{}, fmt.Errorf("the flagID is required")
 	}
 
 	if !(0 <= fall && fall <= 1) {
@@ -59,7 +60,7 @@ func NewFlagConfig(enabled bool, flagSalt, flagKey string, allowlist map[string]
 	}
 
 	return FlagConfig{
-		key:       flagKey,
+		id:        flagID,
 		salt:      flagSalt,
 		enabled:   enabled,
 		allowlist: allowlistCopy,

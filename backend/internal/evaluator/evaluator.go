@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"hash/fnv"
+	"uuid"
 )
 
 const (
@@ -20,8 +21,8 @@ func Evaluate(flagConfig FlagConfig, attributes map[string][]any) (on bool, reas
 	if flagConfig.salt == "" {
 		return false, "", errors.New("flag config with no salt")
 	}
-	if flagConfig.key == "" {
-		return false, "", errors.New("flag config with no key")
+	if flagConfig.id == uuid.Nil() {
+		return false, "", errors.New("flag config with no id")
 	}
 	key, ok := attributes["key"]
 	keyString := ""
@@ -43,7 +44,7 @@ func Evaluate(flagConfig FlagConfig, attributes map[string][]any) (on bool, reas
 		return false, "", errors.New("the key attribute is required")
 	}
 
-	userBucket := bucket(flagConfig.salt, flagConfig.key, keyString)
+	userBucket := bucket(flagConfig.salt, flagConfig.id, keyString)
 
 	for i, rule := range flagConfig.rules {
 		serve, matched, err := rule.Match(attributes)
@@ -58,10 +59,12 @@ func Evaluate(flagConfig FlagConfig, attributes map[string][]any) (on bool, reas
 	return userBucket < flagConfig.fall, FallthroughReason, nil
 }
 
-// bucket gives the user's rollout percentage bucket in 0.01% granularity
-func bucket(salt, flagKey, userKey string) float32 {
+// bucket gives the user's rollout percentage bucket in 0.01% granularity.
+// It hashes the flag's ID, not its key, so renaming a flag doesn't reshuffle
+// its users.
+func bucket(salt string, flagID uuid.UUID, userKey string) float32 {
 	h := fnv.New32a()
 	// hash.Hash's Write never returns an error.
-	_, _ = h.Write([]byte(salt + "." + flagKey + "." + userKey))
+	_, _ = h.Write([]byte(salt + "." + flagID.String() + "." + userKey))
 	return float32(h.Sum32()%10000) / 10000
 }
