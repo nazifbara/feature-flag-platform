@@ -12,3 +12,6 @@ INSERT INTO rules (
 )
 SELECT gen_random_uuid(), $1, $2, $3, $4, $5, ts, ts FROM now
 RETURNING *;
+
+-- name: GetRule :one
+SELECT * FROM rules WHERE id = $1;
