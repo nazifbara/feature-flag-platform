@@ -231,7 +231,7 @@ func TestCreateFlagRejectsInvalidKey(t *testing.T) {
 func TestCreateFlagRejectsDuplicateKey(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
-	exists := connect.NewError(connect.CodeAlreadyExists, connect.CodeAlreadyExists.String())
+	exists := connect.NewError(connect.CodeAlreadyExists, "can't create the flag")
 
 	for _, key := range []string{"new-checkout", "New-Checkout", "NEW-CHECKOUT", "  new-checkout  ", "\tNew-Checkout\n"} {
 		t.Run(key, func(t *testing.T) {
@@ -269,11 +269,11 @@ func TestCreateFlagReportsErrors(t *testing.T) {
 	}{
 		"canceled context": {
 			ctx:  canceled,
-			want: connect.NewError(connect.CodeCanceled, connect.CodeCanceled.String()),
+			want: connect.NewError(connect.CodeCanceled, "can't create the flag"),
 		},
 		"expired deadline": {
 			ctx:  expired,
-			want: connect.NewError(connect.CodeDeadlineExceeded, connect.CodeDeadlineExceeded.String()),
+			want: connect.NewError(connect.CodeDeadlineExceeded, "can't create the flag"),
 		},
 	}
 	for name, test := range tests {
@@ -295,7 +295,7 @@ func TestCreateFlagReportsErrors(t *testing.T) {
 			t.Fatalf("closing the database: %v", err)
 		}
 		got, err := store.CreateFlag(context.Background(), "new-checkout")
-		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, connect.CodeInternal.String()))
+		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, "can't create the flag"))
 		if got != (database.Flag{}) {
 			t.Fatalf("CreateFlag() = %+v on error, want the zero Flag", got)
 		}
@@ -364,7 +364,7 @@ func TestGetFlag(t *testing.T) {
 		}
 	})
 
-	notFound := connect.NewError(connect.CodeNotFound, connect.CodeNotFound.String())
+	notFound := connect.NewError(connect.CodeNotFound, "can't get the flag")
 	t.Run("unknown ID is not found", func(t *testing.T) {
 		got, err := store.GetFlag(ctx, uuid.New())
 		wantConnectErr(t, err, notFound)
@@ -415,11 +415,11 @@ func TestGetFlagReportsErrors(t *testing.T) {
 	}{
 		"canceled context": {
 			ctx:  canceled,
-			want: connect.NewError(connect.CodeCanceled, connect.CodeCanceled.String()),
+			want: connect.NewError(connect.CodeCanceled, "can't get the flag"),
 		},
 		"expired deadline": {
 			ctx:  expired,
-			want: connect.NewError(connect.CodeDeadlineExceeded, connect.CodeDeadlineExceeded.String()),
+			want: connect.NewError(connect.CodeDeadlineExceeded, "can't get the flag"),
 		},
 	}
 	for name, test := range tests {
@@ -438,7 +438,7 @@ func TestGetFlagReportsErrors(t *testing.T) {
 			t.Fatalf("closing the database: %v", err)
 		}
 		got, err := store.GetFlag(context.Background(), f.ID)
-		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, connect.CodeInternal.String()))
+		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, "can't get the flag"))
 		if got != (database.Flag{}) {
 			t.Fatalf("GetFlag() = %+v on error, want the zero Flag", got)
 		}
@@ -645,7 +645,7 @@ func TestUpdateFlagRejectsInvalidKey(t *testing.T) {
 func TestUpdateFlagRejectsDuplicateKey(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
-	exists := connect.NewError(connect.CodeAlreadyExists, connect.CodeAlreadyExists.String())
+	exists := connect.NewError(connect.CodeAlreadyExists, "can't update the flag")
 
 	for _, key := range []string{"new-checkout", "New-Checkout", "NEW-CHECKOUT", "  new-checkout  ", "\tNew-Checkout\n"} {
 		t.Run(key, func(t *testing.T) {
@@ -670,7 +670,7 @@ func TestUpdateFlagRejectsDuplicateKey(t *testing.T) {
 func TestUpdateFlagNotFound(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
-	notFound := connect.NewError(connect.CodeNotFound, connect.CodeNotFound.String())
+	notFound := connect.NewError(connect.CodeNotFound, "can't update the flag")
 
 	t.Run("unknown ID", func(t *testing.T) {
 		resetDB(t, store.db)
@@ -735,11 +735,11 @@ func TestUpdateFlagReportsErrors(t *testing.T) {
 	}{
 		"canceled context": {
 			ctx:  canceled,
-			want: connect.NewError(connect.CodeCanceled, connect.CodeCanceled.String()),
+			want: connect.NewError(connect.CodeCanceled, "can't update the flag"),
 		},
 		"expired deadline": {
 			ctx:  expired,
-			want: connect.NewError(connect.CodeDeadlineExceeded, connect.CodeDeadlineExceeded.String()),
+			want: connect.NewError(connect.CodeDeadlineExceeded, "can't update the flag"),
 		},
 	}
 	for name, test := range tests {
@@ -761,7 +761,7 @@ func TestUpdateFlagReportsErrors(t *testing.T) {
 			t.Fatalf("closing the database: %v", err)
 		}
 		got, err := store.UpdateFlag(context.Background(), f.ID, "checkout-v2")
-		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, connect.CodeInternal.String()))
+		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, "can't update the flag"))
 		if got != (database.Flag{}) {
 			t.Fatalf("UpdateFlag() = %+v on error, want the zero Flag", got)
 		}
@@ -771,7 +771,10 @@ func TestUpdateFlagReportsErrors(t *testing.T) {
 func TestDeleteFlag(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
-	notFound := connect.NewError(connect.CodeNotFound, connect.CodeNotFound.String())
+	notFound := connect.NewError(connect.CodeNotFound, "can't delete the flag")
+	// What the getters report once the flag and its settings are gone.
+	flagGone := connect.NewError(connect.CodeNotFound, "can't get the flag")
+	settingGone := connect.NewError(connect.CodeNotFound, "can't get the flag setting")
 
 	t.Run("deletes and returns the flag as it was", func(t *testing.T) {
 		resetDB(t, store.db)
@@ -784,7 +787,7 @@ func TestDeleteFlag(t *testing.T) {
 			t.Fatalf("DeleteFlag() mismatch (-want +got):\n%s", diff)
 		}
 		_, err = store.GetFlag(ctx, f.ID)
-		wantConnectErr(t, err, notFound)
+		wantConnectErr(t, err, flagGone)
 	})
 
 	// The returned flag is the last saved version, not the created one.
@@ -839,7 +842,7 @@ func TestDeleteFlag(t *testing.T) {
 		}
 		for _, e := range envs {
 			_, err := store.GetFlagSetting(ctx, database.GetFlagSettingParams{FlagID: f.ID, EnvironmentID: e.ID})
-			wantConnectErr(t, err, notFound)
+			wantConnectErr(t, err, settingGone)
 			if diff := cmp.Diff(e, mustGetEnv(t, store, e.ID)); diff != "" {
 				t.Fatalf("environment %s changed (-want +got):\n%s", e.Name, diff)
 			}
@@ -902,7 +905,7 @@ func TestDeleteFlag(t *testing.T) {
 			t.Fatalf("recreated flag reused salt %q", old.Salt)
 		}
 		_, err := store.GetFlagSetting(ctx, database.GetFlagSettingParams{FlagID: reborn.ID, EnvironmentID: env.ID})
-		wantConnectErr(t, err, notFound)
+		wantConnectErr(t, err, settingGone)
 	})
 }
 
@@ -948,11 +951,11 @@ func TestDeleteFlagReportsErrors(t *testing.T) {
 	}{
 		"canceled context": {
 			ctx:  canceled,
-			want: connect.NewError(connect.CodeCanceled, connect.CodeCanceled.String()),
+			want: connect.NewError(connect.CodeCanceled, "can't delete the flag"),
 		},
 		"expired deadline": {
 			ctx:  expired,
-			want: connect.NewError(connect.CodeDeadlineExceeded, connect.CodeDeadlineExceeded.String()),
+			want: connect.NewError(connect.CodeDeadlineExceeded, "can't delete the flag"),
 		},
 	}
 	for name, test := range tests {
@@ -974,7 +977,7 @@ func TestDeleteFlagReportsErrors(t *testing.T) {
 			t.Fatalf("closing the database: %v", err)
 		}
 		got, err := store.DeleteFlag(context.Background(), f.ID)
-		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, connect.CodeInternal.String()))
+		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, "can't delete the flag"))
 		if got != (database.Flag{}) {
 			t.Fatalf("DeleteFlag() = %+v on error, want the zero Flag", got)
 		}

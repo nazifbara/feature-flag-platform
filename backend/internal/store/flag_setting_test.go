@@ -248,7 +248,7 @@ func TestCreateFlagSettingRejectsDuplicate(t *testing.T) {
 		Enabled:       false,
 		Fallthrough:   0.75,
 	})
-	wantConnectErr(t, err, connect.NewError(connect.CodeAlreadyExists, connect.CodeAlreadyExists.String()))
+	wantConnectErr(t, err, connect.NewError(connect.CodeAlreadyExists, "can't create the flag setting"))
 	if got != (database.FlagSetting{}) {
 		t.Fatalf("CreateFlagSetting() = %+v on error, want the zero FlagSetting", got)
 	}
@@ -264,7 +264,7 @@ func TestCreateFlagSettingRejectsDuplicate(t *testing.T) {
 func TestCreateFlagSettingNotFound(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
-	notFound := connect.NewError(connect.CodeNotFound, connect.CodeNotFound.String())
+	notFound := connect.NewError(connect.CodeNotFound, "can't create the flag setting")
 
 	resetDB(t, store.db)
 	flag := mustCreateFlag(t, store, "new-checkout")
@@ -370,11 +370,11 @@ func TestCreateFlagSettingReportsErrors(t *testing.T) {
 	}{
 		"canceled context": {
 			ctx:  canceled,
-			want: connect.NewError(connect.CodeCanceled, connect.CodeCanceled.String()),
+			want: connect.NewError(connect.CodeCanceled, "can't create the flag setting"),
 		},
 		"expired deadline": {
 			ctx:  expired,
-			want: connect.NewError(connect.CodeDeadlineExceeded, connect.CodeDeadlineExceeded.String()),
+			want: connect.NewError(connect.CodeDeadlineExceeded, "can't create the flag setting"),
 		},
 	}
 	for name, test := range tests {
@@ -396,7 +396,7 @@ func TestCreateFlagSettingReportsErrors(t *testing.T) {
 			t.Fatalf("closing the database: %v", err)
 		}
 		got, err := store.CreateFlagSetting(context.Background(), arg)
-		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, connect.CodeInternal.String()))
+		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, "can't create the flag setting"))
 		if got != (database.FlagSetting{}) {
 			t.Fatalf("CreateFlagSetting() = %+v on error, want the zero FlagSetting", got)
 		}
@@ -435,7 +435,7 @@ func TestGetFlagSetting(t *testing.T) {
 		})
 	}
 
-	notFound := connect.NewError(connect.CodeNotFound, connect.CodeNotFound.String())
+	notFound := connect.NewError(connect.CodeNotFound, "can't get the flag setting")
 	t.Run("not found", func(t *testing.T) {
 		flag, env := flags[0], envs[0]
 		tests := map[string]database.GetFlagSettingParams{
@@ -495,11 +495,11 @@ func TestGetFlagSettingReportsErrors(t *testing.T) {
 	}{
 		"canceled context": {
 			ctx:  canceled,
-			want: connect.NewError(connect.CodeCanceled, connect.CodeCanceled.String()),
+			want: connect.NewError(connect.CodeCanceled, "can't get the flag setting"),
 		},
 		"expired deadline": {
 			ctx:  expired,
-			want: connect.NewError(connect.CodeDeadlineExceeded, connect.CodeDeadlineExceeded.String()),
+			want: connect.NewError(connect.CodeDeadlineExceeded, "can't get the flag setting"),
 		},
 	}
 	for name, test := range tests {
@@ -518,7 +518,7 @@ func TestGetFlagSettingReportsErrors(t *testing.T) {
 			t.Fatalf("closing the database: %v", err)
 		}
 		got, err := store.GetFlagSetting(context.Background(), arg)
-		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, connect.CodeInternal.String()))
+		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, "can't get the flag setting"))
 		if got != (database.FlagSetting{}) {
 			t.Fatalf("GetFlagSetting() = %+v on error, want the zero FlagSetting", got)
 		}
@@ -715,7 +715,7 @@ func TestUpdateFlagSettingRejectsInvalidFallthrough(t *testing.T) {
 func TestUpdateFlagSettingNotFound(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
-	notFound := connect.NewError(connect.CodeNotFound, connect.CodeNotFound.String())
+	notFound := connect.NewError(connect.CodeNotFound, "can't update the flag setting")
 
 	flag := mustCreateFlag(t, store, "new-checkout")
 	env := mustCreateEnv(t, store, "production")
@@ -792,11 +792,11 @@ func TestUpdateFlagSettingReportsErrors(t *testing.T) {
 	}{
 		"canceled context": {
 			ctx:  canceled,
-			want: connect.NewError(connect.CodeCanceled, connect.CodeCanceled.String()),
+			want: connect.NewError(connect.CodeCanceled, "can't update the flag setting"),
 		},
 		"expired deadline": {
 			ctx:  expired,
-			want: connect.NewError(connect.CodeDeadlineExceeded, connect.CodeDeadlineExceeded.String()),
+			want: connect.NewError(connect.CodeDeadlineExceeded, "can't update the flag setting"),
 		},
 	}
 	for name, test := range tests {
@@ -818,7 +818,7 @@ func TestUpdateFlagSettingReportsErrors(t *testing.T) {
 			t.Fatalf("closing the database: %v", err)
 		}
 		got, err := store.UpdateFlagSetting(context.Background(), arg)
-		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, connect.CodeInternal.String()))
+		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, "can't update the flag setting"))
 		if got != (database.FlagSetting{}) {
 			t.Fatalf("UpdateFlagSetting() = %+v on error, want the zero FlagSetting", got)
 		}
@@ -1004,11 +1004,11 @@ func TestListSettingsByFlagReportsErrors(t *testing.T) {
 	}{
 		"canceled context": {
 			ctx:  canceled,
-			want: connect.NewError(connect.CodeCanceled, connect.CodeCanceled.String()),
+			want: connect.NewError(connect.CodeCanceled, "can't list the flag's settings"),
 		},
 		"expired deadline": {
 			ctx:  expired,
-			want: connect.NewError(connect.CodeDeadlineExceeded, connect.CodeDeadlineExceeded.String()),
+			want: connect.NewError(connect.CodeDeadlineExceeded, "can't list the flag's settings"),
 		},
 	}
 	for name, test := range tests {
@@ -1027,7 +1027,7 @@ func TestListSettingsByFlagReportsErrors(t *testing.T) {
 			t.Fatalf("closing the database: %v", err)
 		}
 		got, err := store.ListSettingsByFlag(context.Background(), flag.ID)
-		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, connect.CodeInternal.String()))
+		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, "can't list the flag's settings"))
 		if got != nil {
 			t.Fatalf("ListSettingsByFlag() = %+v on error, want nil", got)
 		}
@@ -1185,11 +1185,11 @@ func TestListSettingsByEnvReportsErrors(t *testing.T) {
 	}{
 		"canceled context": {
 			ctx:  canceled,
-			want: connect.NewError(connect.CodeCanceled, connect.CodeCanceled.String()),
+			want: connect.NewError(connect.CodeCanceled, "can't list the environment's settings"),
 		},
 		"expired deadline": {
 			ctx:  expired,
-			want: connect.NewError(connect.CodeDeadlineExceeded, connect.CodeDeadlineExceeded.String()),
+			want: connect.NewError(connect.CodeDeadlineExceeded, "can't list the environment's settings"),
 		},
 	}
 	for name, test := range tests {
@@ -1208,7 +1208,7 @@ func TestListSettingsByEnvReportsErrors(t *testing.T) {
 			t.Fatalf("closing the database: %v", err)
 		}
 		got, err := store.ListSettingsByEnv(context.Background(), env.ID)
-		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, connect.CodeInternal.String()))
+		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, "can't list the environment's settings"))
 		if got != nil {
 			t.Fatalf("ListSettingsByEnv() = %+v on error, want nil", got)
 		}

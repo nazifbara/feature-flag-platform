@@ -33,9 +33,10 @@ func TestFromDBErr(t *testing.T) {
 		"closed database":      {sql.ErrConnDone, connect.CodeInternal},
 		"plain error":          {errors.New("boom"), connect.CodeInternal},
 	}
+	const message = "can't save the thing"
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			got := FromDBErr(test.err)
+			got := FromDBErr(test.err, message)
 			if got == nil {
 				t.Fatalf("FromDBErr(%v) = nil, want code %v", test.err, test.want)
 			}
@@ -45,6 +46,10 @@ func TestFromDBErr(t *testing.T) {
 			}
 			if connectErr.Code() != test.want {
 				t.Errorf("FromDBErr(%v) code = %v, want %v", test.err, connectErr.Code(), test.want)
+			}
+			// The caller's message replaces the database's.
+			if want := connect.NewError(test.want, message).Error(); connectErr.Error() != want {
+				t.Errorf("FromDBErr(%v) = %q, want %q", test.err, connectErr.Error(), want)
 			}
 			// The original error is kept as the cause for logging.
 			if !errors.Is(got, test.err) {
