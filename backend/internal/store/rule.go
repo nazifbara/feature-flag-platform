@@ -113,10 +113,21 @@ func (s *Store) CreateRule(ctx context.Context, param database.CreateRuleParams)
 	return rule, nil
 }
 
+// GetRule gets the rule with the given id.
 func (s *Store) GetRule(ctx context.Context, id uuid.UUID) (database.Rule, error) {
 	rule, err := s.Queries.GetRule(ctx, id)
 	if err != nil {
 		return database.Rule{}, ffserrors.FromDBErr(err, "can't get the rule")
 	}
 	return rule, nil
+}
+
+// ListRulesBySetting gets a flag setting's rules, ordered by position, which is
+// the order they're evaluated in. An unknown setting has no rules.
+func (s *Store) ListRulesBySetting(ctx context.Context, settingID uuid.UUID) ([]database.Rule, error) {
+	rules, err := s.Queries.ListRulesBySetting(ctx, settingID)
+	if err != nil {
+		return nil, ffserrors.FromDBErr(err, "can't list the flag setting's rules")
+	}
+	return rules, nil
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -890,5 +891,211 @@ func TestGetRuleReportsErrors(t *testing.T) {
 		got, err := store.GetRule(context.Background(), rule.ID)
 		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, getRuleMessage))
 		wantZeroRule(t, got)
+	})
+}
+
+// newTestStoreKeepingData is newTestStore without the reset, for a second store
+// that looks at what a test has already made.
+func newTestStoreKeepingData(t *testing.T) *Store {
+	t.Helper()
+	store, err := New(os.Getenv("TEST_DB_URL"))
+	if err != nil {
+		t.Fatalf("New() = %v", err)
+	}
+	t.Cleanup(func() { store.db.Close() })
+	return store
+}
+
+func TestListRulesBySetting(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	list := func(t *testing.T, settingID uuid.UUID) []database.Rule {
+		t.Helper()
+		got, err := store.ListRulesBySetting(ctx, settingID)
+		if err != nil {
+			t.Fatalf("ListRulesBySetting(%v): %v", settingID, err)
+		}
+		return got
+	}
+	create := func(t *testing.T, settingID uuid.UUID, position int32) database.Rule {
+		t.Helper()
+		return mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: settingID, Position: position, Clauses: json.RawMessage(validClauses)})
+	}
+	wantPositions := func(t *testing.T, rules []database.Rule, want []int32) {
+		t.Helper()
+		var got []int32
+		for _, r := range rules {
+			got = append(got, r.Position)
+		}
+		if diff := cmp.Diff(want, got); diff != "" {
+			t.Fatalf("positions mismatch (-want +got):\n%s", diff)
+		}
+	}
+
+	t.Run("returns the rules as stored", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		want := []database.Rule{
+			mustCreateRule(t, store, database.CreateRuleParams{
+				FlagSettingID: setting.ID,
+				Position:      0,
+				Name:          "Beta users",
+				Serve:         0.25,
+				Clauses:       json.RawMessage(validClauses),
+			}),
+			mustCreateRule(t, store, database.CreateRuleParams{
+				FlagSettingID: setting.ID,
+				Position:      1,
+				Serve:         1,
+				Clauses:       json.RawMessage(`[{"attribute":"age","operator":"gte","kind":"number","values":[18.5]}]`),
+			}),
+		}
+		if diff := cmp.Diff(want, list(t, setting.ID)); diff != "" {
+			t.Fatalf("ListRulesBySetting() mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	// The first matching rule wins, so the order decides what users get. These
+	// are made out of order, and 10 sorts before 2 if compared as text.
+	t.Run("ordered by position", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		for _, position := range []int32{10, 2, 0} {
+			create(t, setting.ID, position)
+		}
+		wantPositions(t, list(t, setting.ID), []int32{0, 2, 10})
+
+		// Reading through the unique index gives this order even without an
+		// ORDER BY. Without the index, rows come back in the order they were
+		// made. SET only lasts for one connection, so the pool is limited to one.
+		noIndex := newTestStoreKeepingData(t)
+		noIndex.db.SetMaxOpenConns(1)
+		for _, scan := range []string{"enable_indexscan", "enable_indexonlyscan", "enable_bitmapscan"} {
+			if _, err := noIndex.db.ExecContext(ctx, "SET "+scan+" = off"); err != nil {
+				t.Fatalf("turning off %s: %v", scan, err)
+			}
+		}
+		got, err := noIndex.ListRulesBySetting(ctx, setting.ID)
+		if err != nil {
+			t.Fatalf("ListRulesBySetting() without indexes: %v", err)
+		}
+		wantPositions(t, got, []int32{0, 2, 10})
+	})
+
+	t.Run("follows a change of position", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		a := create(t, setting.ID, 0)
+		b := create(t, setting.ID, 1)
+		if _, err := store.db.ExecContext(ctx, "UPDATE rules SET position = 5 WHERE id = $1", a.ID); err != nil {
+			t.Fatalf("moving the rule: %v", err)
+		}
+		got := list(t, setting.ID)
+		wantPositions(t, got, []int32{1, 5})
+		if got[0].ID != b.ID || got[1].ID != a.ID {
+			t.Fatalf("rules = %v, %v, want %v, %v", got[0].ID, got[1].ID, b.ID, a.ID)
+		}
+	})
+
+	// The same flag in another environment has its own rules, at the same
+	// positions, and so does another flag in the same environment.
+	t.Run("only the setting's rules", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		otherEnv := mustCreateEnv(t, store, "staging")
+		otherFlag := mustCreateFlag(t, store, "dark-mode")
+		sameFlag := mustCreateFlagSetting(t, store, database.CreateFlagSettingParams{FlagID: setting.FlagID, EnvironmentID: otherEnv.ID})
+		sameEnv := mustCreateFlagSetting(t, store, database.CreateFlagSettingParams{FlagID: otherFlag.ID, EnvironmentID: setting.EnvironmentID})
+
+		want := map[uuid.UUID][]database.Rule{}
+		for _, id := range []uuid.UUID{setting.ID, sameFlag.ID, sameEnv.ID} {
+			want[id] = []database.Rule{create(t, id, 0), create(t, id, 1)}
+		}
+		for id, rules := range want {
+			if diff := cmp.Diff(rules, list(t, id)); diff != "" {
+				t.Errorf("ListRulesBySetting(%v) mismatch (-want +got):\n%s", id, diff)
+			}
+		}
+	})
+
+	// None of these is an error: a setting without rules just falls through,
+	// and an unknown setting looks the same.
+	t.Run("nothing to list", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		other := mustCreateFlagSetting(t, store, database.CreateFlagSettingParams{
+			FlagID:        mustCreateFlag(t, store, "dark-mode").ID,
+			EnvironmentID: setting.EnvironmentID,
+		})
+		create(t, other.ID, 0)
+
+		tests := map[string]uuid.UUID{
+			"setting without rules": setting.ID,
+			"unknown setting":       uuid.New(),
+			"zero ID":               uuid.Nil(),
+			// Easy to do, since these are UUIDs too.
+			"flag ID": other.FlagID,
+		}
+		for name, id := range tests {
+			t.Run(name, func(t *testing.T) {
+				if got := list(t, id); len(got) != 0 {
+					t.Fatalf("ListRulesBySetting() = %+v, want no rules", got)
+				}
+			})
+		}
+	})
+
+	t.Run("empty once the flag is deleted", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		create(t, setting.ID, 0)
+		if _, err := store.DeleteFlag(ctx, setting.FlagID); err != nil {
+			t.Fatalf("DeleteFlag(): %v", err)
+		}
+		if got := list(t, setting.ID); len(got) != 0 {
+			t.Fatalf("ListRulesBySetting() = %+v, want no rules", got)
+		}
+	})
+}
+
+func TestListRulesBySettingReportsErrors(t *testing.T) {
+	store := newTestStore(t)
+	setting := mustCreateRuleSetting(t, store)
+	mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: setting.ID, Clauses: json.RawMessage(validClauses)})
+	const message = "can't list the flag setting's rules"
+
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	expired, cancelExpired := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancelExpired()
+
+	tests := map[string]struct {
+		ctx  context.Context
+		want *connect.Error
+	}{
+		"canceled context": {
+			ctx:  canceled,
+			want: connect.NewError(connect.CodeCanceled, message),
+		},
+		"expired deadline": {
+			ctx:  expired,
+			want: connect.NewError(connect.CodeDeadlineExceeded, message),
+		},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			got, err := store.ListRulesBySetting(test.ctx, setting.ID)
+			wantConnectErr(t, err, test.want)
+			if got != nil {
+				t.Fatalf("ListRulesBySetting() = %+v on error, want nil", got)
+			}
+		})
+	}
+
+	// Run last: it closes the connection pool the other cases use.
+	t.Run("closed database is internal", func(t *testing.T) {
+		if err := store.db.Close(); err != nil {
+			t.Fatalf("closing the database: %v", err)
+		}
+		got, err := store.ListRulesBySetting(context.Background(), setting.ID)
+		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, message))
+		if got != nil {
+			t.Fatalf("ListRulesBySetting() = %+v on error, want nil", got)
+		}
 	})
 }
