@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"os"
 	"strings"
@@ -240,6 +241,9 @@ func TestCreateRule(t *testing.T) {
 
 	t.Run("creates the rule", func(t *testing.T) {
 		setting := mustCreateRuleSetting(t, store)
+		for position := range int32(3) {
+			mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: setting.ID, Position: position, Clauses: json.RawMessage(validClauses)})
+		}
 		before := time.Now()
 		got, err := store.CreateRule(ctx, database.CreateRuleParams{
 			FlagSettingID: setting.ID,
@@ -334,10 +338,11 @@ func TestCreateRule(t *testing.T) {
 		}
 	})
 
-	// Gaps are allowed, so deleting a rule doesn't renumber the others.
-	t.Run("stores position as given", func(t *testing.T) {
-		for _, position := range []int32{0, 1, 1000, math.MaxInt32} {
-			setting := mustCreateRuleSetting(t, store)
+	// A position is an index, so the last one allowed is right after the
+	// setting's last rule.
+	t.Run("a rule can go at the end", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		for position := range int32(4) {
 			got := mustCreateRule(t, store, database.CreateRuleParams{
 				FlagSettingID: setting.ID,
 				Position:      position,
@@ -422,6 +427,9 @@ func TestCreateRuleRejectsInvalid(t *testing.T) {
 	}
 	tooLong := invalid("can't create a rule with a name over 200 characters")
 	negative := invalid("can't create a rule with a negative position")
+	pastEnd := func(rulesCount int) *connect.Error {
+		return invalid(fmt.Sprintf("can't create a rule with a position outside [0, %d]", rulesCount))
+	}
 	outside := invalid("can't create a rule with a serve value outside [0, 1]")
 	// Postgres finds these, so they carry no details.
 	badText := invalid("can't create the rule")
@@ -438,8 +446,10 @@ func TestCreateRuleRejectsInvalid(t *testing.T) {
 		"NUL in name":             {func(a *database.CreateRuleParams) { a.Name = "a\x00b" }, badText},
 		"invalid UTF-8 in name":   {func(a *database.CreateRuleParams) { a.Name = "a\xffb" }, badText},
 
-		"position -1":       {func(a *database.CreateRuleParams) { a.Position = -1 }, negative},
-		"smallest position": {func(a *database.CreateRuleParams) { a.Position = math.MinInt32 }, negative},
+		"position -1":           {func(a *database.CreateRuleParams) { a.Position = -1 }, negative},
+		"smallest position":     {func(a *database.CreateRuleParams) { a.Position = math.MinInt32 }, negative},
+		"position past the end": {func(a *database.CreateRuleParams) { a.Position = 1 }, pastEnd(0)},
+		"largest position":      {func(a *database.CreateRuleParams) { a.Position = math.MaxInt32 }, pastEnd(0)},
 
 		"serve negative":          {func(a *database.CreateRuleParams) { a.Serve = -0.5 }, outside},
 		"serve just below 0":      {func(a *database.CreateRuleParams) { a.Serve = -math.SmallestNonzeroFloat32 }, outside},
@@ -485,6 +495,60 @@ func TestCreateRuleRejectsInvalid(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("position past the setting's end", func(t *testing.T) {
+		create := func(t *testing.T, settingID uuid.UUID, position int32) database.Rule {
+			t.Helper()
+			return mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: settingID, Position: position, Clauses: json.RawMessage(validClauses)})
+		}
+		wantRejected := func(t *testing.T, settingID uuid.UUID, position int32, want *connect.Error) {
+			t.Helper()
+			before := ruleCount(t, store)
+			arg := valid()
+			arg.FlagSettingID = settingID
+			arg.Position = position
+			got, err := store.CreateRule(ctx, arg)
+			wantConnectErr(t, err, want)
+			wantZeroRule(t, got)
+			if n := ruleCount(t, store); n != before {
+				t.Fatalf("%d rules after a rejected create, want %d", n, before)
+			}
+		}
+
+		t.Run("one past the end", func(t *testing.T) {
+			setting := mustCreateRuleSetting(t, store)
+			create(t, setting.ID, 0)
+			create(t, setting.ID, 1)
+			wantRejected(t, setting.ID, 3, pastEnd(2))
+		})
+
+		// Only the setting's own rules count.
+		t.Run("rules of another setting", func(t *testing.T) {
+			setting := mustCreateRuleSetting(t, store)
+			otherEnv := mustCreateEnv(t, store, "staging")
+			other := mustCreateFlagSetting(t, store, database.CreateFlagSettingParams{FlagID: setting.FlagID, EnvironmentID: otherEnv.ID})
+			create(t, other.ID, 0)
+			create(t, other.ID, 1)
+			wantRejected(t, setting.ID, 1, pastEnd(0))
+		})
+
+		t.Run("the end moves back after a delete", func(t *testing.T) {
+			setting := mustCreateRuleSetting(t, store)
+			create(t, setting.ID, 0)
+			last := create(t, setting.ID, 1)
+			if _, err := store.DeleteRule(ctx, last.ID); err != nil {
+				t.Fatalf("DeleteRule(): %v", err)
+			}
+			wantRejected(t, setting.ID, 2, pastEnd(1))
+			create(t, setting.ID, 1)
+		})
+
+		// An unknown setting has no rules, so it looks like an empty one.
+		t.Run("unknown flag setting", func(t *testing.T) {
+			resetDB(t, store.db)
+			wantRejected(t, uuid.New(), 5, pastEnd(0))
+		})
+	})
 
 	// Validation comes first, so bad input is reported even when the flag
 	// setting doesn't exist.
@@ -571,6 +635,7 @@ func TestCreateRuleReportsErrors(t *testing.T) {
 	store := newTestStore(t)
 	setting := mustCreateRuleSetting(t, store)
 	arg := database.CreateRuleParams{FlagSettingID: setting.ID, Serve: 0.5, Clauses: json.RawMessage(validClauses)}
+	const message = "can't create the rule"
 
 	canceled, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -583,11 +648,11 @@ func TestCreateRuleReportsErrors(t *testing.T) {
 	}{
 		"canceled context": {
 			ctx:  canceled,
-			want: connect.NewError(connect.CodeCanceled, "can't create the rule"),
+			want: connect.NewError(connect.CodeCanceled, message),
 		},
 		"expired deadline": {
 			ctx:  expired,
-			want: connect.NewError(connect.CodeDeadlineExceeded, "can't create the rule"),
+			want: connect.NewError(connect.CodeDeadlineExceeded, message),
 		},
 	}
 	for name, test := range tests {
@@ -607,9 +672,42 @@ func TestCreateRuleReportsErrors(t *testing.T) {
 			t.Fatalf("closing the database: %v", err)
 		}
 		got, err := store.CreateRule(context.Background(), arg)
-		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, "can't create the rule"))
+		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, message))
 		wantZeroRule(t, got)
+
+		// These are found without the database, so they're still bad input.
+		tests := map[string]struct {
+			change func(*database.CreateRuleParams)
+			want   string
+		}{
+			"name":     {func(a *database.CreateRuleParams) { a.Name = strings.Repeat("a", 201) }, "can't create a rule with a name over 200 characters"},
+			"position": {func(a *database.CreateRuleParams) { a.Position = -1 }, "can't create a rule with a negative position"},
+			"serve":    {func(a *database.CreateRuleParams) { a.Serve = 2 }, "can't create a rule with a serve value outside [0, 1]"},
+			"clauses":  {func(a *database.CreateRuleParams) { a.Clauses = json.RawMessage(`[]`) }, "invalid clauses: at least one clause is required"},
+		}
+		for name, test := range tests {
+			t.Run(name, func(t *testing.T) {
+				bad := arg
+				test.change(&bad)
+				_, err := store.CreateRule(context.Background(), bad)
+				wantConnectErr(t, err, connect.NewError(connect.CodeInvalidArgument, test.want))
+			})
+		}
 	})
+}
+
+// A failed count must not read as no rules, which would make a valid position
+// look out of range.
+func TestCreateRuleReportsCountFailure(t *testing.T) {
+	store := newTestStore(t)
+	setting := mustCreateRuleSetting(t, store)
+	mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: setting.ID, Clauses: json.RawMessage(validClauses)})
+
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	got, err := store.CreateRule(canceled, database.CreateRuleParams{FlagSettingID: setting.ID, Position: 1, Clauses: json.RawMessage(validClauses)})
+	wantConnectErr(t, err, connect.NewError(connect.CodeCanceled, "can't create the rule"))
+	wantZeroRule(t, got)
 }
 
 // Rules belong to a flag setting, and go when its flag or environment does.
@@ -956,11 +1054,15 @@ func TestListRulesBySetting(t *testing.T) {
 	})
 
 	// The first matching rule wins, so the order decides what users get. These
-	// are made out of order, and 10 sorts before 2 if compared as text.
+	// are made out of order, which CreateRule doesn't allow, so they go through
+	// the query. 10 sorts before 2 if compared as text.
 	t.Run("ordered by position", func(t *testing.T) {
 		setting := mustCreateRuleSetting(t, store)
 		for _, position := range []int32{10, 2, 0} {
-			create(t, setting.ID, position)
+			_, err := store.Queries.CreateRule(ctx, database.CreateRuleParams{FlagSettingID: setting.ID, Position: position, Clauses: json.RawMessage(validClauses)})
+			if err != nil {
+				t.Fatalf("creating a rule at position %d: %v", position, err)
+			}
 		}
 		wantPositions(t, list(t, setting.ID), []int32{0, 2, 10})
 
@@ -1112,9 +1214,10 @@ func TestDeleteRule(t *testing.T) {
 
 	t.Run("deletes and returns the rule as it was", func(t *testing.T) {
 		setting := mustCreateRuleSetting(t, store)
+		create(t, setting.ID, 0)
 		rule := mustCreateRule(t, store, database.CreateRuleParams{
 			FlagSettingID: setting.ID,
-			Position:      3,
+			Position:      1,
 			Name:          "Beta users",
 			Serve:         0.25,
 			Clauses:       json.RawMessage(validClauses),
@@ -1128,8 +1231,8 @@ func TestDeleteRule(t *testing.T) {
 		}
 		_, err = store.GetRule(ctx, rule.ID)
 		wantConnectErr(t, err, connect.NewError(connect.CodeNotFound, getRuleMessage))
-		if n := ruleCount(t, store); n != 0 {
-			t.Fatalf("%d rules after the delete, want 0", n)
+		if n := ruleCount(t, store); n != 1 {
+			t.Fatalf("%d rules after the delete, want 1", n)
 		}
 	})
 
@@ -1331,7 +1434,8 @@ func TestUpdateRule(t *testing.T) {
 
 	t.Run("replaces the values and keeps the rest", func(t *testing.T) {
 		setting := mustCreateRuleSetting(t, store)
-		rule := create(t, setting.ID, 3)
+		create(t, setting.ID, 0)
+		rule := create(t, setting.ID, 1)
 
 		got := update(t, database.UpdateRuleParams{
 			ID:      rule.ID,
@@ -1706,13 +1810,25 @@ func TestCountRulesBySetting(t *testing.T) {
 		}
 	}
 
-	// The count comes from the rows, not the positions, which can have gaps.
 	t.Run("counts the rules", func(t *testing.T) {
 		setting := mustCreateRuleSetting(t, store)
-		for i, position := range []int32{10, 2, 0} {
+		for position := range int32(3) {
 			create(t, setting.ID, position)
-			wantCount(t, setting.ID, i+1)
+			wantCount(t, setting.ID, int(position)+1)
 		}
+	})
+
+	// The count comes from the rows, not the positions: these go through the
+	// query, as CreateRule doesn't allow gaps.
+	t.Run("positions with gaps", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		for _, position := range []int32{10, 2, 0} {
+			_, err := store.Queries.CreateRule(ctx, database.CreateRuleParams{FlagSettingID: setting.ID, Position: position, Clauses: json.RawMessage(validClauses)})
+			if err != nil {
+				t.Fatalf("creating a rule at position %d: %v", position, err)
+			}
+		}
+		wantCount(t, setting.ID, 3)
 	})
 
 	// The same flag in another environment has its own rules, and so does
