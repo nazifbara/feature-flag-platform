@@ -76,6 +76,15 @@ func checkServe(action string, f float32) error {
 	return nil
 }
 
+// checkPosition checks p isn't negative. action ("create", "update") goes into
+// the error message.
+func checkPosition(action string, p int32) error {
+	if p < 0 {
+		return connect.NewError(connect.CodeInvalidArgument, "can't "+action+" a rule with a negative position")
+	}
+	return nil
+}
+
 // normalizeRuleName trims name and checks it fits the column. A name is
 // optional, so it can end up empty. action ("create", "update") goes into the
 // error message.
@@ -91,22 +100,22 @@ func normalizeRuleName(action, name string) (string, error) {
 
 // CreateRule adds a rule to a flag's settings in one environment. Clauses are
 // checked by parseClauses, so a saved rule can always be loaded back.
-func (s *Store) CreateRule(ctx context.Context, param database.CreateRuleParams) (database.Rule, error) {
-	name, err := normalizeRuleName("create", param.Name)
+func (s *Store) CreateRule(ctx context.Context, args database.CreateRuleParams) (database.Rule, error) {
+	name, err := normalizeRuleName("create", args.Name)
 	if err != nil {
 		return database.Rule{}, err
 	}
-	if param.Position < 0 {
-		return database.Rule{}, connect.NewError(connect.CodeInvalidArgument, "can't create a rule with a negative position")
-	}
-	param.Name = name
-	if err := checkServe("create", param.Serve); err != nil {
+	args.Name = name
+	if err := checkPosition("create", args.Position); err != nil {
 		return database.Rule{}, err
 	}
-	if _, err := parseClauses(param.Clauses); err != nil {
+	if err := checkServe("create", args.Serve); err != nil {
+		return database.Rule{}, err
+	}
+	if _, err := parseClauses(args.Clauses); err != nil {
 		return database.Rule{}, connect.NewError(connect.CodeInvalidArgument, err.Error()).WithCause(err)
 	}
-	rule, err := s.Queries.CreateRule(ctx, param)
+	rule, err := s.Queries.CreateRule(ctx, args)
 	if err != nil {
 		return database.Rule{}, ffserrors.FromDBErr(err, "can't create the rule")
 	}
@@ -138,6 +147,27 @@ func (s *Store) DeleteRule(ctx context.Context, id uuid.UUID) (database.Rule, er
 	rule, err := s.Queries.DeleteRule(ctx, id)
 	if err != nil {
 		return database.Rule{}, ffserrors.FromDBErr(err, "can't delete the rule")
+	}
+	return rule, nil
+}
+
+// UpdateRule replaces the name, serve and clauses of the rule with the given id
+// and returns it as updated. The rule's position doesn't change.
+func (s *Store) UpdateRule(ctx context.Context, args database.UpdateRuleParams) (database.Rule, error) {
+	name, err := normalizeRuleName("update", args.Name)
+	if err != nil {
+		return database.Rule{}, err
+	}
+	args.Name = name
+	if err := checkServe("update", args.Serve); err != nil {
+		return database.Rule{}, err
+	}
+	if _, err := parseClauses(args.Clauses); err != nil {
+		return database.Rule{}, connect.NewError(connect.CodeInvalidArgument, err.Error()).WithCause(err)
+	}
+	rule, err := s.Queries.UpdateRule(ctx, args)
+	if err != nil {
+		return database.Rule{}, ffserrors.FromDBErr(err, "can't update the rule")
 	}
 	return rule, nil
 }
