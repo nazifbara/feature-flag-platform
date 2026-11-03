@@ -15,3 +15,6 @@ RETURNING *;
 
 -- name: GetRule :one
 SELECT * FROM rules WHERE id = $1;
+
+-- name: ListRulesBySetting :many
+SELECT * FROM rules WHERE flag_setting_id = $1 ORDER BY position;
