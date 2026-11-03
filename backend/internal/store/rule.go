@@ -107,7 +107,7 @@ func (s *Store) CreateRule(ctx context.Context, param database.CreateRuleParams)
 	}
 	rule, err := s.Queries.CreateRule(ctx, param)
 	if err != nil {
-		return database.Rule{}, ffserrors.FromDBErr(err)
+		return database.Rule{}, ffserrors.FromDBErr(err, "can't create the rule")
 	}
 	return rule, nil
 }

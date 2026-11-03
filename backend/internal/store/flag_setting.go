@@ -26,7 +26,7 @@ func (s *Store) CreateFlagSetting(ctx context.Context, arg database.CreateFlagSe
 	}
 	setting, err := s.Queries.CreateFlagSetting(ctx, arg)
 	if err != nil {
-		return database.FlagSetting{}, ffserrors.FromDBErr(err)
+		return database.FlagSetting{}, ffserrors.FromDBErr(err, "can't create the flag setting")
 	}
 	return setting, nil
 }
@@ -35,7 +35,7 @@ func (s *Store) CreateFlagSetting(ctx context.Context, arg database.CreateFlagSe
 func (s *Store) GetFlagSetting(ctx context.Context, arg database.GetFlagSettingParams) (database.FlagSetting, error) {
 	setting, err := s.Queries.GetFlagSetting(ctx, arg)
 	if err != nil {
-		return database.FlagSetting{}, ffserrors.FromDBErr(err)
+		return database.FlagSetting{}, ffserrors.FromDBErr(err, "can't get the flag setting")
 	}
 	return setting, nil
 }
@@ -48,7 +48,7 @@ func (s *Store) UpdateFlagSetting(ctx context.Context, arg database.UpdateFlagSe
 	}
 	setting, err := s.Queries.UpdateFlagSetting(ctx, arg)
 	if err != nil {
-		return database.FlagSetting{}, ffserrors.FromDBErr(err)
+		return database.FlagSetting{}, ffserrors.FromDBErr(err, "can't update the flag setting")
 	}
 	return setting, nil
 }
@@ -58,7 +58,7 @@ func (s *Store) UpdateFlagSetting(ctx context.Context, arg database.UpdateFlagSe
 func (s *Store) ListSettingsByFlag(ctx context.Context, flagID uuid.UUID) ([]database.FlagSetting, error) {
 	settings, err := s.Queries.ListSettingsByFlag(ctx, flagID)
 	if err != nil {
-		return nil, ffserrors.FromDBErr(err)
+		return nil, ffserrors.FromDBErr(err, "can't list the flag's settings")
 	}
 	return settings, nil
 }
@@ -68,7 +68,7 @@ func (s *Store) ListSettingsByFlag(ctx context.Context, flagID uuid.UUID) ([]dat
 func (s *Store) ListSettingsByEnv(ctx context.Context, environmentID uuid.UUID) ([]database.ListSettingsByEnvRow, error) {
 	settings, err := s.Queries.ListSettingsByEnv(ctx, environmentID)
 	if err != nil {
-		return nil, ffserrors.FromDBErr(err)
+		return nil, ffserrors.FromDBErr(err, "can't list the environment's settings")
 	}
 	return settings, nil
 }

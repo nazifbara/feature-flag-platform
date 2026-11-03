@@ -52,7 +52,7 @@ func (s *Store) CreateFlag(ctx context.Context, key string) (database.Flag, erro
 		database.CreateFlagParams{Key: key, Salt: utils.GenerateSalt(16)},
 	)
 	if err != nil {
-		return database.Flag{}, ffserrors.FromDBErr(err)
+		return database.Flag{}, ffserrors.FromDBErr(err, "can't create the flag")
 	}
 	return flag, nil
 }
@@ -60,7 +60,7 @@ func (s *Store) CreateFlag(ctx context.Context, key string) (database.Flag, erro
 func (s *Store) GetFlag(ctx context.Context, id uuid.UUID) (database.Flag, error) {
 	flag, err := s.Queries.GetFlag(ctx, id)
 	if err != nil {
-		return database.Flag{}, ffserrors.FromDBErr(err)
+		return database.Flag{}, ffserrors.FromDBErr(err, "can't get the flag")
 	}
 	return flag, nil
 }
@@ -72,7 +72,7 @@ func (s *Store) UpdateFlag(ctx context.Context, id uuid.UUID, key string) (datab
 	}
 	flag, err := s.Queries.UpdateFlag(ctx, database.UpdateFlagParams{ID: id, Key: key})
 	if err != nil {
-		return database.Flag{}, ffserrors.FromDBErr(err)
+		return database.Flag{}, ffserrors.FromDBErr(err, "can't update the flag")
 	}
 	return flag, err
 }
@@ -82,7 +82,7 @@ func (s *Store) UpdateFlag(ctx context.Context, id uuid.UUID, key string) (datab
 func (s *Store) DeleteFlag(ctx context.Context, id uuid.UUID) (database.Flag, error) {
 	flag, err := s.Queries.DeleteFlag(ctx, id)
 	if err != nil {
-		return database.Flag{}, ffserrors.FromDBErr(err)
+		return database.Flag{}, ffserrors.FromDBErr(err, "can't delete the flag")
 	}
 	return flag, nil
 }

@@ -34,7 +34,7 @@ func (s *Store) CreateEnv(ctx context.Context, name string) (database.Environmen
 	}
 	env, err := s.Queries.CreateEnv(ctx, name)
 	if err != nil {
-		return database.Environment{}, ffserrors.FromDBErr(err)
+		return database.Environment{}, ffserrors.FromDBErr(err, "can't create the environment")
 	}
 	return env, nil
 }
@@ -42,7 +42,7 @@ func (s *Store) CreateEnv(ctx context.Context, name string) (database.Environmen
 func (s *Store) GetEnv(ctx context.Context, id uuid.UUID) (database.Environment, error) {
 	env, err := s.Queries.GetEnv(ctx, id)
 	if err != nil {
-		return database.Environment{}, ffserrors.FromDBErr(err)
+		return database.Environment{}, ffserrors.FromDBErr(err, "can't get the environment")
 	}
 	return env, nil
 }
@@ -56,7 +56,7 @@ func (s *Store) UpdateEnv(ctx context.Context, id uuid.UUID, name string) (datab
 	}
 	env, err := s.Queries.UpdateEnv(ctx, database.UpdateEnvParams{ID: id, Name: name})
 	if err != nil {
-		return database.Environment{}, ffserrors.FromDBErr(err)
+		return database.Environment{}, ffserrors.FromDBErr(err, "can't update the environment")
 	}
 	return env, nil
 }
@@ -64,7 +64,7 @@ func (s *Store) UpdateEnv(ctx context.Context, id uuid.UUID, name string) (datab
 func (s *Store) ListEnvs(ctx context.Context) ([]database.Environment, error) {
 	envs, err := s.Queries.ListEnvs(ctx)
 	if err != nil {
-		return nil, ffserrors.FromDBErr(err)
+		return nil, ffserrors.FromDBErr(err, "can't list environments")
 	}
 	return envs, nil
 }
@@ -74,7 +74,7 @@ func (s *Store) ListEnvs(ctx context.Context) ([]database.Environment, error) {
 func (s *Store) DeleteEnv(ctx context.Context, id uuid.UUID) (database.Environment, error) {
 	env, err := s.Queries.DeleteEnv(ctx, id)
 	if err != nil {
-		return database.Environment{}, ffserrors.FromDBErr(err)
+		return database.Environment{}, ffserrors.FromDBErr(err, "can't delete the environment")
 	}
 	return env, nil
 }

@@ -423,7 +423,7 @@ func TestCreateRuleRejectsInvalid(t *testing.T) {
 	negative := invalid("can't create a rule with a negative position")
 	outside := invalid("can't create a rule with a serve value outside [0, 1]")
 	// Postgres finds these, so they carry no details.
-	badText := invalid(connect.CodeInvalidArgument.String())
+	badText := invalid("can't create the rule")
 
 	valid := func() database.CreateRuleParams {
 		return database.CreateRuleParams{Name: "Beta users", Serve: 0.5, Clauses: json.RawMessage(validClauses)}
@@ -532,7 +532,7 @@ func TestCreateRuleRejectsDuplicate(t *testing.T) {
 		Serve:         0.75,
 		Clauses:       json.RawMessage(`[{"attribute":"age","operator":"gte","kind":"number","values":[18]}]`),
 	})
-	wantConnectErr(t, err, connect.NewError(connect.CodeAlreadyExists, connect.CodeAlreadyExists.String()))
+	wantConnectErr(t, err, connect.NewError(connect.CodeAlreadyExists, "can't create the rule"))
 	wantZeroRule(t, got)
 	if n := ruleCount(t, store); n != 1 {
 		t.Fatalf("%d rules after a duplicate, want 1", n)
@@ -557,7 +557,7 @@ func TestCreateRuleNotFound(t *testing.T) {
 	for name, id := range tests {
 		t.Run(name, func(t *testing.T) {
 			got, err := store.CreateRule(ctx, database.CreateRuleParams{FlagSettingID: id, Clauses: json.RawMessage(validClauses)})
-			wantConnectErr(t, err, connect.NewError(connect.CodeNotFound, connect.CodeNotFound.String()))
+			wantConnectErr(t, err, connect.NewError(connect.CodeNotFound, "can't create the rule"))
 			wantZeroRule(t, got)
 			if n := ruleCount(t, store); n != 0 {
 				t.Fatalf("%d rules after a failed create, want 0", n)
@@ -582,11 +582,11 @@ func TestCreateRuleReportsErrors(t *testing.T) {
 	}{
 		"canceled context": {
 			ctx:  canceled,
-			want: connect.NewError(connect.CodeCanceled, connect.CodeCanceled.String()),
+			want: connect.NewError(connect.CodeCanceled, "can't create the rule"),
 		},
 		"expired deadline": {
 			ctx:  expired,
-			want: connect.NewError(connect.CodeDeadlineExceeded, connect.CodeDeadlineExceeded.String()),
+			want: connect.NewError(connect.CodeDeadlineExceeded, "can't create the rule"),
 		},
 	}
 	for name, test := range tests {
@@ -606,7 +606,7 @@ func TestCreateRuleReportsErrors(t *testing.T) {
 			t.Fatalf("closing the database: %v", err)
 		}
 		got, err := store.CreateRule(context.Background(), arg)
-		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, connect.CodeInternal.String()))
+		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, "can't create the rule"))
 		wantZeroRule(t, got)
 	})
 }
@@ -719,7 +719,7 @@ func TestRulesTableRejectsInvalid(t *testing.T) {
 		position int32
 		serve    float32
 		clauses  json.RawMessage
-		want     pq.ErrorCode
+		want     string
 	}{
 		"negative position":  {position: -1, clauses: json.RawMessage(validClauses), want: checkViolation},
 		"serve below 0":      {serve: -0.5, clauses: json.RawMessage(validClauses), want: checkViolation},
@@ -739,7 +739,7 @@ func TestRulesTableRejectsInvalid(t *testing.T) {
 				Clauses:       test.clauses,
 			})
 			var pqErr *pq.Error
-			if !errors.As(err, &pqErr) || pqErr.Code != test.want {
+			if !errors.As(err, &pqErr) || string(pqErr.Code) != test.want {
 				t.Fatalf("CreateRule() error = %v, want code %s", err, test.want)
 			}
 			if n := ruleCount(t, store); n != 0 {

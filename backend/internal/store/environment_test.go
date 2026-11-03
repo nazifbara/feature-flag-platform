@@ -196,7 +196,7 @@ func TestEnvironmentCreationNormalizesName(t *testing.T) {
 func TestEnvironmentCreationRejectsDuplicateName(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
-	exists := connect.NewError(connect.CodeAlreadyExists, connect.CodeAlreadyExists.String())
+	exists := connect.NewError(connect.CodeAlreadyExists, "can't create the environment")
 
 	tests := map[string]struct{ first, second string }{
 		"same name":           {"production", "production"},
@@ -280,7 +280,7 @@ func TestGetEnv(t *testing.T) {
 		}
 	})
 
-	notFound := connect.NewError(connect.CodeNotFound, connect.CodeNotFound.String())
+	notFound := connect.NewError(connect.CodeNotFound, "can't get the environment")
 	t.Run("unknown ID is not found", func(t *testing.T) {
 		got, err := store.GetEnv(ctx, uuid.New())
 		wantConnectErr(t, err, notFound)
@@ -323,11 +323,11 @@ func TestGetEnvReportsNonDBErrors(t *testing.T) {
 	}{
 		"canceled context": {
 			ctx:  canceled,
-			want: connect.NewError(connect.CodeCanceled, connect.CodeCanceled.String()),
+			want: connect.NewError(connect.CodeCanceled, "can't get the environment"),
 		},
 		"expired deadline": {
 			ctx:  expired,
-			want: connect.NewError(connect.CodeDeadlineExceeded, connect.CodeDeadlineExceeded.String()),
+			want: connect.NewError(connect.CodeDeadlineExceeded, "can't get the environment"),
 		},
 	}
 	for name, test := range tests {
@@ -346,7 +346,7 @@ func TestGetEnvReportsNonDBErrors(t *testing.T) {
 			t.Fatalf("closing the database: %v", err)
 		}
 		got, err := store.GetEnv(context.Background(), env.ID)
-		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, connect.CodeInternal.String()))
+		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, "can't get the environment"))
 		if got != (database.Environment{}) {
 			t.Fatalf("GetEnv() = %+v on error, want the zero Environment", got)
 		}
@@ -537,11 +537,11 @@ func TestListEnvsReportsErrors(t *testing.T) {
 	}{
 		"canceled context": {
 			ctx:  canceled,
-			want: connect.NewError(connect.CodeCanceled, connect.CodeCanceled.String()),
+			want: connect.NewError(connect.CodeCanceled, "can't list environments"),
 		},
 		"expired deadline": {
 			ctx:  expired,
-			want: connect.NewError(connect.CodeDeadlineExceeded, connect.CodeDeadlineExceeded.String()),
+			want: connect.NewError(connect.CodeDeadlineExceeded, "can't list environments"),
 		},
 	}
 	for name, test := range tests {
@@ -560,7 +560,7 @@ func TestListEnvsReportsErrors(t *testing.T) {
 			t.Fatalf("closing the database: %v", err)
 		}
 		got, err := store.ListEnvs(context.Background())
-		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, connect.CodeInternal.String()))
+		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, "can't list environments"))
 		if got != nil {
 			t.Fatalf("ListEnvs() = %+v on error, want nil", got)
 		}
@@ -759,7 +759,7 @@ func TestUpdateEnvRejectsInvalidName(t *testing.T) {
 func TestUpdateEnvRejectsDuplicateName(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
-	exists := connect.NewError(connect.CodeAlreadyExists, connect.CodeAlreadyExists.String())
+	exists := connect.NewError(connect.CodeAlreadyExists, "can't update the environment")
 
 	for _, name := range []string{"production", "Production", "PRODUCTION", "  production  ", "\tProduction\n"} {
 		t.Run(name, func(t *testing.T) {
@@ -784,7 +784,7 @@ func TestUpdateEnvRejectsDuplicateName(t *testing.T) {
 func TestUpdateEnvNotFound(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
-	notFound := connect.NewError(connect.CodeNotFound, connect.CodeNotFound.String())
+	notFound := connect.NewError(connect.CodeNotFound, "can't update the environment")
 
 	t.Run("unknown ID", func(t *testing.T) {
 		resetDB(t, store.db)
@@ -849,11 +849,11 @@ func TestUpdateEnvReportsErrors(t *testing.T) {
 	}{
 		"canceled context": {
 			ctx:  canceled,
-			want: connect.NewError(connect.CodeCanceled, connect.CodeCanceled.String()),
+			want: connect.NewError(connect.CodeCanceled, "can't update the environment"),
 		},
 		"expired deadline": {
 			ctx:  expired,
-			want: connect.NewError(connect.CodeDeadlineExceeded, connect.CodeDeadlineExceeded.String()),
+			want: connect.NewError(connect.CodeDeadlineExceeded, "can't update the environment"),
 		},
 	}
 	for name, test := range tests {
@@ -875,7 +875,7 @@ func TestUpdateEnvReportsErrors(t *testing.T) {
 			t.Fatalf("closing the database: %v", err)
 		}
 		got, err := store.UpdateEnv(context.Background(), env.ID, "preprod")
-		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, connect.CodeInternal.String()))
+		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, "can't update the environment"))
 		if got != (database.Environment{}) {
 			t.Fatalf("UpdateEnv() = %+v on error, want the zero Environment", got)
 		}
@@ -885,7 +885,9 @@ func TestUpdateEnvReportsErrors(t *testing.T) {
 func TestDeleteEnv(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
-	notFound := connect.NewError(connect.CodeNotFound, connect.CodeNotFound.String())
+	notFound := connect.NewError(connect.CodeNotFound, "can't delete the environment")
+	// What GetEnv reports once the environment is gone.
+	envGone := connect.NewError(connect.CodeNotFound, "can't get the environment")
 
 	// names gives the names ListEnvs returns, in order.
 	names := func(t *testing.T) []string {
@@ -912,7 +914,7 @@ func TestDeleteEnv(t *testing.T) {
 			t.Fatalf("DeleteEnv() mismatch (-want +got):\n%s", diff)
 		}
 		_, err = store.GetEnv(ctx, env.ID)
-		wantConnectErr(t, err, notFound)
+		wantConnectErr(t, err, envGone)
 	})
 
 	// Only the given environment goes, and the rest keep their order.
@@ -973,7 +975,7 @@ func TestDeleteEnv(t *testing.T) {
 			t.Fatalf("recreated environment reused ID %v", old.ID)
 		}
 		_, err := store.GetEnv(ctx, old.ID)
-		wantConnectErr(t, err, notFound)
+		wantConnectErr(t, err, envGone)
 	})
 
 	// A recreated environment is new, so it goes to the end of the list.
@@ -1027,11 +1029,11 @@ func TestDeleteEnvReportsErrors(t *testing.T) {
 	}{
 		"canceled context": {
 			ctx:  canceled,
-			want: connect.NewError(connect.CodeCanceled, connect.CodeCanceled.String()),
+			want: connect.NewError(connect.CodeCanceled, "can't delete the environment"),
 		},
 		"expired deadline": {
 			ctx:  expired,
-			want: connect.NewError(connect.CodeDeadlineExceeded, connect.CodeDeadlineExceeded.String()),
+			want: connect.NewError(connect.CodeDeadlineExceeded, "can't delete the environment"),
 		},
 	}
 	for name, test := range tests {
@@ -1054,7 +1056,7 @@ func TestDeleteEnvReportsErrors(t *testing.T) {
 			t.Fatalf("closing the database: %v", err)
 		}
 		got, err := store.DeleteEnv(context.Background(), env.ID)
-		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, connect.CodeInternal.String()))
+		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, "can't delete the environment"))
 		if got != (database.Environment{}) {
 			t.Fatalf("DeleteEnv() = %+v on error, want the zero Environment", got)
 		}

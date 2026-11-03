@@ -40,7 +40,7 @@ func (s *Service) SignUp(
 			},
 		)
 		if err != nil {
-			return ffserrors.FromDBErr(err)
+			return ffserrors.FromDBErr(err, "can't sign up")
 		}
 
 		_, err = q.CreateUser(
@@ -53,7 +53,7 @@ func (s *Service) SignUp(
 			},
 		)
 		if err != nil {
-			return ffserrors.FromDBErr(err)
+			return ffserrors.FromDBErr(err, "can't sign up")
 		}
 
 		return nil
