@@ -99,9 +99,9 @@ func normalizeRuleName(action, name string) (string, error) {
 }
 
 // CreateRule adds a rule to a flag's settings in one environment, at a position
-// from 0 up to the setting's rule count. Rules from that position on move down
-// one to make room. Clauses are checked by parseClauses, so a saved rule can
-// always be loaded back.
+// from 0 up to the setting's rule count. Rules from that position on get a
+// position one higher, which makes room. Clauses are checked by parseClauses, so
+// a saved rule can always be loaded back.
 func (s *Store) CreateRule(ctx context.Context, args database.CreateRuleParams) (database.Rule, error) {
 	name, err := normalizeRuleName("create", args.Name)
 	if err != nil {
@@ -122,19 +122,19 @@ func (s *Store) CreateRule(ctx context.Context, args database.CreateRuleParams) 
 		if _, err := q.LockFlagSetting(ctx, args.FlagSettingID); err != nil {
 			return err
 		}
-		rulesCount, err := q.CountRulesBySetting(ctx, args.FlagSettingID)
+		ruleCount, err := q.CountRulesBySetting(ctx, args.FlagSettingID)
 		if err != nil {
 			return err
 		}
-		if int(args.Position) > int(rulesCount) {
+		if int(args.Position) > int(ruleCount) {
 			return connect.NewError(connect.CodeInvalidArgument,
-				fmt.Sprintf("can't create a rule with a position outside [0, %d]", rulesCount))
+				fmt.Sprintf("can't create a rule with a position outside [0, %d]", ruleCount))
 		}
 		err = q.ShiftRulePositionsBetween(ctx, database.ShiftRulePositionsBetweenParams{
 			FlagSettingID: args.FlagSettingID,
 			Delta:         1,
 			After:         args.Position - 1,
-			Before:        int32(rulesCount),
+			Before:        ruleCount,
 		})
 		if err != nil {
 			return err
@@ -173,8 +173,8 @@ func (s *Store) ListRulesBySetting(ctx context.Context, settingID uuid.UUID) ([]
 	return rules, nil
 }
 
-// DeleteRule deletes the rule with the given id and returns it as it was. The
-// other rules keep their positions, so this leaves a gap.
+// DeleteRule deletes the rule with the given id and returns it as it was. Rules
+// after it get a position one lower, which fills the gap.
 func (s *Store) DeleteRule(ctx context.Context, id uuid.UUID) (database.Rule, error) {
 	var deletedRule database.Rule
 	err := s.ExecTx(ctx, func(q *database.Queries) error {
@@ -183,6 +183,25 @@ func (s *Store) DeleteRule(ctx context.Context, id uuid.UUID) (database.Rule, er
 			return err
 		}
 		if _, err := q.LockFlagSetting(ctx, rule.FlagSettingID); err != nil {
+			return err
+		}
+		// The rule may have moved while waiting for the lock.
+		rule, err = q.GetRule(ctx, id)
+		if err != nil {
+			return err
+		}
+
+		ruleCount, err := q.CountRulesBySetting(ctx, rule.FlagSettingID)
+		if err != nil {
+			return err
+		}
+		err = q.ShiftRulePositionsBetween(ctx, database.ShiftRulePositionsBetweenParams{
+			FlagSettingID: rule.FlagSettingID,
+			Delta:         -1,
+			After:         rule.Position,
+			Before:        ruleCount,
+		})
+		if err != nil {
 			return err
 		}
 		deletedRule, err = q.DeleteRule(ctx, id)

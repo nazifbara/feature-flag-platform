@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -590,7 +591,7 @@ func TestCreateRuleShiftsRules(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
 
-	// Rules from the new position on move down one, in the same order.
+	// Rules from the new position on get a position one higher.
 	t.Run("makes room at the position", func(t *testing.T) {
 		tests := map[string]struct {
 			position int32
@@ -1450,22 +1451,97 @@ func TestDeleteRule(t *testing.T) {
 		}
 	})
 
-	// For now, deleting leaves a gap instead of renumbering.
-	t.Run("the setting's other rules keep their positions", func(t *testing.T) {
-		setting := mustCreateRuleSetting(t, store)
-		first := create(t, setting.ID, 0)
-		middle := create(t, setting.ID, 1)
-		last := create(t, setting.ID, 2)
+	// Rules after the deleted one get a position one lower, so there's no gap.
+	t.Run("fills the gap", func(t *testing.T) {
+		for deleted := range 4 {
+			t.Run(fmt.Sprintf("deleting position %d", deleted), func(t *testing.T) {
+				setting := mustCreateRuleSetting(t, store)
+				rules := mustCreateNamedRules(t, store, setting.ID, "a", "b", "c", "d")
 
-		if _, err := store.DeleteRule(ctx, middle.ID); err != nil {
+				got, err := store.DeleteRule(ctx, rules[deleted].ID)
+				if err != nil {
+					t.Fatalf("DeleteRule(): %v", err)
+				}
+				if diff := cmp.Diff(rules[deleted], got); diff != "" {
+					t.Fatalf("DeleteRule() mismatch (-want +got):\n%s", diff)
+				}
+
+				remaining, err := store.ListRulesBySetting(ctx, setting.ID)
+				if err != nil {
+					t.Fatalf("ListRulesBySetting(): %v", err)
+				}
+				if len(remaining) != 3 {
+					t.Fatalf("%d rules left, want 3", len(remaining))
+				}
+				want := slices.Delete(slices.Clone(rules), deleted, deleted+1)
+				for i := range want {
+					// Only a rule that moved has a new updated_at.
+					if i >= deleted {
+						if !remaining[i].UpdatedAt.After(want[i].UpdatedAt) {
+							t.Errorf("rule %q updated_at = %v, want it after %v", want[i].Name, remaining[i].UpdatedAt, want[i].UpdatedAt)
+						}
+						want[i].UpdatedAt = remaining[i].UpdatedAt
+					}
+					want[i].Position = int32(i)
+				}
+				if diff := cmp.Diff(want, remaining); diff != "" {
+					t.Fatalf("remaining rules mismatch (-want +got):\n%s", diff)
+				}
+			})
+		}
+	})
+
+	// With no gap left, a new rule can go anywhere again.
+	t.Run("a new rule fits after a delete", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rules := mustCreateNamedRules(t, store, setting.ID, "a", "b", "c", "d")
+		if _, err := store.DeleteRule(ctx, rules[1].ID); err != nil {
 			t.Fatalf("DeleteRule(): %v", err)
 		}
+		create(t, setting.ID, 0)
 		got, err := store.ListRulesBySetting(ctx, setting.ID)
 		if err != nil {
 			t.Fatalf("ListRulesBySetting(): %v", err)
 		}
-		if diff := cmp.Diff([]database.Rule{first, last}, got); diff != "" {
-			t.Fatalf("remaining rules mismatch (-want +got):\n%s", diff)
+		for i, r := range got {
+			if int(r.Position) != i {
+				t.Fatalf("rule %d has position %d, want %d", i, r.Position, i)
+			}
+		}
+	})
+
+	// Rules in another setting can have the same positions.
+	t.Run("other settings' rules don't move", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		otherEnv := mustCreateEnv(t, store, "staging")
+		other := mustCreateFlagSetting(t, store, database.CreateFlagSettingParams{FlagID: setting.FlagID, EnvironmentID: otherEnv.ID})
+		rules := mustCreateNamedRules(t, store, setting.ID, "a", "b")
+		want := mustCreateNamedRules(t, store, other.ID, "a", "b")
+
+		if _, err := store.DeleteRule(ctx, rules[0].ID); err != nil {
+			t.Fatalf("DeleteRule(): %v", err)
+		}
+		got, err := store.ListRulesBySetting(ctx, other.ID)
+		if err != nil {
+			t.Fatalf("ListRulesBySetting(): %v", err)
+		}
+		if diff := cmp.Diff(want, got); diff != "" {
+			t.Fatalf("other setting's rules changed (-want +got):\n%s", diff)
+		}
+	})
+
+	// A missing rule moves nothing.
+	t.Run("not found moves nothing", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		want := mustCreateNamedRules(t, store, setting.ID, "a", "b")
+		_, err := store.DeleteRule(ctx, uuid.New())
+		wantConnectErr(t, err, notFound)
+		got, err := store.ListRulesBySetting(ctx, setting.ID)
+		if err != nil {
+			t.Fatalf("ListRulesBySetting(): %v", err)
+		}
+		if diff := cmp.Diff(want, got); diff != "" {
+			t.Fatalf("rules changed (-want +got):\n%s", diff)
 		}
 	})
 
@@ -1651,6 +1727,80 @@ func TestDeleteRuleRacing(t *testing.T) {
 	if wins != 1 {
 		t.Fatalf("%d deletes succeeded, want 1", wins)
 	}
+}
+
+// A rule's position can change while its delete waits for the lock, so the gap
+// has to be filled from where the rule is by then.
+func TestDeleteRuleWhileOthersMoveIt(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	// holdLock makes ops queue up for the flag setting in order, then
+	// releases them all.
+	holdLock := func(t *testing.T, settingID uuid.UUID, ops ...func() error) {
+		t.Helper()
+		tx, err := store.db.BeginTx(ctx, nil)
+		if err != nil {
+			t.Fatalf("BeginTx(): %v", err)
+		}
+		defer tx.Rollback()
+		if _, err := tx.ExecContext(ctx, "SELECT id FROM flag_settings WHERE id = $1 FOR SHARE", settingID); err != nil {
+			t.Fatalf("locking the flag setting: %v", err)
+		}
+		errs := make(chan error, len(ops))
+		for _, op := range ops {
+			go func() { errs <- op() }()
+			time.Sleep(100 * time.Millisecond)
+		}
+		if err := tx.Rollback(); err != nil {
+			t.Fatalf("Rollback(): %v", err)
+		}
+		for range ops {
+			if err := <-errs; err != nil {
+				t.Errorf("operation failed: %v", err)
+			}
+		}
+	}
+	remove := func(id uuid.UUID) func() error {
+		return func() error {
+			_, err := store.DeleteRule(ctx, id)
+			return err
+		}
+	}
+	wantNames := func(t *testing.T, settingID uuid.UUID, want ...string) {
+		t.Helper()
+		rules, err := store.ListRulesBySetting(ctx, settingID)
+		if err != nil {
+			t.Fatalf("ListRulesBySetting(): %v", err)
+		}
+		var got []string
+		for i, r := range rules {
+			got = append(got, r.Name)
+			if int(r.Position) != i {
+				t.Errorf("rule %q has position %d, want %d", r.Name, r.Position, i)
+			}
+		}
+		if diff := cmp.Diff(want, got); diff != "" {
+			t.Fatalf("rules mismatch (-want +got):\n%s", diff)
+		}
+	}
+
+	t.Run("an earlier rule is deleted first", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rules := mustCreateNamedRules(t, store, setting.ID, "a", "b", "c", "d", "e")
+		holdLock(t, setting.ID, remove(rules[0].ID), remove(rules[1].ID), remove(rules[2].ID))
+		wantNames(t, setting.ID, "d", "e")
+	})
+
+	t.Run("a rule is created before it first", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rules := mustCreateNamedRules(t, store, setting.ID, "a", "b", "c", "d")
+		holdLock(t, setting.ID, func() error {
+			_, err := store.CreateRule(ctx, database.CreateRuleParams{FlagSettingID: setting.ID, Position: 0, Name: "new", Clauses: json.RawMessage(validClauses)})
+			return err
+		}, remove(rules[2].ID))
+		wantNames(t, setting.ID, "new", "a", "b", "d")
+	})
 }
 
 // The rule can go with its flag while the delete waits for the lock.

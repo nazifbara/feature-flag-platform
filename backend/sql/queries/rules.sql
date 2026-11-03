@@ -40,4 +40,4 @@ UPDATE rules
 SET
   position = position + sqlc.arg(delta),
   updated_at = clock_timestamp()
-WHERE position > sqlc.arg(after) AND position < sqlc.arg(before) AND flag_setting_id = sqlc.arg(flag_setting_id);
+WHERE position > sqlc.arg(after) AND position < sqlc.arg(before)::bigint AND flag_setting_id = sqlc.arg(flag_setting_id);
