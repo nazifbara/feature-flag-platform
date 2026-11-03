@@ -34,3 +34,10 @@ RETURNING *;
 
 -- name: CountRulesBySetting :one
 SELECT COUNT(*) FROM rules WHERE flag_setting_id = $1;
+
+-- name: ShiftRulePositionsBetween :exec
+UPDATE rules
+SET
+  position = position + sqlc.arg(delta),
+  updated_at = clock_timestamp()
+WHERE position > sqlc.arg(after) AND position < sqlc.arg(before) AND flag_setting_id = sqlc.arg(flag_setting_id);
