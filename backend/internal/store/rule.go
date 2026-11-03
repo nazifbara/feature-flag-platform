@@ -165,11 +165,25 @@ func (s *Store) ListRulesBySetting(ctx context.Context, settingID uuid.UUID) ([]
 // DeleteRule deletes the rule with the given id and returns it as it was. The
 // other rules keep their positions, so this leaves a gap.
 func (s *Store) DeleteRule(ctx context.Context, id uuid.UUID) (database.Rule, error) {
-	rule, err := s.Queries.DeleteRule(ctx, id)
+	var deletedRule database.Rule
+	err := s.ExecTx(ctx, func(q *database.Queries) error {
+		rule, err := q.GetRule(ctx, id)
+		if err != nil {
+			return err
+		}
+		if _, err := q.LockFlagSetting(ctx, rule.FlagSettingID); err != nil {
+			return err
+		}
+		deletedRule, err = q.DeleteRule(ctx, id)
+		if err != nil {
+			return err
+		}
+		return nil
+	})
 	if err != nil {
 		return database.Rule{}, ffserrors.FromDBErr(err, "can't delete the rule")
 	}
-	return rule, nil
+	return deletedRule, nil
 }
 
 // UpdateRule replaces the name, serve and clauses of the rule with the given id
