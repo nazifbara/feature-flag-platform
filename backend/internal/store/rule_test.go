@@ -1304,3 +1304,385 @@ func TestDeleteRuleReportsErrors(t *testing.T) {
 		wantZeroRule(t, got)
 	})
 }
+
+func TestUpdateRule(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	const otherClauses = `[{"attribute":"age","operator":"gte","kind":"number","values":[18.5]},{"attribute":"isPro","operator":"eq","kind":"boolean","values":[true]}]`
+
+	create := func(t *testing.T, settingID uuid.UUID, position int32) database.Rule {
+		t.Helper()
+		return mustCreateRule(t, store, database.CreateRuleParams{
+			FlagSettingID: settingID,
+			Position:      position,
+			Name:          "Beta users",
+			Serve:         0.25,
+			Clauses:       json.RawMessage(validClauses),
+		})
+	}
+	update := func(t *testing.T, arg database.UpdateRuleParams) database.Rule {
+		t.Helper()
+		got, err := store.UpdateRule(ctx, arg)
+		if err != nil {
+			t.Fatalf("UpdateRule(%+v): %v", arg, err)
+		}
+		return got
+	}
+
+	t.Run("replaces the values and keeps the rest", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rule := create(t, setting.ID, 3)
+
+		got := update(t, database.UpdateRuleParams{
+			ID:      rule.ID,
+			Name:    "Everyone in Benin",
+			Serve:   0.75,
+			Clauses: json.RawMessage(otherClauses),
+		})
+		if got.Name != "Everyone in Benin" || got.Serve != 0.75 {
+			t.Errorf("UpdateRule() name, serve = %q, %v, want %q, 0.75", got.Name, got.Serve, "Everyone in Benin")
+		}
+		wantSameJSON(t, got.Clauses, otherClauses)
+		if got.ID != rule.ID || got.FlagSettingID != rule.FlagSettingID || got.Position != rule.Position {
+			t.Errorf("UpdateRule() id, setting, position = %v, %v, %v, want %v, %v, %v",
+				got.ID, got.FlagSettingID, got.Position, rule.ID, rule.FlagSettingID, rule.Position)
+		}
+		if !got.CreatedAt.Equal(rule.CreatedAt) {
+			t.Errorf("UpdateRule() created_at = %v, want %v", got.CreatedAt, rule.CreatedAt)
+		}
+		if !got.UpdatedAt.After(rule.UpdatedAt) {
+			t.Errorf("UpdateRule() updated_at = %v, want it after %v", got.UpdatedAt, rule.UpdatedAt)
+		}
+		if diff := cmp.Diff(got, storedRule(t, store, rule.ID)); diff != "" {
+			t.Fatalf("stored rule mismatch (-returned +stored):\n%s", diff)
+		}
+	})
+
+	// Every update counts, even one that changes nothing.
+	t.Run("each update moves updated_at", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rule := create(t, setting.ID, 0)
+		arg := database.UpdateRuleParams{ID: rule.ID, Name: rule.Name, Serve: rule.Serve, Clauses: rule.Clauses}
+
+		first := update(t, arg)
+		second := update(t, arg)
+		if !first.UpdatedAt.After(rule.UpdatedAt) {
+			t.Errorf("first updated_at = %v, want it after %v", first.UpdatedAt, rule.UpdatedAt)
+		}
+		if !second.UpdatedAt.After(first.UpdatedAt) {
+			t.Errorf("second updated_at = %v, want it after %v", second.UpdatedAt, first.UpdatedAt)
+		}
+	})
+
+	t.Run("normalizes the name", func(t *testing.T) {
+		tests := map[string]struct{ name, want string }{
+			"kept as given":          {"Everyone", "Everyone"},
+			"surrounding whitespace": {" \t Everyone \n", "Everyone"},
+			"inner whitespace kept":  {"Every  one", "Every  one"},
+			// A name is optional, so it can be cleared.
+			"empty":             {"", ""},
+			"only spaces":       {"   ", ""},
+			"longest":           {strings.Repeat("a", 200), strings.Repeat("a", 200)},
+			"longest non-ASCII": {strings.Repeat("é", 200), strings.Repeat("é", 200)},
+			// The limit applies after trimming.
+			"longest with whitespace": {"  " + strings.Repeat("a", 200) + "  ", strings.Repeat("a", 200)},
+		}
+		for name, test := range tests {
+			t.Run(name, func(t *testing.T) {
+				setting := mustCreateRuleSetting(t, store)
+				rule := create(t, setting.ID, 0)
+				got := update(t, database.UpdateRuleParams{ID: rule.ID, Name: test.name, Clauses: json.RawMessage(validClauses)})
+				if got.Name != test.want {
+					t.Errorf("UpdateRule() name = %q, want %q", got.Name, test.want)
+				}
+				if s := storedRule(t, store, rule.ID); s.Name != test.want {
+					t.Errorf("stored name = %q, want %q", s.Name, test.want)
+				}
+			})
+		}
+	})
+
+	t.Run("stores serve as given", func(t *testing.T) {
+		tests := map[string]float32{
+			"nobody":              0,
+			"everybody":           1,
+			"not exact in binary": 0.1,
+			"smallest above 0":    math.SmallestNonzeroFloat32,
+			"largest below 1":     math.Nextafter32(1, 0),
+		}
+		for name, serve := range tests {
+			t.Run(name, func(t *testing.T) {
+				setting := mustCreateRuleSetting(t, store)
+				rule := create(t, setting.ID, 0)
+				got := update(t, database.UpdateRuleParams{ID: rule.ID, Serve: serve, Clauses: json.RawMessage(validClauses)})
+				if got.Serve != serve {
+					t.Errorf("UpdateRule() serve = %v, want %v", got.Serve, serve)
+				}
+				if s := storedRule(t, store, rule.ID); s.Serve != serve {
+					t.Errorf("stored serve = %v, want %v", s.Serve, serve)
+				}
+			})
+		}
+	})
+
+	// What's saved has to load: rules are parsed again when they're read.
+	t.Run("saved clauses parse back", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rule := create(t, setting.ID, 0)
+		update(t, database.UpdateRuleParams{ID: rule.ID, Clauses: json.RawMessage(otherClauses)})
+
+		clauses, err := parseClauses(storedRule(t, store, rule.ID).Clauses)
+		if err != nil {
+			t.Fatalf("parseClauses() on the stored clauses: %v", err)
+		}
+		if len(clauses) != 2 {
+			t.Fatalf("parseClauses() returned %d clauses, want 2", len(clauses))
+		}
+		match := map[string][]any{"age": {20.0}, "isPro": {true}}
+		for i, clause := range clauses {
+			if ok, err := clause.Match(match); err != nil || !ok {
+				t.Errorf("clause %d Match(%v) = %v, %v, want true", i, match, ok, err)
+			}
+		}
+	})
+
+	// A rule keeps its place in the evaluation order.
+	t.Run("the setting's order stays the same", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		first := create(t, setting.ID, 0)
+		second := create(t, setting.ID, 1)
+
+		updated := update(t, database.UpdateRuleParams{ID: second.ID, Name: "Everyone", Clauses: json.RawMessage(validClauses)})
+		got, err := store.ListRulesBySetting(ctx, setting.ID)
+		if err != nil {
+			t.Fatalf("ListRulesBySetting(): %v", err)
+		}
+		if diff := cmp.Diff([]database.Rule{first, updated}, got); diff != "" {
+			t.Fatalf("rules mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	// Rules in another setting can have the same position.
+	t.Run("leaves other rules alone", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		otherEnv := mustCreateEnv(t, store, "staging")
+		other := mustCreateFlagSetting(t, store, database.CreateFlagSettingParams{FlagID: setting.FlagID, EnvironmentID: otherEnv.ID})
+		rule := create(t, setting.ID, 0)
+		kept := []database.Rule{create(t, setting.ID, 1), create(t, other.ID, 0)}
+
+		update(t, database.UpdateRuleParams{ID: rule.ID, Name: "Everyone", Clauses: json.RawMessage(validClauses)})
+		for _, want := range kept {
+			if diff := cmp.Diff(want, storedRule(t, store, want.ID)); diff != "" {
+				t.Errorf("other rule changed (-want +got):\n%s", diff)
+			}
+		}
+	})
+
+	t.Run("leaves the flag setting alone", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rule := create(t, setting.ID, 0)
+		update(t, database.UpdateRuleParams{ID: rule.ID, Name: "Everyone", Clauses: json.RawMessage(validClauses)})
+		if diff := cmp.Diff(setting, storedFlagSetting(t, store, setting.ID)); diff != "" {
+			t.Fatalf("flag setting changed (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("not found", func(t *testing.T) {
+		notFound := connect.NewError(connect.CodeNotFound, "can't update the rule")
+		setting := mustCreateRuleSetting(t, store)
+		kept := create(t, setting.ID, 0)
+
+		tests := map[string]uuid.UUID{
+			"unknown ID": uuid.New(),
+			"zero ID":    uuid.Nil(),
+			// Easy to do, since these are UUIDs too. Passing the setting's ID
+			// must not change its rules.
+			"flag setting ID": setting.ID,
+			"flag ID":         setting.FlagID,
+		}
+		for name, id := range tests {
+			t.Run(name, func(t *testing.T) {
+				got, err := store.UpdateRule(ctx, database.UpdateRuleParams{ID: id, Name: "Everyone", Clauses: json.RawMessage(validClauses)})
+				wantConnectErr(t, err, notFound)
+				wantZeroRule(t, got)
+				if diff := cmp.Diff(kept, storedRule(t, store, kept.ID)); diff != "" {
+					t.Fatalf("rule changed (-want +got):\n%s", diff)
+				}
+			})
+		}
+
+		t.Run("deleted rule", func(t *testing.T) {
+			rule := create(t, setting.ID, 1)
+			if _, err := store.DeleteRule(ctx, rule.ID); err != nil {
+				t.Fatalf("DeleteRule(): %v", err)
+			}
+			got, err := store.UpdateRule(ctx, database.UpdateRuleParams{ID: rule.ID, Name: "Everyone", Clauses: json.RawMessage(validClauses)})
+			wantConnectErr(t, err, notFound)
+			wantZeroRule(t, got)
+		})
+	})
+
+	t.Run("rolled back with its transaction", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rule := create(t, setting.ID, 0)
+		boom := errors.New("boom")
+		err := store.ExecTx(ctx, func(q *database.Queries) error {
+			if _, err := q.UpdateRule(ctx, database.UpdateRuleParams{ID: rule.ID, Name: "Everyone", Clauses: json.RawMessage(validClauses)}); err != nil {
+				return err
+			}
+			return boom
+		})
+		if !errors.Is(err, boom) {
+			t.Fatalf("ExecTx() error = %v, want %v", err, boom)
+		}
+		if diff := cmp.Diff(rule, storedRule(t, store, rule.ID)); diff != "" {
+			t.Fatalf("rule changed after the rollback (-want +got):\n%s", diff)
+		}
+	})
+}
+
+func TestUpdateRuleRejectsInvalid(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	invalid := func(message string) *connect.Error {
+		return connect.NewError(connect.CodeInvalidArgument, message)
+	}
+	tooLong := invalid("can't update a rule with a name over 200 characters")
+	outside := invalid("can't update a rule with a serve value outside [0, 1]")
+	// Postgres finds these, so they carry no details.
+	badText := invalid("can't update the rule")
+
+	valid := func() database.UpdateRuleParams {
+		return database.UpdateRuleParams{Name: "Everyone", Serve: 0.5, Clauses: json.RawMessage(validClauses)}
+	}
+	tests := map[string]struct {
+		change func(*database.UpdateRuleParams)
+		want   *connect.Error
+	}{
+		"name too long":           {func(a *database.UpdateRuleParams) { a.Name = strings.Repeat("a", 201) }, tooLong},
+		"non-ASCII name too long": {func(a *database.UpdateRuleParams) { a.Name = strings.Repeat("é", 201) }, tooLong},
+		"NUL in name":             {func(a *database.UpdateRuleParams) { a.Name = "a\x00b" }, badText},
+		"invalid UTF-8 in name":   {func(a *database.UpdateRuleParams) { a.Name = "a\xffb" }, badText},
+
+		"serve negative":          {func(a *database.UpdateRuleParams) { a.Serve = -0.5 }, outside},
+		"serve just below 0":      {func(a *database.UpdateRuleParams) { a.Serve = -math.SmallestNonzeroFloat32 }, outside},
+		"serve just above 1":      {func(a *database.UpdateRuleParams) { a.Serve = math.Nextafter32(1, 2) }, outside},
+		"serve as a percentage":   {func(a *database.UpdateRuleParams) { a.Serve = 50 }, outside},
+		"serve NaN":               {func(a *database.UpdateRuleParams) { a.Serve = float32(math.NaN()) }, outside},
+		"serve positive infinity": {func(a *database.UpdateRuleParams) { a.Serve = float32(math.Inf(1)) }, outside},
+		"serve negative infinity": {func(a *database.UpdateRuleParams) { a.Serve = float32(math.Inf(-1)) }, outside},
+
+		// TestParseClausesRejectsInvalid covers every way clauses can be
+		// wrong. These check the error reaches the caller as bad input.
+		"no clauses": {func(a *database.UpdateRuleParams) { a.Clauses = nil }, invalid("invalid clauses: EOF")},
+		"empty clause list": {func(a *database.UpdateRuleParams) { a.Clauses = json.RawMessage(`[]`) },
+			invalid("invalid clauses: at least one clause is required")},
+		"null clauses": {func(a *database.UpdateRuleParams) { a.Clauses = json.RawMessage(`null`) },
+			invalid("invalid clauses: at least one clause is required")},
+		"unknown clause kind": {func(a *database.UpdateRuleParams) {
+			a.Clauses = json.RawMessage(`[{"attribute":"c","operator":"eq","kind":"date","values":["x"]}]`)
+		}, invalid(`clause at index 0: unknown kind "date"`)},
+		"second clause invalid": {func(a *database.UpdateRuleParams) {
+			a.Clauses = json.RawMessage(`[{"attribute":"c","operator":"eq","kind":"string","values":["x"]},{"attribute":"","operator":"eq","kind":"string","values":["x"]}]`)
+		}, invalid("clause at index 1: can't create a clause with empty attribute")},
+		// parseClauses accepts these, but JSONB can't hold them.
+		"NUL in clause attribute": {func(a *database.UpdateRuleParams) {
+			a.Clauses = json.RawMessage(`[{"attribute":"a\u0000b","operator":"eq","kind":"string","values":["x"]}]`)
+		}, badText},
+		"NUL in clause value": {func(a *database.UpdateRuleParams) {
+			a.Clauses = json.RawMessage(`[{"attribute":"c","operator":"eq","kind":"string","values":["\u0000"]}]`)
+		}, badText},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			setting := mustCreateRuleSetting(t, store)
+			rule := mustCreateRule(t, store, database.CreateRuleParams{
+				FlagSettingID: setting.ID,
+				Name:          "Beta users",
+				Serve:         0.25,
+				Clauses:       json.RawMessage(validClauses),
+			})
+			arg := valid()
+			arg.ID = rule.ID
+			test.change(&arg)
+
+			got, err := store.UpdateRule(ctx, arg)
+			wantConnectErr(t, err, test.want)
+			wantZeroRule(t, got)
+			if diff := cmp.Diff(rule, storedRule(t, store, rule.ID)); diff != "" {
+				t.Fatalf("rule changed after a rejected update (-want +got):\n%s", diff)
+			}
+		})
+	}
+
+	// Validation comes first, so bad input is reported even when the rule
+	// doesn't exist.
+	t.Run("input checked before the rule", func(t *testing.T) {
+		tests := map[string]struct {
+			change func(*database.UpdateRuleParams)
+			want   *connect.Error
+		}{
+			"name":  {func(a *database.UpdateRuleParams) { a.Name = strings.Repeat("a", 201) }, tooLong},
+			"serve": {func(a *database.UpdateRuleParams) { a.Serve = 2 }, outside},
+			"clauses": {func(a *database.UpdateRuleParams) { a.Clauses = json.RawMessage(`[]`) },
+				invalid("invalid clauses: at least one clause is required")},
+		}
+		for name, test := range tests {
+			t.Run(name, func(t *testing.T) {
+				arg := valid()
+				arg.ID = uuid.New()
+				test.change(&arg)
+				_, err := store.UpdateRule(ctx, arg)
+				wantConnectErr(t, err, test.want)
+			})
+		}
+	})
+}
+
+func TestUpdateRuleReportsErrors(t *testing.T) {
+	store := newTestStore(t)
+	setting := mustCreateRuleSetting(t, store)
+	rule := mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: setting.ID, Name: "Beta users", Clauses: json.RawMessage(validClauses)})
+	arg := database.UpdateRuleParams{ID: rule.ID, Name: "Everyone", Serve: 0.5, Clauses: json.RawMessage(validClauses)}
+	const message = "can't update the rule"
+
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	expired, cancelExpired := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancelExpired()
+
+	tests := map[string]struct {
+		ctx  context.Context
+		want *connect.Error
+	}{
+		"canceled context": {
+			ctx:  canceled,
+			want: connect.NewError(connect.CodeCanceled, message),
+		},
+		"expired deadline": {
+			ctx:  expired,
+			want: connect.NewError(connect.CodeDeadlineExceeded, message),
+		},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			got, err := store.UpdateRule(test.ctx, arg)
+			wantConnectErr(t, err, test.want)
+			wantZeroRule(t, got)
+			if diff := cmp.Diff(rule, storedRule(t, store, rule.ID)); diff != "" {
+				t.Fatalf("rule changed after a failed update (-want +got):\n%s", diff)
+			}
+		})
+	}
+
+	// Run last: it closes the connection pool the other cases use.
+	t.Run("closed database is internal", func(t *testing.T) {
+		if err := store.db.Close(); err != nil {
+			t.Fatalf("closing the database: %v", err)
+		}
+		got, err := store.UpdateRule(context.Background(), arg)
+		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, message))
+		wantZeroRule(t, got)
+	})
+}
