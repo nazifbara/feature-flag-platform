@@ -33,3 +33,6 @@ FROM flag_settings fs
 JOIN flags f ON f.id = fs.flag_id
 WHERE fs.environment_id = $1
 ORDER BY f.key;
+
+-- name: LockFlagSetting :one
+SELECT id FROM flag_settings WHERE id = $1 FOR UPDATE;
