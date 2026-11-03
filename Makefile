@@ -20,11 +20,15 @@ sqlc:
 up:
 	goose postgres $(DB_URL) up
 
-reset-test:
+reset-db:
+	goose postgres $(DB_URL) reset
+	goose postgres $(DB_URL) up
+
+reset-test-db:
 	goose postgres $(TEST_DB_URL) reset
 	goose postgres $(TEST_DB_URL) up
 
-db-integration-test: reset-test
+db-integration-test: reset-test-db
 	go test ./backend/internal/store/... -count=1 -cover
 
 down:
