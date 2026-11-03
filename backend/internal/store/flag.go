@@ -42,6 +42,8 @@ func normalizeFlagKey(action, key string) (string, error) {
 	return strings.ToLower(key), nil
 }
 
+// CreateFlag adds a flag, with its key normalized by normalizeFlagKey and a salt
+// of its own.
 func (s *Store) CreateFlag(ctx context.Context, key string) (database.Flag, error) {
 	key, err := normalizeFlagKey("create", key)
 	if err != nil {
@@ -57,6 +59,7 @@ func (s *Store) CreateFlag(ctx context.Context, key string) (database.Flag, erro
 	return flag, nil
 }
 
+// GetFlag gets the flag with the given id.
 func (s *Store) GetFlag(ctx context.Context, id uuid.UUID) (database.Flag, error) {
 	flag, err := s.Queries.GetFlag(ctx, id)
 	if err != nil {
@@ -65,6 +68,8 @@ func (s *Store) GetFlag(ctx context.Context, id uuid.UUID) (database.Flag, error
 	return flag, nil
 }
 
+// UpdateFlag changes the key of the flag with the given id, applying the same
+// key rules as CreateFlag.
 func (s *Store) UpdateFlag(ctx context.Context, id uuid.UUID, key string) (database.Flag, error) {
 	key, err := normalizeFlagKey("update", key)
 	if err != nil {

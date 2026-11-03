@@ -58,6 +58,9 @@ var clauseOperatorMap = map[ClauseKind][]string{
 	NumberClause:  {eqOp, neqOp, gtOp, ltOp, gteOp, lteOp, cntOp, ilOp},
 }
 
+// NewClause returns a clause of the given kind, after checking its attribute,
+// its operator and that its values have the kind's type. Number values must be
+// float64.
 func NewClause(attribute, operator string, kind ClauseKind, values []any) (Clause, error) {
 	if attribute == "" {
 		return nil, errors.New("can't create a clause with empty attribute")
@@ -105,6 +108,7 @@ func NewClause(attribute, operator string, kind ClauseKind, values []any) (Claus
 	}
 }
 
+// convert returns values as a []T, failing on the first value of another type.
 func convert[T any](values []any) ([]T, error) {
 	out := make([]T, len(values))
 	for i, v := range values {
@@ -117,6 +121,8 @@ func convert[T any](values []any) ([]T, error) {
 	return out, nil
 }
 
+// Match reports whether the attribute satisfies the clause. A missing or empty
+// attribute doesn't match, and only il and cnt accept several values.
 func (c stringClause) Match(attributes map[string][]any) (bool, error) {
 	values, ok := attributes[c.attribute]
 	if !ok || len(values) == 0 {
@@ -148,6 +154,8 @@ func (c stringClause) Match(attributes map[string][]any) (bool, error) {
 	}
 }
 
+// Match reports whether the attribute satisfies the clause. A missing or empty
+// attribute doesn't match, and only il and cnt accept several values.
 func (c numberClause) Match(attributes map[string][]any) (bool, error) {
 	values, ok := attributes[c.attribute]
 	if !ok || len(values) == 0 {
@@ -182,6 +190,8 @@ func (c numberClause) Match(attributes map[string][]any) (bool, error) {
 	}
 }
 
+// Match reports whether the attribute satisfies the clause. A missing or empty
+// attribute doesn't match, and several values are an error.
 func (c booleanClause) Match(attributes map[string][]any) (bool, error) {
 	values, ok := attributes[c.attribute]
 	if !ok || len(values) == 0 {
@@ -208,6 +218,7 @@ func (c booleanClause) Match(attributes map[string][]any) (bool, error) {
 	}
 }
 
+// valueContains reports whether a holds every value in b.
 func valueContains[T comparable](a []T, b []T) bool {
 	for _, v := range b {
 		if !slices.Contains(a, v) {

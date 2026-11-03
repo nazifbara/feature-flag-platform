@@ -16,12 +16,15 @@ type Service struct {
 	store *store.Store
 }
 
+// New returns a Service that keeps its data in store.
 func New(store *store.Store) *Service {
 	return &Service{
 		store: store,
 	}
 }
 
+// SignUp creates the identity and the user in one transaction, so neither exists
+// without the other.
 func (s *Service) SignUp(
 	ctx context.Context,
 	req *auth.SignUpRequest,
@@ -65,6 +68,7 @@ func (s *Service) SignUp(
 	return &auth.SignUpResponse{}, nil
 }
 
+// hashPassword hashes password with argon2id's default parameters.
 func hashPassword(password string) (string, error) {
 	return argon2id.CreateHash(password, argon2id.DefaultParams)
 }

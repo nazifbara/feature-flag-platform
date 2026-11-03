@@ -14,6 +14,7 @@ import (
 	_ "github.com/lib/pq"
 )
 
+// main runs the server until it's interrupted, and exits with run's status.
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	httpPort := flag.Int("port", 8080, "port to listen on")
@@ -23,6 +24,8 @@ func main() {
 	os.Exit(status)
 }
 
+// run serves on httpPort until ctx is done, then shuts the server down within
+// 5 seconds. It returns the process's exit status.
 func run(ctx context.Context, cancel context.CancelFunc, httpPort int) int {
 	store, err := store.New(os.Getenv("DB_URL"))
 	if err != nil {
