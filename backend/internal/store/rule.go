@@ -171,3 +171,13 @@ func (s *Store) UpdateRule(ctx context.Context, args database.UpdateRuleParams) 
 	}
 	return rule, nil
 }
+
+// CountRulesBySetting gives the number of rules a flag setting has. An unknown
+// setting has none.
+func (s *Store) CountRulesBySetting(ctx context.Context, flagSettingID uuid.UUID) (int, error) {
+	count, err := s.Queries.CountRulesBySetting(ctx, flagSettingID)
+	if err != nil {
+		return 0, ffserrors.FromDBErr(err, "can't count the flag setting's rules")
+	}
+	return int(count), nil
+}

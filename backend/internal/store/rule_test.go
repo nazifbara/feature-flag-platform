@@ -1686,3 +1686,175 @@ func TestUpdateRuleReportsErrors(t *testing.T) {
 		wantZeroRule(t, got)
 	})
 }
+
+func TestCountRulesBySetting(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	create := func(t *testing.T, settingID uuid.UUID, position int32) database.Rule {
+		t.Helper()
+		return mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: settingID, Position: position, Clauses: json.RawMessage(validClauses)})
+	}
+	wantCount := func(t *testing.T, settingID uuid.UUID, want int) {
+		t.Helper()
+		got, err := store.CountRulesBySetting(ctx, settingID)
+		if err != nil {
+			t.Fatalf("CountRulesBySetting(%v): %v", settingID, err)
+		}
+		if got != want {
+			t.Fatalf("CountRulesBySetting(%v) = %d, want %d", settingID, got, want)
+		}
+	}
+
+	// The count comes from the rows, not the positions, which can have gaps.
+	t.Run("counts the rules", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		for i, position := range []int32{10, 2, 0} {
+			create(t, setting.ID, position)
+			wantCount(t, setting.ID, i+1)
+		}
+	})
+
+	// The same flag in another environment has its own rules, and so does
+	// another flag in the same environment.
+	t.Run("only the setting's rules", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		otherEnv := mustCreateEnv(t, store, "staging")
+		otherFlag := mustCreateFlag(t, store, "dark-mode")
+		sameFlag := mustCreateFlagSetting(t, store, database.CreateFlagSettingParams{FlagID: setting.FlagID, EnvironmentID: otherEnv.ID})
+		sameEnv := mustCreateFlagSetting(t, store, database.CreateFlagSettingParams{FlagID: otherFlag.ID, EnvironmentID: setting.EnvironmentID})
+
+		want := map[uuid.UUID]int{setting.ID: 1, sameFlag.ID: 2, sameEnv.ID: 3}
+		for id, n := range want {
+			for position := range n {
+				create(t, id, int32(position))
+			}
+		}
+		for id, n := range want {
+			wantCount(t, id, n)
+		}
+	})
+
+	// None of these is an error, as with ListRulesBySetting.
+	t.Run("nothing to count", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		other := mustCreateFlagSetting(t, store, database.CreateFlagSettingParams{
+			FlagID:        mustCreateFlag(t, store, "dark-mode").ID,
+			EnvironmentID: setting.EnvironmentID,
+		})
+		rule := create(t, other.ID, 0)
+
+		tests := map[string]uuid.UUID{
+			"setting without rules": setting.ID,
+			"unknown setting":       uuid.New(),
+			"zero ID":               uuid.Nil(),
+			// Easy to do, since these are UUIDs too.
+			"flag ID": other.FlagID,
+			"rule ID": rule.ID,
+		}
+		for name, id := range tests {
+			t.Run(name, func(t *testing.T) {
+				wantCount(t, id, 0)
+			})
+		}
+	})
+
+	t.Run("goes down when a rule is deleted", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rule := create(t, setting.ID, 0)
+		create(t, setting.ID, 1)
+		if _, err := store.DeleteRule(ctx, rule.ID); err != nil {
+			t.Fatalf("DeleteRule(): %v", err)
+		}
+		wantCount(t, setting.ID, 1)
+	})
+
+	t.Run("stays the same when a rule is updated", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rule := create(t, setting.ID, 0)
+		if _, err := store.UpdateRule(ctx, database.UpdateRuleParams{ID: rule.ID, Name: "Everyone", Clauses: json.RawMessage(validClauses)}); err != nil {
+			t.Fatalf("UpdateRule(): %v", err)
+		}
+		wantCount(t, setting.ID, 1)
+	})
+
+	t.Run("zero once the flag is deleted", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		create(t, setting.ID, 0)
+		if _, err := store.DeleteFlag(ctx, setting.FlagID); err != nil {
+			t.Fatalf("DeleteFlag(): %v", err)
+		}
+		wantCount(t, setting.ID, 0)
+	})
+
+	// Counting inside a transaction sees its own changes, and they go if it
+	// rolls back.
+	t.Run("follows a transaction", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		boom := errors.New("boom")
+		err := store.ExecTx(ctx, func(q *database.Queries) error {
+			if _, err := q.CreateRule(ctx, database.CreateRuleParams{FlagSettingID: setting.ID, Clauses: json.RawMessage(validClauses)}); err != nil {
+				return err
+			}
+			n, err := q.CountRulesBySetting(ctx, setting.ID)
+			if err != nil {
+				return err
+			}
+			if n != 1 {
+				t.Errorf("CountRulesBySetting() in the transaction = %d, want 1", n)
+			}
+			return boom
+		})
+		if !errors.Is(err, boom) {
+			t.Fatalf("ExecTx() error = %v, want %v", err, boom)
+		}
+		wantCount(t, setting.ID, 0)
+	})
+}
+
+func TestCountRulesBySettingReportsErrors(t *testing.T) {
+	store := newTestStore(t)
+	setting := mustCreateRuleSetting(t, store)
+	mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: setting.ID, Clauses: json.RawMessage(validClauses)})
+	const message = "can't count the flag setting's rules"
+
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	expired, cancelExpired := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancelExpired()
+
+	tests := map[string]struct {
+		ctx  context.Context
+		want *connect.Error
+	}{
+		"canceled context": {
+			ctx:  canceled,
+			want: connect.NewError(connect.CodeCanceled, message),
+		},
+		"expired deadline": {
+			ctx:  expired,
+			want: connect.NewError(connect.CodeDeadlineExceeded, message),
+		},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			got, err := store.CountRulesBySetting(test.ctx, setting.ID)
+			wantConnectErr(t, err, test.want)
+			if got != 0 {
+				t.Fatalf("CountRulesBySetting() = %d on error, want 0", got)
+			}
+		})
+	}
+
+	// Run last: it closes the connection pool the other cases use.
+	t.Run("closed database is internal", func(t *testing.T) {
+		if err := store.db.Close(); err != nil {
+			t.Fatalf("closing the database: %v", err)
+		}
+		got, err := store.CountRulesBySetting(context.Background(), setting.ID)
+		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, message))
+		if got != 0 {
+			t.Fatalf("CountRulesBySetting() = %d on error, want 0", got)
+		}
+	})
+}
