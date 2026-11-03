@@ -2,9 +2,6 @@ include .env
 export
 export GOOSE_MIGRATION_DIR  ?= ./backend/sql/schema
 
-.PHONY: gen dev-backend dev-frontend build-backend sqlc migrate-up migrate-down
-
-
 proto-gen:
 	buf generate
 
