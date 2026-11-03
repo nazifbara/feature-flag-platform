@@ -32,7 +32,7 @@ func (s *Service) SignUp(
 	err := s.store.ExecTx(ctx, func(q *database.Queries) error {
 		passwordHash, err := hashPassword(req.Password)
 		if err != nil {
-			return connect.NewError(connect.CodeInternal, connect.CodeInternal.String()).WithCause(err)
+			return connect.NewError(connect.CodeInternal, "can't sign up").WithCause(err)
 		}
 
 		identity, err := q.CreateAuth(
