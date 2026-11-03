@@ -26,6 +26,8 @@ type server struct {
 	cancel     context.CancelFunc
 }
 
+// start listens on the server's address and serves until the server is shut
+// down, which isn't reported as an error.
 func (s *server) start() error {
 	ln, err := net.Listen("tcp", s.httpServer.Addr)
 	if err != nil {
@@ -39,10 +41,14 @@ func (s *server) start() error {
 	return nil
 }
 
+// shutdown stops the server gracefully, waiting for open requests until ctx is
+// done.
 func (s *server) shutdown(ctx context.Context) error {
 	return s.httpServer.Shutdown(ctx)
 }
 
+// newServer builds a server with the auth and ping services registered, without
+// starting it.
 func newServer(port int, store *store.Store, cancel context.CancelFunc) *server {
 	connectServer := connect.NewServer(
 		interceptor.NewLoggingInterceptor(),
@@ -74,6 +80,7 @@ func newServer(port int, store *store.Store, cancel context.CancelFunc) *server 
 	return s
 }
 
+// withCORS lets the local frontend call h, and answers preflight requests itself.
 func withCORS(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "http://localhost:5173")

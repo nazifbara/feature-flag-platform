@@ -11,8 +11,8 @@ import (
 )
 
 // FromDBErr maps a database error to the connect.Error with the matching code.
-// msg is what the client sees, so it must not reveal internals; err is kept as
-// the cause for logging.
+// msg can reach the client, so it must not reveal internals; err is kept as the
+// cause.
 func FromDBErr(err error, msg string) error {
 	switch {
 	case errors.Is(err, context.Canceled):

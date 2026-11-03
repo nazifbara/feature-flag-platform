@@ -27,6 +27,7 @@ func normalizeEnvName(action, name string) (string, error) {
 	return name, nil
 }
 
+// CreateEnv adds an environment, with its name normalized by normalizeEnvName.
 func (s *Store) CreateEnv(ctx context.Context, name string) (database.Environment, error) {
 	name, err := normalizeEnvName("create", name)
 	if err != nil {
@@ -39,6 +40,7 @@ func (s *Store) CreateEnv(ctx context.Context, name string) (database.Environmen
 	return env, nil
 }
 
+// GetEnv gets the environment with the given id.
 func (s *Store) GetEnv(ctx context.Context, id uuid.UUID) (database.Environment, error) {
 	env, err := s.Queries.GetEnv(ctx, id)
 	if err != nil {
@@ -61,6 +63,7 @@ func (s *Store) UpdateEnv(ctx context.Context, id uuid.UUID, name string) (datab
 	return env, nil
 }
 
+// ListEnvs gets every environment, oldest first.
 func (s *Store) ListEnvs(ctx context.Context) ([]database.Environment, error) {
 	envs, err := s.Queries.ListEnvs(ctx)
 	if err != nil {

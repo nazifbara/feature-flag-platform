@@ -11,6 +11,8 @@ import (
 	connect "connectrpc.com/connect/v2"
 )
 
+// NewLoggingInterceptor logs every failed call, and replaces the message of
+// errors with a sensitive code with a generic one before it reaches the client.
 func NewLoggingInterceptor() connect.ServerInterceptor {
 	return func(next connect.ServerFunc) connect.ServerFunc {
 		return func(ctx context.Context, spec connect.Spec, stream connect.ServerStream) error {

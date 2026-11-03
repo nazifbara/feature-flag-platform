@@ -14,6 +14,8 @@ type Store struct {
 	db *sql.DB
 }
 
+// ExecTx runs fn in a transaction, committing if it returns nil and rolling back
+// if it fails or panics. Errors aren't mapped to connect errors here.
 func (s *Store) ExecTx(ctx context.Context, fn func(*database.Queries) error) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -36,6 +38,8 @@ func (s *Store) ExecTx(ctx context.Context, fn func(*database.Queries) error) er
 	return tx.Commit()
 }
 
+// New returns a Store for the database at dbURL. It doesn't connect yet, so a bad
+// address only shows up on the first query.
 func New(dbURL string) (*Store, error) {
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {

@@ -14,6 +14,10 @@ const (
 	FallthroughReason    = "fallthrough"
 )
 
+// Evaluate decides whether the flag is on for the user in attributes' user_key,
+// and why. A disabled flag is off and an allowlisted user is on. Otherwise the
+// first matching rule, or else the fallthrough, sets the share of users who get
+// it, and the user's bucket decides if they're among them.
 func Evaluate(flagConfig FlagConfig, attributes map[string][]any) (on bool, reason string, err error) {
 	if !flagConfig.enabled {
 		return false, MasterSwitchReason, nil
