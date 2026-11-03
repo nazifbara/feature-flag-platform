@@ -131,3 +131,13 @@ func (s *Store) ListRulesBySetting(ctx context.Context, settingID uuid.UUID) ([]
 	}
 	return rules, nil
 }
+
+// DeleteRule deletes the rule with the given id and returns it as it was. The
+// other rules keep their positions, so this leaves a gap.
+func (s *Store) DeleteRule(ctx context.Context, id uuid.UUID) (database.Rule, error) {
+	rule, err := s.Queries.DeleteRule(ctx, id)
+	if err != nil {
+		return database.Rule{}, ffserrors.FromDBErr(err, "can't delete the rule")
+	}
+	return rule, nil
+}
