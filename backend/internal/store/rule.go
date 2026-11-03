@@ -9,6 +9,7 @@ import (
 	"io"
 	"strings"
 	"unicode/utf8"
+	"uuid"
 
 	"connectrpc.com/connect/v2"
 	"github.com/nazifbara/flagsvc/backend/internal/database"
@@ -108,6 +109,14 @@ func (s *Store) CreateRule(ctx context.Context, param database.CreateRuleParams)
 	rule, err := s.Queries.CreateRule(ctx, param)
 	if err != nil {
 		return database.Rule{}, ffserrors.FromDBErr(err, "can't create the rule")
+	}
+	return rule, nil
+}
+
+func (s *Store) GetRule(ctx context.Context, id uuid.UUID) (database.Rule, error) {
+	rule, err := s.Queries.GetRule(ctx, id)
+	if err != nil {
+		return database.Rule{}, ffserrors.FromDBErr(err, "rule not found")
 	}
 	return rule, nil
 }
