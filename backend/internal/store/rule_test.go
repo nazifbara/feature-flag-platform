@@ -570,35 +570,162 @@ func TestCreateRuleRejectsInvalid(t *testing.T) {
 	})
 }
 
-func TestCreateRuleRejectsDuplicate(t *testing.T) {
+// mustCreateNamedRules gives a setting one rule per name, at positions 0, 1, 2...
+func mustCreateNamedRules(t *testing.T, store *Store, settingID uuid.UUID, names ...string) []database.Rule {
+	t.Helper()
+	rules := make([]database.Rule, 0, len(names))
+	for i, name := range names {
+		rules = append(rules, mustCreateRule(t, store, database.CreateRuleParams{
+			FlagSettingID: settingID,
+			Position:      int32(i),
+			Name:          name,
+			Serve:         0.25,
+			Clauses:       json.RawMessage(validClauses),
+		}))
+	}
+	return rules
+}
+
+func TestCreateRuleShiftsRules(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	// Rules from the new position on move down one, in the same order.
+	t.Run("makes room at the position", func(t *testing.T) {
+		tests := map[string]struct {
+			position int32
+			want     []string
+		}{
+			"at the start":  {0, []string{"new", "a", "b", "c"}},
+			"in the middle": {1, []string{"a", "new", "b", "c"}},
+			"before last":   {2, []string{"a", "b", "new", "c"}},
+			"at the end":    {3, []string{"a", "b", "c", "new"}},
+		}
+		for name, test := range tests {
+			t.Run(name, func(t *testing.T) {
+				setting := mustCreateRuleSetting(t, store)
+				before := map[string]database.Rule{}
+				for _, r := range mustCreateNamedRules(t, store, setting.ID, "a", "b", "c") {
+					before[r.Name] = r
+				}
+
+				created := mustCreateRule(t, store, database.CreateRuleParams{
+					FlagSettingID: setting.ID,
+					Position:      test.position,
+					Name:          "new",
+					Clauses:       json.RawMessage(validClauses),
+				})
+				if created.Position != test.position {
+					t.Errorf("CreateRule() position = %d, want %d", created.Position, test.position)
+				}
+
+				got, err := store.ListRulesBySetting(ctx, setting.ID)
+				if err != nil {
+					t.Fatalf("ListRulesBySetting(): %v", err)
+				}
+				if len(got) != len(test.want) {
+					t.Fatalf("%d rules, want %d", len(got), len(test.want))
+				}
+				var want []database.Rule
+				for i, name := range test.want {
+					r := created
+					if name != "new" {
+						r = before[name]
+						r.Position = int32(i)
+						// Only a rule that moved has a new updated_at.
+						if int32(i) > test.position {
+							if !got[i].UpdatedAt.After(r.UpdatedAt) {
+								t.Errorf("rule %q updated_at = %v, want it after %v", name, got[i].UpdatedAt, r.UpdatedAt)
+							}
+							r.UpdatedAt = got[i].UpdatedAt
+						}
+					}
+					want = append(want, r)
+				}
+				if diff := cmp.Diff(want, got); diff != "" {
+					t.Fatalf("rules mismatch (-want +got):\n%s", diff)
+				}
+			})
+		}
+	})
+
+	t.Run("leaves other settings' rules alone", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		otherEnv := mustCreateEnv(t, store, "staging")
+		other := mustCreateFlagSetting(t, store, database.CreateFlagSettingParams{FlagID: setting.FlagID, EnvironmentID: otherEnv.ID})
+		mustCreateNamedRules(t, store, setting.ID, "a", "b")
+		want := mustCreateNamedRules(t, store, other.ID, "a", "b")
+
+		mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: setting.ID, Position: 0, Clauses: json.RawMessage(validClauses)})
+		got, err := store.ListRulesBySetting(ctx, other.ID)
+		if err != nil {
+			t.Fatalf("ListRulesBySetting(): %v", err)
+		}
+		if diff := cmp.Diff(want, got); diff != "" {
+			t.Fatalf("other setting's rules changed (-want +got):\n%s", diff)
+		}
+	})
+
+	// The range is checked first, so nothing has moved.
+	t.Run("position out of range moves nothing", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		want := mustCreateNamedRules(t, store, setting.ID, "a", "b")
+
+		_, err := store.CreateRule(ctx, database.CreateRuleParams{FlagSettingID: setting.ID, Position: 3, Clauses: json.RawMessage(validClauses)})
+		wantConnectErr(t, err, connect.NewError(connect.CodeInvalidArgument, "can't create a rule with a position outside [0, 2]"))
+		got, err := store.ListRulesBySetting(ctx, setting.ID)
+		if err != nil {
+			t.Fatalf("ListRulesBySetting(): %v", err)
+		}
+		if diff := cmp.Diff(want, got); diff != "" {
+			t.Fatalf("rules changed (-want +got):\n%s", diff)
+		}
+	})
+
+	// Postgres only finds the bad name on the insert, after the shift, which
+	// has to be undone.
+	t.Run("a failed insert undoes the shift", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		want := mustCreateNamedRules(t, store, setting.ID, "a", "b")
+
+		_, err := store.CreateRule(ctx, database.CreateRuleParams{FlagSettingID: setting.ID, Position: 0, Name: "a\x00b", Clauses: json.RawMessage(validClauses)})
+		wantConnectErr(t, err, connect.NewError(connect.CodeInvalidArgument, "can't create the rule"))
+		got, err := store.ListRulesBySetting(ctx, setting.ID)
+		if err != nil {
+			t.Fatalf("ListRulesBySetting(): %v", err)
+		}
+		if diff := cmp.Diff(want, got); diff != "" {
+			t.Fatalf("rules changed (-want +got):\n%s", diff)
+		}
+	})
+}
+
+// CreateRule expects positions without gaps. These go through the query to make
+// one: the shift then runs into the next rule, which the deferred unique check
+// reports at commit. That error has to reach the caller converted too.
+func TestCreateRuleRejectsCollision(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
 	setting := mustCreateRuleSetting(t, store)
-	first := mustCreateRule(t, store, database.CreateRuleParams{
-		FlagSettingID: setting.ID,
-		Position:      0,
-		Name:          "first",
-		Serve:         0.25,
-		Clauses:       json.RawMessage(validClauses),
-	})
 
-	// The position is taken whatever the other values are. The unique check
-	// is deferred, so it fires at CreateRule's commit, and that error has to
-	// reach the caller converted too.
-	got, err := store.CreateRule(ctx, database.CreateRuleParams{
-		FlagSettingID: setting.ID,
-		Position:      0,
-		Name:          "second",
-		Serve:         0.75,
-		Clauses:       json.RawMessage(`[{"attribute":"age","operator":"gte","kind":"number","values":[18]}]`),
-	})
+	var want []database.Rule
+	for _, position := range []int32{0, 2, 3} {
+		r, err := store.Queries.CreateRule(ctx, database.CreateRuleParams{FlagSettingID: setting.ID, Position: position, Clauses: json.RawMessage(validClauses)})
+		if err != nil {
+			t.Fatalf("creating a rule at position %d: %v", position, err)
+		}
+		want = append(want, r)
+	}
+
+	got, err := store.CreateRule(ctx, database.CreateRuleParams{FlagSettingID: setting.ID, Position: 0, Clauses: json.RawMessage(validClauses)})
 	wantConnectErr(t, err, connect.NewError(connect.CodeAlreadyExists, "can't create the rule"))
 	wantZeroRule(t, got)
-	if n := ruleCount(t, store); n != 1 {
-		t.Fatalf("%d rules after a duplicate, want 1", n)
+	rules, err := store.ListRulesBySetting(ctx, setting.ID)
+	if err != nil {
+		t.Fatalf("ListRulesBySetting(): %v", err)
 	}
-	if diff := cmp.Diff(first, storedRule(t, store, first.ID)); diff != "" {
-		t.Fatalf("first rule changed (-want +got):\n%s", diff)
+	if diff := cmp.Diff(want, rules); diff != "" {
+		t.Fatalf("rules changed (-want +got):\n%s", diff)
 	}
 }
 
@@ -743,8 +870,8 @@ func TestCreateRuleLocksFlagSetting(t *testing.T) {
 	}
 }
 
-// Creates racing for one position have one winner, and the others get the same
-// error as any duplicate.
+// Creates racing for one position wait their turn, and each pushes the others
+// down, so all of them get in with no gaps.
 func TestCreateRuleRacingForAPosition(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
@@ -758,19 +885,23 @@ func TestCreateRuleRacingForAPosition(t *testing.T) {
 			errs <- err
 		}()
 	}
-	wins := 0
 	for range racers {
-		if err := <-errs; err == nil {
-			wins++
-		} else {
-			wantConnectErr(t, err, connect.NewError(connect.CodeAlreadyExists, "can't create the rule"))
+		if err := <-errs; err != nil {
+			t.Errorf("CreateRule(): %v", err)
 		}
 	}
-	if wins != 1 {
-		t.Fatalf("%d creates succeeded, want 1", wins)
+
+	rules, err := store.ListRulesBySetting(ctx, setting.ID)
+	if err != nil {
+		t.Fatalf("ListRulesBySetting(): %v", err)
 	}
-	if n := ruleCount(t, store); n != 1 {
-		t.Fatalf("%d rules, want 1", n)
+	if len(rules) != racers {
+		t.Fatalf("%d rules, want %d", len(rules), racers)
+	}
+	for i, r := range rules {
+		if int(r.Position) != i {
+			t.Fatalf("rule %d has position %d, want %d", i, r.Position, i)
+		}
 	}
 }
 

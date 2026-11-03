@@ -98,8 +98,10 @@ func normalizeRuleName(action, name string) (string, error) {
 	return name, nil
 }
 
-// CreateRule adds a rule to a flag's settings in one environment. Clauses are
-// checked by parseClauses, so a saved rule can always be loaded back.
+// CreateRule adds a rule to a flag's settings in one environment, at a position
+// from 0 up to the setting's rule count. Rules from that position on move down
+// one to make room. Clauses are checked by parseClauses, so a saved rule can
+// always be loaded back.
 func (s *Store) CreateRule(ctx context.Context, args database.CreateRuleParams) (database.Rule, error) {
 	name, err := normalizeRuleName("create", args.Name)
 	if err != nil {
@@ -127,6 +129,15 @@ func (s *Store) CreateRule(ctx context.Context, args database.CreateRuleParams) 
 		if int(args.Position) > int(rulesCount) {
 			return connect.NewError(connect.CodeInvalidArgument,
 				fmt.Sprintf("can't create a rule with a position outside [0, %d]", rulesCount))
+		}
+		err = q.ShiftRulePositionsBetween(ctx, database.ShiftRulePositionsBetweenParams{
+			FlagSettingID: args.FlagSettingID,
+			Delta:         1,
+			After:         args.Position - 1,
+			Before:        int32(rulesCount),
+		})
+		if err != nil {
+			return err
 		}
 		rule, err = q.CreateRule(ctx, args)
 		if err != nil {
