@@ -31,3 +31,6 @@ SET
   updated_at = clock_timestamp()
 WHERE id = $4
 RETURNING *;
+
+-- name: CountRulesBySetting :one
+SELECT COUNT(*) FROM rules WHERE flag_setting_id = $1;
