@@ -214,7 +214,7 @@ func mustCreateRule(t *testing.T, store *Store, arg database.CreateRuleParams) d
 func wantZeroRule(t *testing.T, r database.Rule) {
 	t.Helper()
 	if diff := cmp.Diff(database.Rule{}, r); diff != "" {
-		t.Fatalf("CreateRule() returned a rule on error (-want +got):\n%s", diff)
+		t.Fatalf("returned a rule on error (-want +got):\n%s", diff)
 	}
 }
 
@@ -747,4 +747,148 @@ func TestRulesTableRejectsInvalid(t *testing.T) {
 			}
 		})
 	}
+}
+
+// GetRule passes one message for every failure, so each error below has it.
+const getRuleMessage = "rule not found"
+
+func TestGetRule(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	setting := mustCreateRuleSetting(t, store)
+	otherEnv := mustCreateEnv(t, store, "staging")
+	other := mustCreateFlagSetting(t, store, database.CreateFlagSettingParams{FlagID: setting.FlagID, EnvironmentID: otherEnv.ID})
+
+	// Rules with their own values in two settings, including the same position
+	// in both, so a lookup that ignores the ID is caught.
+	created := []database.Rule{
+		mustCreateRule(t, store, database.CreateRuleParams{
+			FlagSettingID: setting.ID,
+			Position:      0,
+			Name:          "Beta users",
+			Serve:         0.25,
+			Clauses:       json.RawMessage(validClauses),
+		}),
+		mustCreateRule(t, store, database.CreateRuleParams{
+			FlagSettingID: setting.ID,
+			Position:      1,
+			Serve:         1,
+			Clauses:       json.RawMessage(`[{"attribute":"age","operator":"gte","kind":"number","values":[18.5]},{"attribute":"isPro","operator":"eq","kind":"boolean","values":[true]}]`),
+		}),
+		mustCreateRule(t, store, database.CreateRuleParams{
+			FlagSettingID: other.ID,
+			Position:      0,
+			Name:          "Everyone in Benin",
+			Serve:         0,
+			Clauses:       json.RawMessage(`[{"attribute":"country","operator":"il","kind":"string","values":["BJ","TG"]}]`),
+		}),
+	}
+
+	for _, want := range created {
+		t.Run("finds "+want.ID.String(), func(t *testing.T) {
+			got, err := store.GetRule(ctx, want.ID)
+			if err != nil {
+				t.Fatalf("GetRule(): %v", err)
+			}
+			if diff := cmp.Diff(want, got); diff != "" {
+				t.Fatalf("GetRule() mismatch (-want +got):\n%s", diff)
+			}
+			// What comes back has to be usable by the evaluator.
+			if _, err := parseClauses(got.Clauses); err != nil {
+				t.Fatalf("parseClauses() on the rule's clauses: %v", err)
+			}
+		})
+	}
+
+	// Reading a rule changes nothing.
+	t.Run("leaves the rule as it was", func(t *testing.T) {
+		want := created[0]
+		if _, err := store.GetRule(ctx, want.ID); err != nil {
+			t.Fatalf("GetRule(): %v", err)
+		}
+		if diff := cmp.Diff(want, storedRule(t, store, want.ID)); diff != "" {
+			t.Fatalf("stored rule changed (-want +got):\n%s", diff)
+		}
+	})
+
+	notFound := connect.NewError(connect.CodeNotFound, getRuleMessage)
+	t.Run("not found", func(t *testing.T) {
+		tests := map[string]uuid.UUID{
+			"unknown ID": uuid.New(),
+			"zero ID":    uuid.Nil(),
+			// Easy to do, since these are UUIDs too.
+			"flag setting ID": setting.ID,
+			"flag ID":         setting.FlagID,
+		}
+		for name, id := range tests {
+			t.Run(name, func(t *testing.T) {
+				got, err := store.GetRule(ctx, id)
+				wantConnectErr(t, err, notFound)
+				wantZeroRule(t, got)
+			})
+		}
+	})
+
+	// A rule goes with its flag setting, so looking it up afterwards fails.
+	t.Run("rule of a deleted flag", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rule := mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: setting.ID, Clauses: json.RawMessage(validClauses)})
+		if _, err := store.DeleteFlag(ctx, setting.FlagID); err != nil {
+			t.Fatalf("DeleteFlag(): %v", err)
+		}
+		_, err := store.GetRule(ctx, rule.ID)
+		wantConnectErr(t, err, notFound)
+	})
+
+	t.Run("rule of a deleted environment", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rule := mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: setting.ID, Clauses: json.RawMessage(validClauses)})
+		if _, err := store.DeleteEnv(ctx, setting.EnvironmentID); err != nil {
+			t.Fatalf("DeleteEnv(): %v", err)
+		}
+		_, err := store.GetRule(ctx, rule.ID)
+		wantConnectErr(t, err, notFound)
+	})
+}
+
+func TestGetRuleReportsErrors(t *testing.T) {
+	store := newTestStore(t)
+	setting := mustCreateRuleSetting(t, store)
+	rule := mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: setting.ID, Clauses: json.RawMessage(validClauses)})
+
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	expired, cancelExpired := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancelExpired()
+
+	tests := map[string]struct {
+		ctx  context.Context
+		want *connect.Error
+	}{
+		"canceled context": {
+			ctx:  canceled,
+			want: connect.NewError(connect.CodeCanceled, getRuleMessage),
+		},
+		"expired deadline": {
+			ctx:  expired,
+			want: connect.NewError(connect.CodeDeadlineExceeded, getRuleMessage),
+		},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			got, err := store.GetRule(test.ctx, rule.ID)
+			wantConnectErr(t, err, test.want)
+			wantZeroRule(t, got)
+		})
+	}
+
+	// Run last: it closes the connection pool the other cases use.
+	t.Run("closed database is internal", func(t *testing.T) {
+		if err := store.db.Close(); err != nil {
+			t.Fatalf("closing the database: %v", err)
+		}
+		got, err := store.GetRule(context.Background(), rule.ID)
+		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, getRuleMessage))
+		wantZeroRule(t, got)
+	})
 }
