@@ -542,12 +542,6 @@ func TestCreateRuleRejectsInvalid(t *testing.T) {
 			wantRejected(t, setting.ID, 2, pastEnd(1))
 			create(t, setting.ID, 1)
 		})
-
-		// An unknown setting has no rules, so it looks like an empty one.
-		t.Run("unknown flag setting", func(t *testing.T) {
-			resetDB(t, store.db)
-			wantRejected(t, uuid.New(), 5, pastEnd(0))
-		})
 	})
 
 	// Validation comes first, so bad input is reported even when the flag
@@ -589,7 +583,8 @@ func TestCreateRuleRejectsDuplicate(t *testing.T) {
 	})
 
 	// The position is taken whatever the other values are. The unique check
-	// is deferred, so this also shows it still fires outside a transaction.
+	// is deferred, so it fires at CreateRule's commit, and that error has to
+	// reach the caller converted too.
 	got, err := store.CreateRule(ctx, database.CreateRuleParams{
 		FlagSettingID: setting.ID,
 		Position:      0,
@@ -621,11 +616,15 @@ func TestCreateRuleNotFound(t *testing.T) {
 	}
 	for name, id := range tests {
 		t.Run(name, func(t *testing.T) {
-			got, err := store.CreateRule(ctx, database.CreateRuleParams{FlagSettingID: id, Clauses: json.RawMessage(validClauses)})
-			wantConnectErr(t, err, connect.NewError(connect.CodeNotFound, "can't create the rule"))
-			wantZeroRule(t, got)
-			if n := ruleCount(t, store); n != 0 {
-				t.Fatalf("%d rules after a failed create, want 0", n)
+			// The setting is looked for first, so even a position past the end
+			// is reported as a missing setting.
+			for _, position := range []int32{0, 5} {
+				got, err := store.CreateRule(ctx, database.CreateRuleParams{FlagSettingID: id, Position: position, Clauses: json.RawMessage(validClauses)})
+				wantConnectErr(t, err, connect.NewError(connect.CodeNotFound, "can't create the rule"))
+				wantZeroRule(t, got)
+				if n := ruleCount(t, store); n != 0 {
+					t.Fatalf("%d rules after a failed create, want 0", n)
+				}
 			}
 		})
 	}
@@ -696,18 +695,75 @@ func TestCreateRuleReportsErrors(t *testing.T) {
 	})
 }
 
-// A failed count must not read as no rules, which would make a valid position
-// look out of range.
-func TestCreateRuleReportsCountFailure(t *testing.T) {
+// CreateRule holds the flag setting's row while it counts and inserts, so its
+// count can't go stale.
+func TestCreateRuleLocksFlagSetting(t *testing.T) {
 	store := newTestStore(t)
+	ctx := context.Background()
 	setting := mustCreateRuleSetting(t, store)
-	mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: setting.ID, Clauses: json.RawMessage(validClauses)})
 
-	canceled, cancel := context.WithCancel(context.Background())
-	cancel()
-	got, err := store.CreateRule(canceled, database.CreateRuleParams{FlagSettingID: setting.ID, Position: 1, Clauses: json.RawMessage(validClauses)})
-	wantConnectErr(t, err, connect.NewError(connect.CodeCanceled, "can't create the rule"))
-	wantZeroRule(t, got)
+	// FOR SHARE lets the insert's foreign key check through, so only a lock
+	// CreateRule takes itself makes it wait here.
+	tx, err := store.db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("BeginTx(): %v", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, "SELECT id FROM flag_settings WHERE id = $1 FOR SHARE", setting.ID); err != nil {
+		t.Fatalf("locking the flag setting: %v", err)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := store.CreateRule(ctx, database.CreateRuleParams{FlagSettingID: setting.ID, Clauses: json.RawMessage(validClauses)})
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		t.Fatalf("CreateRule() = %v while the flag setting was locked, want it to wait", err)
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	if err := tx.Rollback(); err != nil {
+		t.Fatalf("Rollback(): %v", err)
+	}
+	if err := <-done; err != nil {
+		t.Fatalf("CreateRule() after the lock was released: %v", err)
+	}
+	if n := ruleCount(t, store); n != 1 {
+		t.Fatalf("%d rules, want 1", n)
+	}
+}
+
+// Creates racing for one position have one winner, and the others get the same
+// error as any duplicate.
+func TestCreateRuleRacingForAPosition(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	setting := mustCreateRuleSetting(t, store)
+
+	const racers = 8
+	errs := make(chan error, racers)
+	for range racers {
+		go func() {
+			_, err := store.CreateRule(ctx, database.CreateRuleParams{FlagSettingID: setting.ID, Clauses: json.RawMessage(validClauses)})
+			errs <- err
+		}()
+	}
+	wins := 0
+	for range racers {
+		if err := <-errs; err == nil {
+			wins++
+		} else {
+			wantConnectErr(t, err, connect.NewError(connect.CodeAlreadyExists, "can't create the rule"))
+		}
+	}
+	if wins != 1 {
+		t.Fatalf("%d creates succeeded, want 1", wins)
+	}
+	if n := ruleCount(t, store); n != 1 {
+		t.Fatalf("%d rules, want 1", n)
+	}
 }
 
 // Rules belong to a flag setting, and go when its flag or environment does.
