@@ -750,7 +750,7 @@ func TestRulesTableRejectsInvalid(t *testing.T) {
 }
 
 // GetRule passes one message for every failure, so each error below has it.
-const getRuleMessage = "rule not found"
+const getRuleMessage = "can't get the rule"
 
 func TestGetRule(t *testing.T) {
 	store := newTestStore(t)
