@@ -695,6 +695,35 @@ func TestCreateRuleReportsErrors(t *testing.T) {
 	})
 }
 
+// wantWaitsForFlagSetting holds a lock on a flag setting's row, checks fn waits
+// for it, then releases it and gives fn's error. FOR SHARE lets a foreign key
+// check through, so only a lock fn takes itself makes it wait.
+func wantWaitsForFlagSetting(t *testing.T, store *Store, settingID uuid.UUID, fn func() error) error {
+	t.Helper()
+	ctx := context.Background()
+	tx, err := store.db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("BeginTx(): %v", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, "SELECT id FROM flag_settings WHERE id = $1 FOR SHARE", settingID); err != nil {
+		t.Fatalf("locking the flag setting: %v", err)
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- fn() }()
+	select {
+	case err := <-done:
+		t.Fatalf("finished with %v while the flag setting was locked, want it to wait", err)
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	if err := tx.Rollback(); err != nil {
+		t.Fatalf("Rollback(): %v", err)
+	}
+	return <-done
+}
+
 // CreateRule holds the flag setting's row while it counts and inserts, so its
 // count can't go stale.
 func TestCreateRuleLocksFlagSetting(t *testing.T) {
@@ -702,32 +731,11 @@ func TestCreateRuleLocksFlagSetting(t *testing.T) {
 	ctx := context.Background()
 	setting := mustCreateRuleSetting(t, store)
 
-	// FOR SHARE lets the insert's foreign key check through, so only a lock
-	// CreateRule takes itself makes it wait here.
-	tx, err := store.db.BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatalf("BeginTx(): %v", err)
-	}
-	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, "SELECT id FROM flag_settings WHERE id = $1 FOR SHARE", setting.ID); err != nil {
-		t.Fatalf("locking the flag setting: %v", err)
-	}
-
-	done := make(chan error, 1)
-	go func() {
+	err := wantWaitsForFlagSetting(t, store, setting.ID, func() error {
 		_, err := store.CreateRule(ctx, database.CreateRuleParams{FlagSettingID: setting.ID, Clauses: json.RawMessage(validClauses)})
-		done <- err
-	}()
-	select {
-	case err := <-done:
-		t.Fatalf("CreateRule() = %v while the flag setting was locked, want it to wait", err)
-	case <-time.After(200 * time.Millisecond):
-	}
-
-	if err := tx.Rollback(); err != nil {
-		t.Fatalf("Rollback(): %v", err)
-	}
-	if err := <-done; err != nil {
+		return err
+	})
+	if err != nil {
 		t.Fatalf("CreateRule() after the lock was released: %v", err)
 	}
 	if n := ruleCount(t, store); n != 1 {
@@ -1416,6 +1424,130 @@ func TestDeleteRule(t *testing.T) {
 			t.Fatalf("rule changed after the rollback (-want +got):\n%s", diff)
 		}
 	})
+}
+
+// DeleteRule holds the flag setting's row, so a create's count can't go stale.
+func TestDeleteRuleLocksFlagSetting(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	setting := mustCreateRuleSetting(t, store)
+	rule := mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: setting.ID, Clauses: json.RawMessage(validClauses)})
+
+	err := wantWaitsForFlagSetting(t, store, setting.ID, func() error {
+		_, err := store.DeleteRule(ctx, rule.ID)
+		return err
+	})
+	if err != nil {
+		t.Fatalf("DeleteRule() after the lock was released: %v", err)
+	}
+	if n := ruleCount(t, store); n != 0 {
+		t.Fatalf("%d rules, want 0", n)
+	}
+}
+
+// The lock comes before the delete: otherwise a create holding the lock could
+// count a rule that's on its way out.
+func TestDeleteRuleLeavesRuleUntilLocked(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	setting := mustCreateRuleSetting(t, store)
+	rule := mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: setting.ID, Clauses: json.RawMessage(validClauses)})
+
+	tx, err := store.db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("BeginTx(): %v", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, "SELECT id FROM flag_settings WHERE id = $1 FOR SHARE", setting.ID); err != nil {
+		t.Fatalf("locking the flag setting: %v", err)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := store.DeleteRule(ctx, rule.ID)
+		done <- err
+	}()
+	time.Sleep(200 * time.Millisecond)
+
+	// NOWAIT fails at once if the delete already holds the rule's row.
+	if _, err := tx.ExecContext(ctx, "SELECT id FROM rules WHERE id = $1 FOR UPDATE NOWAIT", rule.ID); err != nil {
+		t.Errorf("rule's row is taken while the delete waits for the lock: %v", err)
+	}
+	tx.Rollback()
+	if err := <-done; err != nil {
+		t.Fatalf("DeleteRule(): %v", err)
+	}
+}
+
+// Deletes racing for one rule have one winner, and the others find it gone. The
+// lock holds them all back until each has found the rule.
+func TestDeleteRuleRacing(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	setting := mustCreateRuleSetting(t, store)
+	rule := mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: setting.ID, Clauses: json.RawMessage(validClauses)})
+
+	tx, err := store.db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("BeginTx(): %v", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, "SELECT id FROM flag_settings WHERE id = $1 FOR SHARE", setting.ID); err != nil {
+		t.Fatalf("locking the flag setting: %v", err)
+	}
+
+	const racers = 8
+	errs := make(chan error, racers)
+	for range racers {
+		go func() {
+			_, err := store.DeleteRule(ctx, rule.ID)
+			errs <- err
+		}()
+	}
+	time.Sleep(200 * time.Millisecond)
+	if err := tx.Rollback(); err != nil {
+		t.Fatalf("Rollback(): %v", err)
+	}
+
+	wins := 0
+	for range racers {
+		if err := <-errs; err == nil {
+			wins++
+		} else {
+			wantConnectErr(t, err, connect.NewError(connect.CodeNotFound, "can't delete the rule"))
+		}
+	}
+	if wins != 1 {
+		t.Fatalf("%d deletes succeeded, want 1", wins)
+	}
+}
+
+// The rule can go with its flag while the delete waits for the lock.
+func TestDeleteRuleWhileItsFlagIsDeleted(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	setting := mustCreateRuleSetting(t, store)
+	rule := mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: setting.ID, Clauses: json.RawMessage(validClauses)})
+
+	tx, err := store.db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("BeginTx(): %v", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, "DELETE FROM flags WHERE id = $1", setting.FlagID); err != nil {
+		t.Fatalf("deleting the flag: %v", err)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := store.DeleteRule(ctx, rule.ID)
+		done <- err
+	}()
+	time.Sleep(200 * time.Millisecond)
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("Commit(): %v", err)
+	}
+	wantConnectErr(t, <-done, connect.NewError(connect.CodeNotFound, "can't delete the rule"))
 }
 
 func TestDeleteRuleReportsErrors(t *testing.T) {
