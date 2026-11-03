@@ -115,6 +115,14 @@ func (s *Store) CreateRule(ctx context.Context, args database.CreateRuleParams) 
 	if _, err := parseClauses(args.Clauses); err != nil {
 		return database.Rule{}, connect.NewError(connect.CodeInvalidArgument, err.Error()).WithCause(err)
 	}
+	rulesCount, err := s.Queries.CountRulesBySetting(ctx, args.FlagSettingID)
+	if err != nil {
+		return database.Rule{}, ffserrors.FromDBErr(err, "can't create the rule")
+	}
+	if int(args.Position) > int(rulesCount) {
+		return database.Rule{}, connect.NewError(connect.CodeInvalidArgument,
+			fmt.Sprintf("can't create a rule with a position outside [0, %d]", rulesCount))
+	}
 	rule, err := s.Queries.CreateRule(ctx, args)
 	if err != nil {
 		return database.Rule{}, ffserrors.FromDBErr(err, "can't create the rule")
