@@ -1099,3 +1099,208 @@ func TestListRulesBySettingReportsErrors(t *testing.T) {
 		}
 	})
 }
+
+func TestDeleteRule(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	notFound := connect.NewError(connect.CodeNotFound, "can't delete the rule")
+
+	create := func(t *testing.T, settingID uuid.UUID, position int32) database.Rule {
+		t.Helper()
+		return mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: settingID, Position: position, Clauses: json.RawMessage(validClauses)})
+	}
+
+	t.Run("deletes and returns the rule as it was", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rule := mustCreateRule(t, store, database.CreateRuleParams{
+			FlagSettingID: setting.ID,
+			Position:      3,
+			Name:          "Beta users",
+			Serve:         0.25,
+			Clauses:       json.RawMessage(validClauses),
+		})
+		got, err := store.DeleteRule(ctx, rule.ID)
+		if err != nil {
+			t.Fatalf("DeleteRule(): %v", err)
+		}
+		if diff := cmp.Diff(rule, got); diff != "" {
+			t.Fatalf("DeleteRule() mismatch (-want +got):\n%s", diff)
+		}
+		_, err = store.GetRule(ctx, rule.ID)
+		wantConnectErr(t, err, connect.NewError(connect.CodeNotFound, getRuleMessage))
+		if n := ruleCount(t, store); n != 0 {
+			t.Fatalf("%d rules after the delete, want 0", n)
+		}
+	})
+
+	// Rules in another setting can have the same position.
+	t.Run("leaves other settings' rules alone", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		otherEnv := mustCreateEnv(t, store, "staging")
+		other := mustCreateFlagSetting(t, store, database.CreateFlagSettingParams{FlagID: setting.FlagID, EnvironmentID: otherEnv.ID})
+		rule := create(t, setting.ID, 0)
+		kept := create(t, other.ID, 0)
+
+		if _, err := store.DeleteRule(ctx, rule.ID); err != nil {
+			t.Fatalf("DeleteRule(): %v", err)
+		}
+		if n := ruleCount(t, store); n != 1 {
+			t.Fatalf("%d rules after the delete, want 1", n)
+		}
+		if diff := cmp.Diff(kept, storedRule(t, store, kept.ID)); diff != "" {
+			t.Fatalf("other setting's rule changed (-want +got):\n%s", diff)
+		}
+	})
+
+	// For now, deleting leaves a gap instead of renumbering.
+	t.Run("the setting's other rules keep their positions", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		first := create(t, setting.ID, 0)
+		middle := create(t, setting.ID, 1)
+		last := create(t, setting.ID, 2)
+
+		if _, err := store.DeleteRule(ctx, middle.ID); err != nil {
+			t.Fatalf("DeleteRule(): %v", err)
+		}
+		got, err := store.ListRulesBySetting(ctx, setting.ID)
+		if err != nil {
+			t.Fatalf("ListRulesBySetting(): %v", err)
+		}
+		if diff := cmp.Diff([]database.Rule{first, last}, got); diff != "" {
+			t.Fatalf("remaining rules mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("leaves the flag setting alone", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rule := create(t, setting.ID, 0)
+		if _, err := store.DeleteRule(ctx, rule.ID); err != nil {
+			t.Fatalf("DeleteRule(): %v", err)
+		}
+		if diff := cmp.Diff(setting, storedFlagSetting(t, store, setting.ID)); diff != "" {
+			t.Fatalf("flag setting changed (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("the position can be reused", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rule := create(t, setting.ID, 0)
+		if _, err := store.DeleteRule(ctx, rule.ID); err != nil {
+			t.Fatalf("DeleteRule(): %v", err)
+		}
+		again := create(t, setting.ID, 0)
+		if again.ID == rule.ID {
+			t.Fatalf("new rule reused the deleted rule's ID %v", rule.ID)
+		}
+	})
+
+	t.Run("not found", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		kept := create(t, setting.ID, 0)
+
+		tests := map[string]uuid.UUID{
+			"unknown ID": uuid.New(),
+			"zero ID":    uuid.Nil(),
+			// Easy to do, since these are UUIDs too. Passing the setting's ID
+			// must not delete its rules.
+			"flag setting ID": setting.ID,
+			"flag ID":         setting.FlagID,
+		}
+		for name, id := range tests {
+			t.Run(name, func(t *testing.T) {
+				got, err := store.DeleteRule(ctx, id)
+				wantConnectErr(t, err, notFound)
+				wantZeroRule(t, got)
+				if diff := cmp.Diff(kept, storedRule(t, store, kept.ID)); diff != "" {
+					t.Fatalf("rule changed (-want +got):\n%s", diff)
+				}
+			})
+		}
+	})
+
+	t.Run("deleting twice", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rule := create(t, setting.ID, 0)
+		if _, err := store.DeleteRule(ctx, rule.ID); err != nil {
+			t.Fatalf("first DeleteRule(): %v", err)
+		}
+		got, err := store.DeleteRule(ctx, rule.ID)
+		wantConnectErr(t, err, notFound)
+		wantZeroRule(t, got)
+	})
+
+	// The rule already went with its flag.
+	t.Run("rule of a deleted flag", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rule := create(t, setting.ID, 0)
+		if _, err := store.DeleteFlag(ctx, setting.FlagID); err != nil {
+			t.Fatalf("DeleteFlag(): %v", err)
+		}
+		_, err := store.DeleteRule(ctx, rule.ID)
+		wantConnectErr(t, err, notFound)
+	})
+
+	t.Run("rolled back with its transaction", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rule := create(t, setting.ID, 0)
+		boom := errors.New("boom")
+		err := store.ExecTx(ctx, func(q *database.Queries) error {
+			if _, err := q.DeleteRule(ctx, rule.ID); err != nil {
+				return err
+			}
+			return boom
+		})
+		if !errors.Is(err, boom) {
+			t.Fatalf("ExecTx() error = %v, want %v", err, boom)
+		}
+		if diff := cmp.Diff(rule, storedRule(t, store, rule.ID)); diff != "" {
+			t.Fatalf("rule changed after the rollback (-want +got):\n%s", diff)
+		}
+	})
+}
+
+func TestDeleteRuleReportsErrors(t *testing.T) {
+	store := newTestStore(t)
+	setting := mustCreateRuleSetting(t, store)
+	rule := mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: setting.ID, Clauses: json.RawMessage(validClauses)})
+	const message = "can't delete the rule"
+
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	expired, cancelExpired := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancelExpired()
+
+	tests := map[string]struct {
+		ctx  context.Context
+		want *connect.Error
+	}{
+		"canceled context": {
+			ctx:  canceled,
+			want: connect.NewError(connect.CodeCanceled, message),
+		},
+		"expired deadline": {
+			ctx:  expired,
+			want: connect.NewError(connect.CodeDeadlineExceeded, message),
+		},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			got, err := store.DeleteRule(test.ctx, rule.ID)
+			wantConnectErr(t, err, test.want)
+			wantZeroRule(t, got)
+			if diff := cmp.Diff(rule, storedRule(t, store, rule.ID)); diff != "" {
+				t.Fatalf("rule changed after a failed delete (-want +got):\n%s", diff)
+			}
+		})
+	}
+
+	// Run last: it closes the connection pool the other cases use.
+	t.Run("closed database is internal", func(t *testing.T) {
+		if err := store.db.Close(); err != nil {
+			t.Fatalf("closing the database: %v", err)
+		}
+		got, err := store.DeleteRule(context.Background(), rule.ID)
+		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, message))
+		wantZeroRule(t, got)
+	})
+}
