@@ -26,6 +26,8 @@ func TestFromDBErr(t *testing.T) {
 		"wrapped unique violation": {fmt.Errorf("insert: %w", &pq.Error{Code: "23505"}), connect.CodeAlreadyExists},
 		"foreign key violation":    {&pq.Error{Code: "23503"}, connect.CodeNotFound},
 		"query canceled":           {&pq.Error{Code: "57014"}, connect.CodeCanceled},
+		"invalid text":             {&pq.Error{Code: "22021"}, connect.CodeInvalidArgument},
+		"NUL in JSON":              {&pq.Error{Code: "22P05"}, connect.CodeInvalidArgument},
 		// Anything unrecognized is internal, never nil.
 		"other Postgres error": {&pq.Error{Code: "22001"}, connect.CodeInternal},
 		"closed database":      {sql.ErrConnDone, connect.CodeInternal},
