@@ -21,3 +21,13 @@ SELECT * FROM rules WHERE flag_setting_id = $1 ORDER BY position;
 
 -- name: DeleteRule :one
 DELETE FROM rules WHERE id = $1 RETURNING *;
+
+-- name: UpdateRule :one
+UPDATE rules
+SET
+  name = $1,
+  serve = $2,
+  clauses = $3,
+  updated_at = clock_timestamp()
+WHERE id = $4
+RETURNING *;
