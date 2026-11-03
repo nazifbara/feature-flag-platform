@@ -2,12 +2,18 @@ package store
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"strings"
+	"unicode/utf8"
 
+	"connectrpc.com/connect/v2"
+	"github.com/nazifbara/flagsvc/backend/internal/database"
 	"github.com/nazifbara/flagsvc/backend/internal/evaluator"
+	"github.com/nazifbara/flagsvc/backend/internal/ffserrors"
 )
 
 // storedClause is how a clause is kept in the rules.clauses column.
@@ -57,4 +63,51 @@ func parseClauses(raw json.RawMessage) ([]evaluator.Clause, error) {
 		clauses = append(clauses, clause)
 	}
 	return clauses, nil
+}
+
+// checkServe checks f is a fraction of traffic, in [0, 1]. action ("create",
+// "update") goes into the error message.
+func checkServe(action string, f float32) error {
+	// NaN fails every comparison, so it is rejected too.
+	if !(f >= 0 && f <= 1) {
+		return connect.NewError(connect.CodeInvalidArgument, "can't "+action+" a rule with a serve value outside [0, 1]")
+	}
+	return nil
+}
+
+// normalizeRuleName trims name and checks it fits the column. A name is
+// optional, so it can end up empty. action ("create", "update") goes into the
+// error message.
+func normalizeRuleName(action, name string) (string, error) {
+	name = strings.TrimSpace(name)
+
+	// The column is VARCHAR(200), which counts characters, not bytes.
+	if utf8.RuneCountInString(name) > 200 {
+		return "", connect.NewError(connect.CodeInvalidArgument, "can't "+action+" a rule with a name over 200 characters")
+	}
+	return name, nil
+}
+
+// CreateRule adds a rule to a flag's settings in one environment. Clauses are
+// checked by parseClauses, so a saved rule can always be loaded back.
+func (s *Store) CreateRule(ctx context.Context, param database.CreateRuleParams) (database.Rule, error) {
+	name, err := normalizeRuleName("create", param.Name)
+	if err != nil {
+		return database.Rule{}, err
+	}
+	if param.Position < 0 {
+		return database.Rule{}, connect.NewError(connect.CodeInvalidArgument, "can't create a rule with a negative position")
+	}
+	param.Name = name
+	if err := checkServe("create", param.Serve); err != nil {
+		return database.Rule{}, err
+	}
+	if _, err := parseClauses(param.Clauses); err != nil {
+		return database.Rule{}, connect.NewError(connect.CodeInvalidArgument, err.Error()).WithCause(err)
+	}
+	rule, err := s.Queries.CreateRule(ctx, param)
+	if err != nil {
+		return database.Rule{}, ffserrors.FromDBErr(err)
+	}
+	return rule, nil
 }
