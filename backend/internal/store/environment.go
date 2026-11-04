@@ -27,13 +27,25 @@ func normalizeEnvName(action, name string) (string, error) {
 	return name, nil
 }
 
-// CreateEnv adds an environment, with its name normalized by normalizeEnvName.
+// CreateEnv adds an environment, with its name normalized by normalizeEnvName,
+// and a disabled setting for every existing flag, in one transaction.
 func (s *Store) CreateEnv(ctx context.Context, name string) (database.Environment, error) {
 	name, err := normalizeEnvName("create", name)
 	if err != nil {
 		return database.Environment{}, err
 	}
-	env, err := s.Queries.CreateEnv(ctx, name)
+	var env database.Environment
+	err = s.ExecTx(ctx, func(q *database.Queries) error {
+		if err := q.LockFlagEnvMatrix(ctx); err != nil {
+			return err
+		}
+		e, err := q.CreateEnv(ctx, name)
+		if err != nil {
+			return err
+		}
+		env = e
+		return q.CreateSettingsForEnv(ctx, e.ID)
+	})
 	if err != nil {
 		return database.Environment{}, ffserrors.FromDBErr(err, "can't create the environment")
 	}
