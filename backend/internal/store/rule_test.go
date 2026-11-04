@@ -1729,77 +1729,82 @@ func TestDeleteRuleRacing(t *testing.T) {
 	}
 }
 
+// queueForFlagSetting makes ops queue up for a flag setting's lock in order,
+// then releases them all and waits for them.
+func queueForFlagSetting(t *testing.T, store *Store, settingID uuid.UUID, ops ...func() error) {
+	t.Helper()
+	ctx := context.Background()
+	tx, err := store.db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("BeginTx(): %v", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, "SELECT id FROM flag_settings WHERE id = $1 FOR SHARE", settingID); err != nil {
+		t.Fatalf("locking the flag setting: %v", err)
+	}
+	errs := make(chan error, len(ops))
+	for _, op := range ops {
+		go func() { errs <- op() }()
+		time.Sleep(100 * time.Millisecond)
+	}
+	if err := tx.Rollback(); err != nil {
+		t.Fatalf("Rollback(): %v", err)
+	}
+	for range ops {
+		if err := <-errs; err != nil {
+			t.Errorf("operation failed: %v", err)
+		}
+	}
+}
+
+// wantRuleNames checks a flag setting's rules are the named ones, in order, with
+// no gaps in their positions.
+func wantRuleNames(t *testing.T, store *Store, settingID uuid.UUID, want ...string) {
+	t.Helper()
+	rules, err := store.ListRulesBySetting(context.Background(), settingID)
+	if err != nil {
+		t.Fatalf("ListRulesBySetting(): %v", err)
+	}
+	var got []string
+	for i, r := range rules {
+		got = append(got, r.Name)
+		if int(r.Position) != i {
+			t.Errorf("rule %q has position %d, want %d", r.Name, r.Position, i)
+		}
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Fatalf("rules mismatch (-want +got):\n%s", diff)
+	}
+}
+
 // A rule's position can change while its delete waits for the lock, so the gap
 // has to be filled from where the rule is by then.
 func TestDeleteRuleWhileOthersMoveIt(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
 
-	// holdLock makes ops queue up for the flag setting in order, then
-	// releases them all.
-	holdLock := func(t *testing.T, settingID uuid.UUID, ops ...func() error) {
-		t.Helper()
-		tx, err := store.db.BeginTx(ctx, nil)
-		if err != nil {
-			t.Fatalf("BeginTx(): %v", err)
-		}
-		defer tx.Rollback()
-		if _, err := tx.ExecContext(ctx, "SELECT id FROM flag_settings WHERE id = $1 FOR SHARE", settingID); err != nil {
-			t.Fatalf("locking the flag setting: %v", err)
-		}
-		errs := make(chan error, len(ops))
-		for _, op := range ops {
-			go func() { errs <- op() }()
-			time.Sleep(100 * time.Millisecond)
-		}
-		if err := tx.Rollback(); err != nil {
-			t.Fatalf("Rollback(): %v", err)
-		}
-		for range ops {
-			if err := <-errs; err != nil {
-				t.Errorf("operation failed: %v", err)
-			}
-		}
-	}
 	remove := func(id uuid.UUID) func() error {
 		return func() error {
 			_, err := store.DeleteRule(ctx, id)
 			return err
 		}
 	}
-	wantNames := func(t *testing.T, settingID uuid.UUID, want ...string) {
-		t.Helper()
-		rules, err := store.ListRulesBySetting(ctx, settingID)
-		if err != nil {
-			t.Fatalf("ListRulesBySetting(): %v", err)
-		}
-		var got []string
-		for i, r := range rules {
-			got = append(got, r.Name)
-			if int(r.Position) != i {
-				t.Errorf("rule %q has position %d, want %d", r.Name, r.Position, i)
-			}
-		}
-		if diff := cmp.Diff(want, got); diff != "" {
-			t.Fatalf("rules mismatch (-want +got):\n%s", diff)
-		}
-	}
 
 	t.Run("an earlier rule is deleted first", func(t *testing.T) {
 		setting := mustCreateRuleSetting(t, store)
 		rules := mustCreateNamedRules(t, store, setting.ID, "a", "b", "c", "d", "e")
-		holdLock(t, setting.ID, remove(rules[0].ID), remove(rules[1].ID), remove(rules[2].ID))
-		wantNames(t, setting.ID, "d", "e")
+		queueForFlagSetting(t, store, setting.ID, remove(rules[0].ID), remove(rules[1].ID), remove(rules[2].ID))
+		wantRuleNames(t, store, setting.ID, "d", "e")
 	})
 
 	t.Run("a rule is created before it first", func(t *testing.T) {
 		setting := mustCreateRuleSetting(t, store)
 		rules := mustCreateNamedRules(t, store, setting.ID, "a", "b", "c", "d")
-		holdLock(t, setting.ID, func() error {
+		queueForFlagSetting(t, store, setting.ID, func() error {
 			_, err := store.CreateRule(ctx, database.CreateRuleParams{FlagSettingID: setting.ID, Position: 0, Name: "new", Clauses: json.RawMessage(validClauses)})
 			return err
 		}, remove(rules[2].ID))
-		wantNames(t, setting.ID, "new", "a", "b", "d")
+		wantRuleNames(t, store, setting.ID, "new", "a", "b", "d")
 	})
 }
 
@@ -2441,5 +2446,398 @@ func TestCountRulesBySettingReportsErrors(t *testing.T) {
 		if got != 0 {
 			t.Fatalf("CountRulesBySetting() = %d on error, want 0", got)
 		}
+	})
+}
+
+func TestChangeRulePosition(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	// Rules between the old and new positions get a new position, and rules
+	// outside them stay exactly as they were.
+	t.Run("moves the rule", func(t *testing.T) {
+		tests := map[string]struct {
+			from, to int32
+			want     []string
+		}{
+			"one later":            {0, 1, []string{"b", "a", "c", "d"}},
+			"first to last":        {0, 3, []string{"b", "c", "d", "a"}},
+			"later from middle":    {1, 2, []string{"a", "c", "b", "d"}},
+			"to last from middle":  {1, 3, []string{"a", "c", "d", "b"}},
+			"one earlier":          {3, 2, []string{"a", "b", "d", "c"}},
+			"last to first":        {3, 0, []string{"d", "a", "b", "c"}},
+			"earlier from middle":  {2, 1, []string{"a", "c", "b", "d"}},
+			"to first from middle": {2, 0, []string{"c", "a", "b", "d"}},
+		}
+		for name, test := range tests {
+			t.Run(name, func(t *testing.T) {
+				setting := mustCreateRuleSetting(t, store)
+				rules := mustCreateNamedRules(t, store, setting.ID, "a", "b", "c", "d")
+				before := map[string]database.Rule{}
+				for _, r := range rules {
+					before[r.Name] = r
+				}
+
+				moved, err := store.ChangeRulePosition(ctx, database.ChangeRulePositionParams{ID: rules[test.from].ID, Position: test.to})
+				if err != nil {
+					t.Fatalf("ChangeRulePosition(): %v", err)
+				}
+
+				wantRuleNames(t, store, setting.ID, test.want...)
+				got, err := store.ListRulesBySetting(ctx, setting.ID)
+				if err != nil {
+					t.Fatalf("ListRulesBySetting(): %v", err)
+				}
+				for i, r := range got {
+					want := before[r.Name]
+					want.Position = int32(i)
+					// Only a rule that moved has a new updated_at.
+					if before[r.Name].Position != int32(i) {
+						if !r.UpdatedAt.After(want.UpdatedAt) {
+							t.Errorf("rule %q updated_at = %v, want it after %v", r.Name, r.UpdatedAt, want.UpdatedAt)
+						}
+						want.UpdatedAt = r.UpdatedAt
+					}
+					if diff := cmp.Diff(want, r); diff != "" {
+						t.Errorf("rule %q mismatch (-want +got):\n%s", r.Name, diff)
+					}
+				}
+				if diff := cmp.Diff(got[test.to], moved); diff != "" {
+					t.Errorf("returned rule mismatch (-want +got):\n%s", diff)
+				}
+			})
+		}
+	})
+
+	t.Run("to its own position changes nothing", func(t *testing.T) {
+		for _, position := range []int32{0, 1, 2} {
+			setting := mustCreateRuleSetting(t, store)
+			rules := mustCreateNamedRules(t, store, setting.ID, "a", "b", "c")
+
+			got, err := store.ChangeRulePosition(ctx, database.ChangeRulePositionParams{ID: rules[position].ID, Position: position})
+			if err != nil {
+				t.Fatalf("ChangeRulePosition(): %v", err)
+			}
+			if diff := cmp.Diff(rules[position], got); diff != "" {
+				t.Errorf("returned rule mismatch (-want +got):\n%s", diff)
+			}
+			stored, err := store.ListRulesBySetting(ctx, setting.ID)
+			if err != nil {
+				t.Fatalf("ListRulesBySetting(): %v", err)
+			}
+			if diff := cmp.Diff(rules, stored); diff != "" {
+				t.Errorf("rules changed (-want +got):\n%s", diff)
+			}
+		}
+	})
+
+	t.Run("leaves other settings' rules alone", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		otherEnv := mustCreateEnv(t, store, "staging")
+		other := mustCreateFlagSetting(t, store, database.CreateFlagSettingParams{FlagID: setting.FlagID, EnvironmentID: otherEnv.ID})
+		rules := mustCreateNamedRules(t, store, setting.ID, "a", "b", "c")
+		otherRules := mustCreateNamedRules(t, store, other.ID, "x", "y", "z")
+
+		if _, err := store.ChangeRulePosition(ctx, database.ChangeRulePositionParams{ID: rules[0].ID, Position: 2}); err != nil {
+			t.Fatalf("ChangeRulePosition(): %v", err)
+		}
+		got, err := store.ListRulesBySetting(ctx, other.ID)
+		if err != nil {
+			t.Fatalf("ListRulesBySetting(): %v", err)
+		}
+		if diff := cmp.Diff(otherRules, got); diff != "" {
+			t.Errorf("other setting's rules changed (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("several moves in a row", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rules := mustCreateNamedRules(t, store, setting.ID, "a", "b", "c")
+		for _, move := range []struct {
+			rule database.Rule
+			to   int32
+		}{{rules[0], 2}, {rules[2], 0}, {rules[1], 1}} {
+			if _, err := store.ChangeRulePosition(ctx, database.ChangeRulePositionParams{ID: move.rule.ID, Position: move.to}); err != nil {
+				t.Fatalf("ChangeRulePosition(): %v", err)
+			}
+		}
+		wantRuleNames(t, store, setting.ID, "c", "b", "a")
+	})
+}
+
+func TestChangeRulePositionRejectsInvalid(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	setting := mustCreateRuleSetting(t, store)
+	rules := mustCreateNamedRules(t, store, setting.ID, "a", "b", "c")
+	const negative = "can't update a rule with a negative position"
+	const outside = "can't update a rule with a position outside [0, 2]"
+
+	tests := map[string]struct {
+		position int32
+		message  string
+	}{
+		"negative":       {-1, negative},
+		"smallest int32": {math.MinInt32, negative},
+		"the rule count": {3, outside},
+		"past the end":   {99, outside},
+		"largest int32":  {math.MaxInt32, outside},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			got, err := store.ChangeRulePosition(ctx, database.ChangeRulePositionParams{ID: rules[1].ID, Position: test.position})
+			wantConnectErr(t, err, connect.NewError(connect.CodeInvalidArgument, test.message))
+			wantZeroRule(t, got)
+			stored, err := store.ListRulesBySetting(ctx, setting.ID)
+			if err != nil {
+				t.Fatalf("ListRulesBySetting(): %v", err)
+			}
+			if diff := cmp.Diff(rules, stored); diff != "" {
+				t.Fatalf("rules changed after a rejected move (-want +got):\n%s", diff)
+			}
+		})
+	}
+
+	t.Run("a lone rule can't move anywhere else", func(t *testing.T) {
+		lone := mustCreateRuleSetting(t, store)
+		rule := mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: lone.ID, Clauses: json.RawMessage(validClauses)})
+		got, err := store.ChangeRulePosition(ctx, database.ChangeRulePositionParams{ID: rule.ID, Position: 1})
+		wantConnectErr(t, err, connect.NewError(connect.CodeInvalidArgument, "can't update a rule with a position outside [0, 0]"))
+		wantZeroRule(t, got)
+	})
+}
+
+func TestChangeRulePositionNotFound(t *testing.T) {
+	store := newTestStore(t)
+	got, err := store.ChangeRulePosition(context.Background(), database.ChangeRulePositionParams{ID: uuid.New(), Position: 0})
+	wantConnectErr(t, err, connect.NewError(connect.CodeNotFound, "can't update the rule"))
+	wantZeroRule(t, got)
+}
+
+func TestChangeRulePositionLocksFlagSetting(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	setting := mustCreateRuleSetting(t, store)
+	rules := mustCreateNamedRules(t, store, setting.ID, "a", "b")
+
+	err := wantWaitsForFlagSetting(t, store, setting.ID, func() error {
+		_, err := store.ChangeRulePosition(ctx, database.ChangeRulePositionParams{ID: rules[0].ID, Position: 1})
+		return err
+	})
+	if err != nil {
+		t.Fatalf("ChangeRulePosition() after the lock was released: %v", err)
+	}
+	wantRuleNames(t, store, setting.ID, "b", "a")
+}
+
+// The rule's position and the rule count can both change while a move waits for
+// the lock, so it has to read them after.
+func TestChangeRulePositionWhileOthersChangeRules(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	move := func(id uuid.UUID, position int32) func() error {
+		return func() error {
+			_, err := store.ChangeRulePosition(ctx, database.ChangeRulePositionParams{ID: id, Position: position})
+			return err
+		}
+	}
+	remove := func(id uuid.UUID) func() error {
+		return func() error {
+			_, err := store.DeleteRule(ctx, id)
+			return err
+		}
+	}
+	create := func(settingID uuid.UUID, position int32) func() error {
+		return func() error {
+			_, err := store.CreateRule(ctx, database.CreateRuleParams{FlagSettingID: settingID, Position: position, Name: "new", Clauses: json.RawMessage(validClauses)})
+			return err
+		}
+	}
+
+	t.Run("a rule is created before it first", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rules := mustCreateNamedRules(t, store, setting.ID, "a", "b", "c", "d")
+		queueForFlagSetting(t, store, setting.ID, create(setting.ID, 0), move(rules[2].ID, 0))
+		wantRuleNames(t, store, setting.ID, "c", "new", "a", "b", "d")
+	})
+
+	t.Run("an earlier rule is deleted first", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rules := mustCreateNamedRules(t, store, setting.ID, "a", "b", "c", "d")
+		queueForFlagSetting(t, store, setting.ID, remove(rules[0].ID), move(rules[1].ID, 2))
+		wantRuleNames(t, store, setting.ID, "c", "d", "b")
+	})
+
+	t.Run("another move goes first", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rules := mustCreateNamedRules(t, store, setting.ID, "a", "b", "c", "d")
+		queueForFlagSetting(t, store, setting.ID, move(rules[3].ID, 0), move(rules[1].ID, 3))
+		wantRuleNames(t, store, setting.ID, "d", "a", "c", "b")
+	})
+
+	t.Run("the range grows first", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rules := mustCreateNamedRules(t, store, setting.ID, "a", "b", "c")
+		queueForFlagSetting(t, store, setting.ID, create(setting.ID, 3), move(rules[0].ID, 3))
+		wantRuleNames(t, store, setting.ID, "b", "c", "new", "a")
+	})
+
+	t.Run("the range shrinks first", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rules := mustCreateNamedRules(t, store, setting.ID, "a", "b", "c")
+		var moveErr error
+		queueForFlagSetting(t, store, setting.ID, remove(rules[0].ID), func() error {
+			moveErr = move(rules[2].ID, 2)()
+			return nil
+		})
+		wantConnectErr(t, moveErr, connect.NewError(connect.CodeInvalidArgument, "can't update a rule with a position outside [0, 1]"))
+		wantRuleNames(t, store, setting.ID, "b", "c")
+	})
+
+	t.Run("the rule is deleted first", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rules := mustCreateNamedRules(t, store, setting.ID, "a", "b", "c")
+		var moveErr error
+		queueForFlagSetting(t, store, setting.ID, remove(rules[0].ID), func() error {
+			moveErr = move(rules[0].ID, 1)()
+			return nil
+		})
+		wantConnectErr(t, moveErr, connect.NewError(connect.CodeNotFound, "can't update the rule"))
+		wantRuleNames(t, store, setting.ID, "b", "c")
+	})
+}
+
+// Moves wait their turn, so however they land the positions have no gaps or
+// duplicates.
+func TestChangeRulePositionRacing(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	setting := mustCreateRuleSetting(t, store)
+	rules := mustCreateNamedRules(t, store, setting.ID, "a", "b", "c", "d", "e", "f")
+
+	tx, err := store.db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("BeginTx(): %v", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, "SELECT id FROM flag_settings WHERE id = $1 FOR SHARE", setting.ID); err != nil {
+		t.Fatalf("locking the flag setting: %v", err)
+	}
+
+	const racers = 12
+	errs := make(chan error, racers)
+	for i := range racers {
+		go func() {
+			_, err := store.ChangeRulePosition(ctx, database.ChangeRulePositionParams{
+				ID:       rules[i%len(rules)].ID,
+				Position: int32(i * 5 % len(rules)),
+			})
+			errs <- err
+		}()
+	}
+	time.Sleep(200 * time.Millisecond)
+	if err := tx.Rollback(); err != nil {
+		t.Fatalf("Rollback(): %v", err)
+	}
+	for range racers {
+		if err := <-errs; err != nil {
+			t.Errorf("ChangeRulePosition(): %v", err)
+		}
+	}
+
+	got, err := store.ListRulesBySetting(ctx, setting.ID)
+	if err != nil {
+		t.Fatalf("ListRulesBySetting(): %v", err)
+	}
+	var names []string
+	for i, r := range got {
+		names = append(names, r.Name)
+		if int(r.Position) != i {
+			t.Errorf("rule %q has position %d, want %d", r.Name, r.Position, i)
+		}
+	}
+	slices.Sort(names)
+	if diff := cmp.Diff([]string{"a", "b", "c", "d", "e", "f"}, names); diff != "" {
+		t.Fatalf("rules mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// The rule can go with its flag while the move waits for the lock.
+func TestChangeRulePositionWhileItsFlagIsDeleted(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	setting := mustCreateRuleSetting(t, store)
+	rules := mustCreateNamedRules(t, store, setting.ID, "a", "b")
+
+	tx, err := store.db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("BeginTx(): %v", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, "DELETE FROM flags WHERE id = $1", setting.FlagID); err != nil {
+		t.Fatalf("deleting the flag: %v", err)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := store.ChangeRulePosition(ctx, database.ChangeRulePositionParams{ID: rules[0].ID, Position: 1})
+		done <- err
+	}()
+	time.Sleep(200 * time.Millisecond)
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("Commit(): %v", err)
+	}
+	wantConnectErr(t, <-done, connect.NewError(connect.CodeNotFound, "can't update the rule"))
+}
+
+func TestChangeRulePositionReportsErrors(t *testing.T) {
+	store := newTestStore(t)
+	setting := mustCreateRuleSetting(t, store)
+	rules := mustCreateNamedRules(t, store, setting.ID, "a", "b")
+	arg := database.ChangeRulePositionParams{ID: rules[0].ID, Position: 1}
+	const message = "can't update the rule"
+
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	expired, cancelExpired := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancelExpired()
+
+	tests := map[string]struct {
+		ctx  context.Context
+		want *connect.Error
+	}{
+		"canceled context": {
+			ctx:  canceled,
+			want: connect.NewError(connect.CodeCanceled, message),
+		},
+		"expired deadline": {
+			ctx:  expired,
+			want: connect.NewError(connect.CodeDeadlineExceeded, message),
+		},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			got, err := store.ChangeRulePosition(test.ctx, arg)
+			wantConnectErr(t, err, test.want)
+			wantZeroRule(t, got)
+			stored, err := store.ListRulesBySetting(context.Background(), setting.ID)
+			if err != nil {
+				t.Fatalf("ListRulesBySetting(): %v", err)
+			}
+			if diff := cmp.Diff(rules, stored); diff != "" {
+				t.Fatalf("rules changed after a failed move (-want +got):\n%s", diff)
+			}
+		})
+	}
+
+	// Run last: it closes the connection pool the other cases use.
+	t.Run("closed database is internal", func(t *testing.T) {
+		if err := store.db.Close(); err != nil {
+			t.Fatalf("closing the database: %v", err)
+		}
+		got, err := store.ChangeRulePosition(context.Background(), arg)
+		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, message))
+		wantZeroRule(t, got)
 	})
 }

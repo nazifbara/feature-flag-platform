@@ -246,3 +246,65 @@ func (s *Store) CountRulesBySetting(ctx context.Context, flagSettingID uuid.UUID
 	}
 	return int(count), nil
 }
+
+// ChangeRulePosition moves the rule with the given id to a position from 0 up to
+// the setting's rule count minus one and returns it as updated. Rules between its
+// old and new positions get a position one higher or lower, which keeps the
+// positions contiguous.
+func (s *Store) ChangeRulePosition(ctx context.Context, args database.ChangeRulePositionParams) (database.Rule, error) {
+	if err := checkPosition("update", args.Position); err != nil {
+		return database.Rule{}, err
+	}
+	var updatedRule database.Rule
+	err := s.ExecTx(ctx, func(q *database.Queries) error {
+		rule, err := q.GetRule(ctx, args.ID)
+		if err != nil {
+			return err
+		}
+		if _, err := q.LockFlagSetting(ctx, rule.FlagSettingID); err != nil {
+			return err
+		}
+		// The rule may have moved while waiting for the lock.
+		rule, err = q.GetRule(ctx, args.ID)
+		if err != nil {
+			return err
+		}
+		ruleCount, err := q.CountRulesBySetting(ctx, rule.FlagSettingID)
+		if err != nil {
+			return err
+		}
+		if int64(args.Position) >= ruleCount {
+			return connect.NewError(connect.CodeInvalidArgument, fmt.Sprintf("can't update a rule with a position outside [0, %d]", ruleCount-1))
+		}
+		if rule.Position == args.Position {
+			updatedRule = rule
+			return nil
+		}
+		shift := database.ShiftRulePositionsBetweenParams{
+			FlagSettingID: rule.FlagSettingID,
+			Delta:         1,
+			After:         args.Position - 1,
+			Before:        int64(rule.Position),
+		}
+		if args.Position > rule.Position {
+			shift.Delta = -1
+			shift.After = rule.Position
+			shift.Before = int64(args.Position) + 1
+		}
+		if err := q.ShiftRulePositionsBetween(ctx, shift); err != nil {
+			return err
+		}
+		updatedRule, err = q.ChangeRulePosition(ctx, args)
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		if _, ok := errors.AsType[*connect.Error](err); ok {
+			return database.Rule{}, err
+		}
+		return database.Rule{}, ffserrors.FromDBErr(err, "can't update the rule")
+	}
+	return updatedRule, nil
+}

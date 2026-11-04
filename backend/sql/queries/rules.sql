@@ -41,3 +41,11 @@ SET
   position = position + sqlc.arg(delta),
   updated_at = clock_timestamp()
 WHERE position > sqlc.arg(after) AND position < sqlc.arg(before)::bigint AND flag_setting_id = sqlc.arg(flag_setting_id);
+
+-- name: ChangeRulePosition :one
+UPDATE rules
+SET
+  position = $1,
+  updated_at = clock_timestamp()
+WHERE id = $2
+RETURNING *;
