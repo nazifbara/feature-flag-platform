@@ -1286,3 +1286,71 @@ func TestCreatesWhileOwnerIsDeleted(t *testing.T) {
 		})
 	}
 }
+
+// Both deletes wait for the lock before touching a row. DeleteFlag takes the
+// settings and then the environments, and DeleteEnv the other way round, so
+// without it they can deadlock.
+func TestDeletesWaitForMatrixLock(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	tests := map[string]func(flag database.Flag, env database.Environment) error{
+		"DeleteFlag": func(flag database.Flag, _ database.Environment) error {
+			_, err := store.DeleteFlag(ctx, flag.ID)
+			return err
+		},
+		"DeleteEnv": func(_ database.Flag, env database.Environment) error {
+			_, err := store.DeleteEnv(ctx, env.ID)
+			return err
+		},
+	}
+	for name, del := range tests {
+		t.Run(name, func(t *testing.T) {
+			resetDB(t, store.db)
+			flag := mustCreateFlag(t, store, "new-checkout")
+			env := mustCreateEnv(t, store, "production")
+			tx, _ := beginMatrixTx(t, store)
+			defer tx.Rollback()
+
+			done := wantWaits(t, func() error { return del(flag, env) })
+			if err := tx.Rollback(); err != nil {
+				t.Fatalf("Rollback(): %v", err)
+			}
+			if err := <-done; err != nil {
+				t.Fatalf("%s(): %v", name, err)
+			}
+		})
+	}
+}
+
+// A flag and an environment deleted together both go, whichever gets there
+// first, and neither delete is aborted as a deadlock.
+func TestDeleteFlagAndDeleteEnvRacing(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	for range 20 {
+		resetDB(t, store.db)
+		env := mustCreateEnv(t, store, "production")
+		mustCreateEnv(t, store, "staging")
+		flag := mustCreateFlag(t, store, "new-checkout")
+
+		errs := make(chan error, 2)
+		go func() {
+			_, err := store.DeleteFlag(ctx, flag.ID)
+			errs <- err
+		}()
+		go func() {
+			_, err := store.DeleteEnv(ctx, env.ID)
+			errs <- err
+		}()
+		for range 2 {
+			if err := <-errs; err != nil {
+				t.Fatalf("delete failed: %v", err)
+			}
+		}
+		if flags, envs := flagCount(t, store), envCount(t, store); flags != 0 || envs != 1 {
+			t.Fatalf("%d flags and %d environments left, want 0 and 1", flags, envs)
+		}
+	}
+}

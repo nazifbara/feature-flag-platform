@@ -303,6 +303,20 @@ func TestCreateFlagReportsErrors(t *testing.T) {
 	})
 }
 
+// rejectEnvBumps makes moving an environment off version 1 fail until the test
+// ends, leaving the rows already there alone.
+func rejectEnvBumps(t *testing.T, store *Store) {
+	t.Helper()
+	if _, err := store.db.Exec("ALTER TABLE environments ADD CONSTRAINT reject_bump CHECK (version = 1) NOT VALID"); err != nil {
+		t.Fatalf("adding the constraint: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := store.db.Exec("ALTER TABLE environments DROP CONSTRAINT reject_bump"); err != nil {
+			t.Errorf("dropping the constraint: %v", err)
+		}
+	})
+}
+
 // A new flag has a setting in every environment, so all of them change.
 func TestCreateFlagBumpsEnvVersions(t *testing.T) {
 	store := newTestStore(t)
@@ -405,14 +419,7 @@ func TestCreateFlagBumpsEnvVersions(t *testing.T) {
 	t.Run("failed bump undoes the flag and its settings", func(t *testing.T) {
 		resetDB(t, store.db)
 		env := mustCreateEnv(t, store, "production")
-		if _, err := store.db.Exec("ALTER TABLE environments ADD CONSTRAINT reject_bump CHECK (version = 1) NOT VALID"); err != nil {
-			t.Fatalf("adding the constraint: %v", err)
-		}
-		t.Cleanup(func() {
-			if _, err := store.db.Exec("ALTER TABLE environments DROP CONSTRAINT reject_bump"); err != nil {
-				t.Errorf("dropping the constraint: %v", err)
-			}
-		})
+		rejectEnvBumps(t, store)
 		got, err := store.CreateFlag(ctx, "new-checkout")
 		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, "can't create the flag"))
 		if diff := cmp.Diff(database.Flag{}, got); diff != "" {
@@ -954,7 +961,7 @@ func TestDeleteFlag(t *testing.T) {
 	})
 
 	// The flag's settings go with it, in every environment; other flags'
-	// settings and the environments themselves stay.
+	// settings stay, and so do the environments, bumped.
 	t.Run("deletes the flag's settings", func(t *testing.T) {
 		resetDB(t, store.db)
 		f := mustCreateFlag(t, store, "new-checkout")
@@ -970,8 +977,12 @@ func TestDeleteFlag(t *testing.T) {
 		for _, e := range envs {
 			_, err := store.GetFlagSetting(ctx, database.GetFlagSettingParams{FlagID: f.ID, EnvironmentID: e.ID})
 			wantConnectErr(t, err, settingGone)
-			if diff := cmp.Diff(e, mustGetEnv(t, store, e.ID)); diff != "" {
-				t.Fatalf("environment %s changed (-want +got):\n%s", e.Name, diff)
+			got := mustGetEnv(t, store, e.ID)
+			want := e
+			want.Version++
+			want.UpdatedAt = got.UpdatedAt
+			if diff := cmp.Diff(want, got); diff != "" {
+				t.Fatalf("environment %s mismatch (-want +got):\n%s", e.Name, diff)
 			}
 		}
 		if n := flagSettingCount(t, store); n != len(kept) {
@@ -1068,6 +1079,114 @@ func TestDeleteFlagRolledBack(t *testing.T) {
 	if diff := cmp.Diff(s, storedFlagSetting(t, store, s.ID)); diff != "" {
 		t.Fatalf("setting changed after rollback (-want +got):\n%s", diff)
 	}
+}
+
+// A deleted flag had a setting in every environment, so all of them change.
+func TestDeleteFlagBumpsEnvVersions(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	// Only the version and updated_at move, the version by one from wherever
+	// each environment was.
+	t.Run("every environment goes up by one", func(t *testing.T) {
+		resetDB(t, store.db)
+		older := mustCreateEnv(t, store, "staging")
+		mustCreateFlag(t, store, "dark-mode")
+		newer := mustCreateEnv(t, store, "production")
+		f := mustCreateFlag(t, store, "new-checkout")
+		before := []database.Environment{mustGetEnv(t, store, older.ID), mustGetEnv(t, store, newer.ID)}
+		if before[0].Version == before[1].Version {
+			t.Fatalf("both environments at version %d, want them to differ", before[0].Version)
+		}
+		if _, err := store.DeleteFlag(ctx, f.ID); err != nil {
+			t.Fatalf("DeleteFlag(): %v", err)
+		}
+		for _, env := range before {
+			got := mustGetEnv(t, store, env.ID)
+			if !got.UpdatedAt.After(env.UpdatedAt) {
+				t.Errorf("%s updated_at = %v, want it after %v", env.Name, got.UpdatedAt, env.UpdatedAt)
+			}
+			want := env
+			want.Version++
+			want.UpdatedAt = got.UpdatedAt
+			if diff := cmp.Diff(want, got); diff != "" {
+				t.Errorf("%s mismatch (-want +got):\n%s", env.Name, diff)
+			}
+		}
+	})
+
+	// The second delete changes nothing, so readers have nothing to pick up.
+	t.Run("not found leaves versions alone", func(t *testing.T) {
+		resetDB(t, store.db)
+		f := mustCreateFlag(t, store, "new-checkout")
+		env := mustCreateEnv(t, store, "production")
+		if _, err := store.DeleteFlag(ctx, f.ID); err != nil {
+			t.Fatalf("DeleteFlag(): %v", err)
+		}
+		want := mustGetEnv(t, store, env.ID)
+		for _, id := range []uuid.UUID{f.ID, uuid.New(), uuid.Nil()} {
+			_, err := store.DeleteFlag(ctx, id)
+			wantConnectErr(t, err, connect.NewError(connect.CodeNotFound, "can't delete the flag"))
+			if diff := cmp.Diff(want, mustGetEnv(t, store, env.ID)); diff != "" {
+				t.Fatalf("environment changed (-want +got):\n%s", diff)
+			}
+		}
+	})
+
+	// Flags racing to be deleted don't overwrite each other's bump.
+	t.Run("racing deletes all count", func(t *testing.T) {
+		resetDB(t, store.db)
+		env := mustCreateEnv(t, store, "production")
+		const racers = 8
+		var flags []database.Flag
+		for i := range racers {
+			flags = append(flags, mustCreateFlag(t, store, fmt.Sprintf("flag-%d", i)))
+		}
+		before := mustGetEnv(t, store, env.ID).Version
+		errs := make(chan error, racers)
+		for _, f := range flags {
+			go func() {
+				_, err := store.DeleteFlag(ctx, f.ID)
+				errs <- err
+			}()
+		}
+		for range racers {
+			if err := <-errs; err != nil {
+				t.Errorf("DeleteFlag(): %v", err)
+			}
+		}
+		if got, want := mustGetEnv(t, store, env.ID).Version, before+racers; got != want {
+			t.Fatalf("version = %d, want %d", got, want)
+		}
+	})
+
+	t.Run("no environments to bump", func(t *testing.T) {
+		resetDB(t, store.db)
+		f := mustCreateFlag(t, store, "new-checkout")
+		if _, err := store.DeleteFlag(ctx, f.ID); err != nil {
+			t.Fatalf("DeleteFlag(): %v", err)
+		}
+	})
+
+	// The delete and the bump land together or not at all.
+	t.Run("failed bump keeps the flag and its settings", func(t *testing.T) {
+		resetDB(t, store.db)
+		f := mustCreateFlag(t, store, "new-checkout")
+		env := mustCreateEnv(t, store, "production")
+		s := mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: f.ID, EnvironmentID: env.ID, Fallthrough: 0.5})
+		rejectEnvBumps(t, store)
+		got, err := store.DeleteFlag(ctx, f.ID)
+		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, "can't delete the flag"))
+		if diff := cmp.Diff(database.Flag{}, got); diff != "" {
+			t.Fatalf("returned a flag on error (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff(f, storedFlag(t, store, f.ID)); diff != "" {
+			t.Errorf("flag changed after a failed bump (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff(s, storedFlagSetting(t, store, s.ID)); diff != "" {
+			t.Errorf("setting changed after a failed bump (-want +got):\n%s", diff)
+		}
+	})
 }
 
 func TestDeleteFlagReportsErrors(t *testing.T) {

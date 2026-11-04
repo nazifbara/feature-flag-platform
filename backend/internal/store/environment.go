@@ -87,7 +87,18 @@ func (s *Store) ListEnvs(ctx context.Context) ([]database.Environment, error) {
 // DeleteEnv deletes the environment with the given id and returns it as it
 // was.
 func (s *Store) DeleteEnv(ctx context.Context, id uuid.UUID) (database.Environment, error) {
-	env, err := s.Queries.DeleteEnv(ctx, id)
+	var env database.Environment
+	err := s.ExecTx(ctx, func(q *database.Queries) error {
+		if err := q.LockFlagEnvMatrix(ctx); err != nil {
+			return err
+		}
+		e, err := q.DeleteEnv(ctx, id)
+		if err != nil {
+			return err
+		}
+		env = e
+		return nil
+	})
 	if err != nil {
 		return database.Environment{}, ffserrors.FromDBErr(err, "can't delete the environment")
 	}
