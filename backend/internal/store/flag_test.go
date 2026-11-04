@@ -834,8 +834,7 @@ func TestDeleteFlag(t *testing.T) {
 		envs := []database.Environment{mustCreateEnv(t, store, "staging"), mustCreateEnv(t, store, "production")}
 		var kept []database.FlagSetting
 		for _, e := range envs {
-			mustCreateFlagSetting(t, store, database.CreateFlagSettingParams{FlagID: f.ID, EnvironmentID: e.ID})
-			kept = append(kept, mustCreateFlagSetting(t, store, database.CreateFlagSettingParams{FlagID: other.ID, EnvironmentID: e.ID, Fallthrough: 0.5}))
+			kept = append(kept, mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: other.ID, EnvironmentID: e.ID, Fallthrough: 0.5}))
 		}
 		if _, err := store.DeleteFlag(ctx, f.ID); err != nil {
 			t.Fatalf("DeleteFlag(): %v", err)
@@ -888,12 +887,12 @@ func TestDeleteFlag(t *testing.T) {
 	})
 
 	// A deleted flag's key is free again, and the new flag is a different
-	// one with no settings carried over.
+	// one with a new setting, not the old one's values.
 	t.Run("key can be reused", func(t *testing.T) {
 		resetDB(t, store.db)
 		old := mustCreateFlag(t, store, "new-checkout")
 		env := mustCreateEnv(t, store, "production")
-		mustCreateFlagSetting(t, store, database.CreateFlagSettingParams{FlagID: old.ID, EnvironmentID: env.ID, Enabled: true})
+		oldSetting := mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: old.ID, EnvironmentID: env.ID, Enabled: true})
 		if _, err := store.DeleteFlag(ctx, old.ID); err != nil {
 			t.Fatalf("DeleteFlag(): %v", err)
 		}
@@ -904,8 +903,15 @@ func TestDeleteFlag(t *testing.T) {
 		if reborn.Salt == old.Salt {
 			t.Fatalf("recreated flag reused salt %q", old.Salt)
 		}
-		_, err := store.GetFlagSetting(ctx, database.GetFlagSettingParams{FlagID: reborn.ID, EnvironmentID: env.ID})
+		_, err := store.GetFlagSetting(ctx, database.GetFlagSettingParams{FlagID: old.ID, EnvironmentID: env.ID})
 		wantConnectErr(t, err, settingGone)
+		got, err := store.GetFlagSetting(ctx, database.GetFlagSettingParams{FlagID: reborn.ID, EnvironmentID: env.ID})
+		if err != nil {
+			t.Fatalf("GetFlagSetting(): %v", err)
+		}
+		if got.ID == oldSetting.ID || got.Enabled {
+			t.Fatalf("recreated flag's setting = %+v, want a new, disabled one, not %+v", got, oldSetting)
+		}
 	})
 }
 
@@ -916,7 +922,7 @@ func TestDeleteFlagRolledBack(t *testing.T) {
 	ctx := context.Background()
 	f := mustCreateFlag(t, store, "new-checkout")
 	env := mustCreateEnv(t, store, "production")
-	s := mustCreateFlagSetting(t, store, database.CreateFlagSettingParams{FlagID: f.ID, EnvironmentID: env.ID, Fallthrough: 0.5})
+	s := mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: f.ID, EnvironmentID: env.ID, Fallthrough: 0.5})
 
 	errBoom := errors.New("boom")
 	err := store.ExecTx(ctx, func(q *database.Queries) error {
