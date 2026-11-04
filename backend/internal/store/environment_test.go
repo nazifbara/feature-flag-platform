@@ -153,6 +153,15 @@ func TestEnvironmentCreation(t *testing.T) {
 
 // Names are stored trimmed and lowercased, both in what CreateEnv returns
 // and in the row it writes.
+// A new environment has never been updated.
+func TestEnvironmentCreationSetsUpdatedAt(t *testing.T) {
+	store := newTestStore(t)
+	env := mustCreateEnv(t, store, "production")
+	if !env.UpdatedAt.Equal(env.CreatedAt) {
+		t.Fatalf("CreateEnv() updated_at = %v, want it equal to created_at %v", env.UpdatedAt, env.CreatedAt)
+	}
+}
+
 func TestEnvironmentCreationNormalizesName(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
@@ -591,8 +600,8 @@ func TestUpdateEnv(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
 
-	// Only the name changes: the ID and creation time stay, and the change
-	// is saved, not just returned.
+	// Only the name and updated_at change: the ID and creation time stay, and
+	// the change is saved, not just returned.
 	t.Run("renames the environment", func(t *testing.T) {
 		resetDB(t, store.db)
 		env := mustCreateEnv(t, store, "staging")
@@ -600,7 +609,10 @@ func TestUpdateEnv(t *testing.T) {
 		if err != nil {
 			t.Fatalf("UpdateEnv(): %v", err)
 		}
-		want := database.Environment{ID: env.ID, Name: "preprod", CreatedAt: env.CreatedAt, Version: env.Version}
+		if !got.UpdatedAt.After(env.UpdatedAt) {
+			t.Errorf("UpdateEnv() updated_at = %v, want it after %v", got.UpdatedAt, env.UpdatedAt)
+		}
+		want := database.Environment{ID: env.ID, Name: "preprod", CreatedAt: env.CreatedAt, UpdatedAt: got.UpdatedAt, Version: env.Version}
 		if diff := cmp.Diff(want, got); diff != "" {
 			t.Fatalf("UpdateEnv() mismatch (-want +got):\n%s", diff)
 		}
@@ -690,7 +702,13 @@ func TestUpdateEnv(t *testing.T) {
 				if err != nil {
 					t.Fatalf("UpdateEnv(%q): %v", name, err)
 				}
-				if diff := cmp.Diff(env, got); diff != "" {
+				// Writing the same name again still counts as an update.
+				if !got.UpdatedAt.After(env.UpdatedAt) {
+					t.Errorf("UpdateEnv(%q) updated_at = %v, want it after %v", name, got.UpdatedAt, env.UpdatedAt)
+				}
+				want := env
+				want.UpdatedAt = got.UpdatedAt
+				if diff := cmp.Diff(want, got); diff != "" {
 					t.Fatalf("UpdateEnv(%q) mismatch (-want +got):\n%s", name, diff)
 				}
 			})

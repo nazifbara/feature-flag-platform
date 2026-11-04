@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -298,6 +299,133 @@ func TestCreateFlagReportsErrors(t *testing.T) {
 		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, "can't create the flag"))
 		if got != (database.Flag{}) {
 			t.Fatalf("CreateFlag() = %+v on error, want the zero Flag", got)
+		}
+	})
+}
+
+// A new flag has a setting in every environment, so all of them change.
+func TestCreateFlagBumpsEnvVersions(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	// Only the version and updated_at move, the version by one from wherever
+	// each environment was.
+	t.Run("every environment goes up by one", func(t *testing.T) {
+		resetDB(t, store.db)
+		older := mustCreateEnv(t, store, "staging")
+		mustCreateFlag(t, store, "dark-mode")
+		newer := mustCreateEnv(t, store, "production")
+		before := []database.Environment{mustGetEnv(t, store, older.ID), newer}
+		if before[0].Version == before[1].Version {
+			t.Fatalf("both environments at version %d, want them to differ", before[0].Version)
+		}
+		mustCreateFlag(t, store, "new-checkout")
+		for _, env := range before {
+			got := mustGetEnv(t, store, env.ID)
+			if !got.UpdatedAt.After(env.UpdatedAt) {
+				t.Errorf("%s updated_at = %v, want it after %v", env.Name, got.UpdatedAt, env.UpdatedAt)
+			}
+			want := env
+			want.Version++
+			want.UpdatedAt = got.UpdatedAt
+			if diff := cmp.Diff(want, got); diff != "" {
+				t.Errorf("%s mismatch (-want +got):\n%s", env.Name, diff)
+			}
+		}
+	})
+
+	t.Run("each new flag counts", func(t *testing.T) {
+		resetDB(t, store.db)
+		env := mustCreateEnv(t, store, "production")
+		for i := range 3 {
+			mustCreateFlag(t, store, fmt.Sprintf("flag-%d", i))
+		}
+		if got, want := mustGetEnv(t, store, env.ID).Version, env.Version+3; got != want {
+			t.Fatalf("version = %d, want %d", got, want)
+		}
+	})
+
+	// Flags racing to be created don't overwrite each other's bump.
+	t.Run("racing flags all count", func(t *testing.T) {
+		resetDB(t, store.db)
+		env := mustCreateEnv(t, store, "production")
+		const racers = 8
+		errs := make(chan error, racers)
+		for i := range racers {
+			go func() {
+				_, err := store.CreateFlag(ctx, fmt.Sprintf("flag-%d", i))
+				errs <- err
+			}()
+		}
+		for range racers {
+			if err := <-errs; err != nil {
+				t.Errorf("CreateFlag(): %v", err)
+			}
+		}
+		if got, want := mustGetEnv(t, store, env.ID).Version, env.Version+racers; got != want {
+			t.Fatalf("version = %d, want %d", got, want)
+		}
+	})
+
+	t.Run("no environments to bump", func(t *testing.T) {
+		resetDB(t, store.db)
+		if _, err := store.CreateFlag(ctx, "new-checkout"); err != nil {
+			t.Fatalf("CreateFlag(): %v", err)
+		}
+	})
+
+	// Nothing changed, so readers have nothing to pick up.
+	t.Run("rejected flag leaves versions alone", func(t *testing.T) {
+		resetDB(t, store.db)
+		mustCreateFlag(t, store, "new-checkout")
+		env := mustCreateEnv(t, store, "production")
+		for _, key := range []string{"", "not valid", "new-checkout"} {
+			if _, err := store.CreateFlag(ctx, key); err == nil {
+				t.Fatalf("CreateFlag(%q) = nil error, want it rejected", key)
+			}
+			if got := mustGetEnv(t, store, env.ID).Version; got != env.Version {
+				t.Fatalf("version after CreateFlag(%q) = %d, want %d", key, got, env.Version)
+			}
+		}
+	})
+
+	t.Run("failed settings leave versions alone", func(t *testing.T) {
+		resetDB(t, store.db)
+		env := mustCreateEnv(t, store, "production")
+		rejectNewFlagSettings(t, store)
+		if _, err := store.CreateFlag(ctx, "new-checkout"); err == nil {
+			t.Fatal("CreateFlag() = nil error, want it to fail")
+		}
+		if got := mustGetEnv(t, store, env.ID).Version; got != env.Version {
+			t.Fatalf("version = %d, want %d", got, env.Version)
+		}
+	})
+
+	// The flag, its settings and the bump land together or not at all.
+	t.Run("failed bump undoes the flag and its settings", func(t *testing.T) {
+		resetDB(t, store.db)
+		env := mustCreateEnv(t, store, "production")
+		if _, err := store.db.Exec("ALTER TABLE environments ADD CONSTRAINT reject_bump CHECK (version = 1) NOT VALID"); err != nil {
+			t.Fatalf("adding the constraint: %v", err)
+		}
+		t.Cleanup(func() {
+			if _, err := store.db.Exec("ALTER TABLE environments DROP CONSTRAINT reject_bump"); err != nil {
+				t.Errorf("dropping the constraint: %v", err)
+			}
+		})
+		got, err := store.CreateFlag(ctx, "new-checkout")
+		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, "can't create the flag"))
+		if diff := cmp.Diff(database.Flag{}, got); diff != "" {
+			t.Fatalf("returned a flag on error (-want +got):\n%s", diff)
+		}
+		if n := flagCount(t, store); n != 0 {
+			t.Errorf("%d flags after a failed bump, want 0", n)
+		}
+		if n := flagSettingCount(t, store); n != 0 {
+			t.Errorf("%d flag settings after a failed bump, want 0", n)
+		}
+		if got := mustGetEnv(t, store, env.ID).Version; got != env.Version {
+			t.Errorf("version = %d, want %d", got, env.Version)
 		}
 	})
 }
