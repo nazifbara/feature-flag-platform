@@ -43,8 +43,8 @@ func normalizeFlagKey(action, key string) (string, error) {
 }
 
 // CreateFlag adds a flag, with its key normalized by normalizeFlagKey and a salt
-// of its own, and a disabled setting in every existing environment, in one
-// transaction.
+// of its own, and a disabled setting in every existing environment, whose
+// versions it bumps, in one transaction.
 func (s *Store) CreateFlag(ctx context.Context, key string) (database.Flag, error) {
 	key, err := normalizeFlagKey("create", key)
 	if err != nil {
@@ -63,7 +63,10 @@ func (s *Store) CreateFlag(ctx context.Context, key string) (database.Flag, erro
 			return err
 		}
 		flag = f
-		return q.CreateSettingsForFlag(ctx, f.ID)
+		if err := q.CreateSettingsForFlag(ctx, f.ID); err != nil {
+			return err
+		}
+		return q.IncrementAllEnvVersions(ctx)
 	})
 	if err != nil {
 		return database.Flag{}, ffserrors.FromDBErr(err, "can't create the flag")
