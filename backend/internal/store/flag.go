@@ -98,9 +98,20 @@ func (s *Store) UpdateFlag(ctx context.Context, id uuid.UUID, key string) (datab
 }
 
 // DeleteFlag deletes the flag with the given id, along with its settings in
-// every environment, and returns the flag as it was.
+// every environment, whose versions it bumps, and returns the flag as it was.
 func (s *Store) DeleteFlag(ctx context.Context, id uuid.UUID) (database.Flag, error) {
-	flag, err := s.Queries.DeleteFlag(ctx, id)
+	var flag database.Flag
+	err := s.ExecTx(ctx, func(q *database.Queries) error {
+		if err := q.LockFlagEnvMatrix(ctx); err != nil {
+			return err
+		}
+		f, err := q.DeleteFlag(ctx, id)
+		if err != nil {
+			return err
+		}
+		flag = f
+		return q.IncrementAllEnvVersions(ctx)
+	})
 	if err != nil {
 		return database.Flag{}, ffserrors.FromDBErr(err, "can't delete the flag")
 	}
