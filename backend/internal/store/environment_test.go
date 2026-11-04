@@ -600,7 +600,7 @@ func TestUpdateEnv(t *testing.T) {
 		if err != nil {
 			t.Fatalf("UpdateEnv(): %v", err)
 		}
-		want := database.Environment{ID: env.ID, Name: "preprod", CreatedAt: env.CreatedAt}
+		want := database.Environment{ID: env.ID, Name: "preprod", CreatedAt: env.CreatedAt, Version: env.Version}
 		if diff := cmp.Diff(want, got); diff != "" {
 			t.Fatalf("UpdateEnv() mismatch (-want +got):\n%s", diff)
 		}
