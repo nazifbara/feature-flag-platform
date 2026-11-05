@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"reflect"
 	"strings"
 	"unicode/utf8"
 	"uuid"
@@ -101,7 +102,7 @@ func normalizeRuleName(action, name string) (string, error) {
 // CreateRule adds a rule to a flag's settings in one environment, at a position
 // from 0 up to the setting's rule count. Rules from that position on get a
 // position one higher, which makes room. Clauses are checked by parseClauses, so
-// a saved rule can always be loaded back.
+// a saved rule can always be loaded back. It bumps that environment's version.
 func (s *Store) CreateRule(ctx context.Context, args database.CreateRuleParams) (database.Rule, error) {
 	name, err := normalizeRuleName("create", args.Name)
 	if err != nil {
@@ -119,10 +120,14 @@ func (s *Store) CreateRule(ctx context.Context, args database.CreateRuleParams) 
 	}
 	var rule database.Rule
 	err = s.ExecTx(ctx, func(q *database.Queries) error {
-		if _, err := q.LockFlagSetting(ctx, args.FlagSettingID); err != nil {
+		if err := q.LockFlagEnvMatrix(ctx); err != nil {
 			return err
 		}
-		ruleCount, err := q.CountRulesBySetting(ctx, args.FlagSettingID)
+		setting, err := q.GetFlagSettingByID(ctx, args.FlagSettingID)
+		if err != nil {
+			return err
+		}
+		ruleCount, err := q.CountRulesBySetting(ctx, setting.ID)
 		if err != nil {
 			return err
 		}
@@ -131,7 +136,7 @@ func (s *Store) CreateRule(ctx context.Context, args database.CreateRuleParams) 
 				fmt.Sprintf("can't create a rule with a position outside [0, %d]", ruleCount))
 		}
 		err = q.ShiftRulePositionsBetween(ctx, database.ShiftRulePositionsBetweenParams{
-			FlagSettingID: args.FlagSettingID,
+			FlagSettingID: setting.ID,
 			Delta:         1,
 			After:         args.Position - 1,
 			Before:        ruleCount,
@@ -143,7 +148,7 @@ func (s *Store) CreateRule(ctx context.Context, args database.CreateRuleParams) 
 		if err != nil {
 			return err
 		}
-		return nil
+		return q.IncrementEnvVersion(ctx, setting.EnvironmentID)
 	})
 	if err != nil {
 		if _, ok := errors.AsType[*connect.Error](err); ok {
@@ -174,19 +179,15 @@ func (s *Store) ListRulesBySetting(ctx context.Context, settingID uuid.UUID) ([]
 }
 
 // DeleteRule deletes the rule with the given id and returns it as it was. Rules
-// after it get a position one lower, which fills the gap.
+// after it get a position one lower, which fills the gap. It bumps the version of
+// the rule's environment.
 func (s *Store) DeleteRule(ctx context.Context, id uuid.UUID) (database.Rule, error) {
 	var deletedRule database.Rule
 	err := s.ExecTx(ctx, func(q *database.Queries) error {
+		if err := q.LockFlagEnvMatrix(ctx); err != nil {
+			return err
+		}
 		rule, err := q.GetRule(ctx, id)
-		if err != nil {
-			return err
-		}
-		if _, err := q.LockFlagSetting(ctx, rule.FlagSettingID); err != nil {
-			return err
-		}
-		// The rule may have moved while waiting for the lock.
-		rule, err = q.GetRule(ctx, id)
 		if err != nil {
 			return err
 		}
@@ -208,7 +209,11 @@ func (s *Store) DeleteRule(ctx context.Context, id uuid.UUID) (database.Rule, er
 		if err != nil {
 			return err
 		}
-		return nil
+		setting, err := q.GetFlagSettingByID(ctx, rule.FlagSettingID)
+		if err != nil {
+			return err
+		}
+		return q.IncrementEnvVersion(ctx, setting.EnvironmentID)
 	})
 	if err != nil {
 		return database.Rule{}, ffserrors.FromDBErr(err, "can't delete the rule")
@@ -217,7 +222,10 @@ func (s *Store) DeleteRule(ctx context.Context, id uuid.UUID) (database.Rule, er
 }
 
 // UpdateRule replaces the name, serve and clauses of the rule with the given id
-// and returns it as updated. The rule's position doesn't change.
+// and returns it as updated. The rule's position doesn't change. It bumps the
+// version of the rule's environment, unless the rule already has those values,
+// which changes nothing. Clauses are compared as parsed, so JSON spacing and key
+// order don't count, but the order of clauses and of their values does.
 func (s *Store) UpdateRule(ctx context.Context, args database.UpdateRuleParams) (database.Rule, error) {
 	name, err := normalizeRuleName("update", args.Name)
 	if err != nil {
@@ -227,11 +235,41 @@ func (s *Store) UpdateRule(ctx context.Context, args database.UpdateRuleParams) 
 	if err := checkServe("update", args.Serve); err != nil {
 		return database.Rule{}, err
 	}
-	if _, err := parseClauses(args.Clauses); err != nil {
+	parsedClauses, err := parseClauses(args.Clauses)
+	if err != nil {
 		return database.Rule{}, connect.NewError(connect.CodeInvalidArgument, err.Error()).WithCause(err)
 	}
-	rule, err := s.Queries.UpdateRule(ctx, args)
+	var rule database.Rule
+	err = s.ExecTx(ctx, func(q *database.Queries) error {
+		if err := q.LockFlagEnvMatrix(ctx); err != nil {
+			return err
+		}
+		currentRule, err := q.GetRule(ctx, args.ID)
+		if err != nil {
+			return err
+		}
+		parsedCurrentClauses, _ := parseClauses(currentRule.Clauses)
+		if currentRule.Name == args.Name &&
+			reflect.DeepEqual(parsedCurrentClauses, parsedClauses) &&
+			currentRule.Serve == args.Serve {
+			rule = currentRule
+			return nil
+		}
+		r, err := q.UpdateRule(ctx, args)
+		if err != nil {
+			return err
+		}
+		rule = r
+		setting, err := q.GetFlagSettingByID(ctx, rule.FlagSettingID)
+		if err != nil {
+			return err
+		}
+		return q.IncrementEnvVersion(ctx, setting.EnvironmentID)
+	})
 	if err != nil {
+		if _, ok := errors.AsType[*connect.Error](err); ok {
+			return database.Rule{}, err
+		}
 		return database.Rule{}, ffserrors.FromDBErr(err, "can't update the rule")
 	}
 	return rule, nil
@@ -250,22 +288,18 @@ func (s *Store) CountRulesBySetting(ctx context.Context, flagSettingID uuid.UUID
 // ChangeRulePosition moves the rule with the given id to a position from 0 up to
 // the setting's rule count minus one and returns it as updated. Rules between its
 // old and new positions get a position one higher or lower, which keeps the
-// positions contiguous.
+// positions contiguous. It bumps the version of the rule's environment, unless
+// the rule is already at that position, which changes nothing.
 func (s *Store) ChangeRulePosition(ctx context.Context, args database.ChangeRulePositionParams) (database.Rule, error) {
 	if err := checkPosition("update", args.Position); err != nil {
 		return database.Rule{}, err
 	}
 	var updatedRule database.Rule
 	err := s.ExecTx(ctx, func(q *database.Queries) error {
+		if err := q.LockFlagEnvMatrix(ctx); err != nil {
+			return err
+		}
 		rule, err := q.GetRule(ctx, args.ID)
-		if err != nil {
-			return err
-		}
-		if _, err := q.LockFlagSetting(ctx, rule.FlagSettingID); err != nil {
-			return err
-		}
-		// The rule may have moved while waiting for the lock.
-		rule, err = q.GetRule(ctx, args.ID)
 		if err != nil {
 			return err
 		}
@@ -298,7 +332,11 @@ func (s *Store) ChangeRulePosition(ctx context.Context, args database.ChangeRule
 		if err != nil {
 			return err
 		}
-		return nil
+		setting, err := q.GetFlagSettingByID(ctx, rule.FlagSettingID)
+		if err != nil {
+			return err
+		}
+		return q.IncrementEnvVersion(ctx, setting.EnvironmentID)
 	})
 	if err != nil {
 		if _, ok := errors.AsType[*connect.Error](err); ok {
