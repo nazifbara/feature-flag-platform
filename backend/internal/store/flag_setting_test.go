@@ -328,8 +328,9 @@ func TestUpdateFlagSetting(t *testing.T) {
 		}
 	})
 
-	// Writing the same values again still counts as an update.
-	t.Run("same values still move updated_at", func(t *testing.T) {
+	// Writing the same values again isn't an update, so updated_at stays put
+	// and the caller still gets the setting back.
+	t.Run("same values change nothing", func(t *testing.T) {
 		resetDB(t, store.db)
 		flag := mustCreateFlag(t, store, "new-checkout")
 		env := mustCreateEnv(t, store, "production")
@@ -338,8 +339,11 @@ func TestUpdateFlagSetting(t *testing.T) {
 		if err != nil {
 			t.Fatalf("UpdateFlagSetting(): %v", err)
 		}
-		if !got.UpdatedAt.After(s.UpdatedAt) {
-			t.Errorf("UpdateFlagSetting() updated_at = %v, want it after %v", got.UpdatedAt, s.UpdatedAt)
+		if diff := cmp.Diff(s, got); diff != "" {
+			t.Errorf("UpdateFlagSetting() mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff(s, storedFlagSetting(t, store, s.ID)); diff != "" {
+			t.Errorf("stored setting changed (-want +got):\n%s", diff)
 		}
 	})
 
@@ -1287,10 +1291,10 @@ func TestCreatesWhileOwnerIsDeleted(t *testing.T) {
 	}
 }
 
-// Both deletes wait for the lock before touching a row. DeleteFlag takes the
-// settings and then the environments, and DeleteEnv the other way round, so
-// without it they can deadlock.
-func TestDeletesWaitForMatrixLock(t *testing.T) {
+// These wait for the lock before touching a row. DeleteFlag and
+// UpdateFlagSetting take settings and then environments, and DeleteEnv the other
+// way round, so without it they can deadlock.
+func TestWritesWaitForMatrixLock(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
 
@@ -1303,8 +1307,12 @@ func TestDeletesWaitForMatrixLock(t *testing.T) {
 			_, err := store.DeleteEnv(ctx, env.ID)
 			return err
 		},
+		"UpdateFlagSetting": func(flag database.Flag, env database.Environment) error {
+			_, err := store.UpdateFlagSetting(ctx, database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: 1})
+			return err
+		},
 	}
-	for name, del := range tests {
+	for name, write := range tests {
 		t.Run(name, func(t *testing.T) {
 			resetDB(t, store.db)
 			flag := mustCreateFlag(t, store, "new-checkout")
@@ -1312,7 +1320,7 @@ func TestDeletesWaitForMatrixLock(t *testing.T) {
 			tx, _ := beginMatrixTx(t, store)
 			defer tx.Rollback()
 
-			done := wantWaits(t, func() error { return del(flag, env) })
+			done := wantWaits(t, func() error { return write(flag, env) })
 			if err := tx.Rollback(); err != nil {
 				t.Fatalf("Rollback(): %v", err)
 			}
@@ -1352,5 +1360,255 @@ func TestDeleteFlagAndDeleteEnvRacing(t *testing.T) {
 		if flags, envs := flagCount(t, store), envCount(t, store); flags != 0 || envs != 1 {
 			t.Fatalf("%d flags and %d environments left, want 0 and 1", flags, envs)
 		}
+	}
+}
+
+// A setting belongs to one environment, so only that one changes.
+func TestUpdateFlagSettingBumpsEnvVersion(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	// Only the version and updated_at move, and only in the setting's own
+	// environment.
+	t.Run("its environment goes up by one", func(t *testing.T) {
+		resetDB(t, store.db)
+		flag := mustCreateFlag(t, store, "new-checkout")
+		env := mustCreateEnv(t, store, "production")
+		other := mustCreateEnv(t, store, "staging")
+		mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: 0.5})
+		got := mustGetEnv(t, store, env.ID)
+		if !got.UpdatedAt.After(env.UpdatedAt) {
+			t.Errorf("updated_at = %v, want it after %v", got.UpdatedAt, env.UpdatedAt)
+		}
+		want := env
+		want.Version++
+		want.UpdatedAt = got.UpdatedAt
+		if diff := cmp.Diff(want, got); diff != "" {
+			t.Errorf("environment mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff(other, mustGetEnv(t, store, other.ID)); diff != "" {
+			t.Errorf("other environment changed (-want +got):\n%s", diff)
+		}
+	})
+
+	// A change to either field alone is enough. A new setting starts disabled
+	// with a fallthrough of 0.
+	t.Run("each change counts", func(t *testing.T) {
+		resetDB(t, store.db)
+		flag := mustCreateFlag(t, store, "new-checkout")
+		env := mustCreateEnv(t, store, "production")
+		changes := []struct {
+			enabled  bool
+			fraction float32
+		}{{true, 0}, {true, 0.5}, {false, 0.5}}
+		for i, c := range changes {
+			s := mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: c.enabled, Fallthrough: c.fraction})
+			if s.Enabled != c.enabled || s.Fallthrough != c.fraction {
+				t.Errorf("enabled, fallthrough = %v, %v, want %v, %v", s.Enabled, s.Fallthrough, c.enabled, c.fraction)
+			}
+			if got, want := mustGetEnv(t, store, env.ID).Version, env.Version+int64(i)+1; got != want {
+				t.Fatalf("after change %d: version = %d, want %d", i, got, want)
+			}
+		}
+	})
+
+	// Nothing changed, so readers have nothing to pick up. 0.1 has no exact
+	// binary form, so it also has to survive the trip to the database and back
+	// to compare equal.
+	t.Run("same values leave the version alone", func(t *testing.T) {
+		tests := map[string]database.UpdateFlagSettingParams{
+			"the values a new setting starts with": {},
+			"values set earlier":                   {Enabled: true, Fallthrough: 0.5},
+			"a fraction with no exact binary form": {Enabled: true, Fallthrough: 0.1},
+		}
+		for name, arg := range tests {
+			t.Run(name, func(t *testing.T) {
+				resetDB(t, store.db)
+				arg.FlagID = mustCreateFlag(t, store, "new-checkout").ID
+				arg.EnvironmentID = mustCreateEnv(t, store, "production").ID
+				if _, err := store.UpdateFlagSetting(ctx, arg); err != nil {
+					t.Fatalf("UpdateFlagSetting(): %v", err)
+				}
+				want := mustGetEnv(t, store, arg.EnvironmentID)
+				if _, err := store.UpdateFlagSetting(ctx, arg); err != nil {
+					t.Fatalf("UpdateFlagSetting(): %v", err)
+				}
+				if diff := cmp.Diff(want, mustGetEnv(t, store, arg.EnvironmentID)); diff != "" {
+					t.Fatalf("environment changed (-want +got):\n%s", diff)
+				}
+			})
+		}
+	})
+
+	// Updates racing each other don't overwrite each other's bump. Every value
+	// is different, so each racer has something to change.
+	t.Run("racing changes all count", func(t *testing.T) {
+		resetDB(t, store.db)
+		flag := mustCreateFlag(t, store, "new-checkout")
+		env := mustCreateEnv(t, store, "production")
+		const racers = 8
+		errs := make(chan error, racers)
+		for i := range racers {
+			go func() {
+				_, err := store.UpdateFlagSetting(ctx, database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: float32(i+1) / racers})
+				errs <- err
+			}()
+		}
+		for range racers {
+			if err := <-errs; err != nil {
+				t.Errorf("UpdateFlagSetting(): %v", err)
+			}
+		}
+		if got, want := mustGetEnv(t, store, env.ID).Version, env.Version+racers; got != want {
+			t.Fatalf("version = %d, want %d", got, want)
+		}
+	})
+
+	// Racers writing the same values each compare before they write, so only
+	// the first one finds something to change.
+	t.Run("racing same values count once", func(t *testing.T) {
+		resetDB(t, store.db)
+		flag := mustCreateFlag(t, store, "new-checkout")
+		env := mustCreateEnv(t, store, "production")
+		const racers = 8
+		errs := make(chan error, racers)
+		for range racers {
+			go func() {
+				_, err := store.UpdateFlagSetting(ctx, database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: 0.5})
+				errs <- err
+			}()
+		}
+		for range racers {
+			if err := <-errs; err != nil {
+				t.Errorf("UpdateFlagSetting(): %v", err)
+			}
+		}
+		if got, want := mustGetEnv(t, store, env.ID).Version, env.Version+1; got != want {
+			t.Fatalf("version = %d, want %d", got, want)
+		}
+	})
+
+	// Nothing changed, so readers have nothing to pick up.
+	t.Run("rejected update leaves versions alone", func(t *testing.T) {
+		resetDB(t, store.db)
+		flag := mustCreateFlag(t, store, "new-checkout")
+		env := mustCreateEnv(t, store, "production")
+		tests := map[string]database.UpdateFlagSettingParams{
+			"bad fallthrough":     {FlagID: flag.ID, EnvironmentID: env.ID, Fallthrough: 2},
+			"unknown flag":        {FlagID: uuid.New(), EnvironmentID: env.ID},
+			"unknown environment": {FlagID: flag.ID, EnvironmentID: uuid.New()},
+		}
+		for name, arg := range tests {
+			t.Run(name, func(t *testing.T) {
+				if _, err := store.UpdateFlagSetting(ctx, arg); err == nil {
+					t.Fatal("UpdateFlagSetting() = nil error, want it rejected")
+				}
+				if diff := cmp.Diff(env, mustGetEnv(t, store, env.ID)); diff != "" {
+					t.Fatalf("environment changed (-want +got):\n%s", diff)
+				}
+			})
+		}
+	})
+
+	// The update and the bump land together or not at all, and the caller is
+	// told which.
+	t.Run("failed bump undoes the update", func(t *testing.T) {
+		resetDB(t, store.db)
+		flag := mustCreateFlag(t, store, "new-checkout")
+		env := mustCreateEnv(t, store, "production")
+		want, err := store.GetFlagSetting(ctx, database.GetFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID})
+		if err != nil {
+			t.Fatalf("GetFlagSetting(): %v", err)
+		}
+		rejectEnvBumps(t, store)
+		got, err := store.UpdateFlagSetting(ctx, database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: 1})
+		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, "can't update the flag setting"))
+		if got != (database.FlagSetting{}) {
+			t.Fatalf("UpdateFlagSetting() = %+v on error, want the zero FlagSetting", got)
+		}
+		if diff := cmp.Diff(want, storedFlagSetting(t, store, want.ID)); diff != "" {
+			t.Fatalf("setting changed after a failed bump (-want +got):\n%s", diff)
+		}
+	})
+
+	// A reader never sees the new values with the old version: while the bump
+	// waits for the environment's row, the update hasn't happened yet.
+	t.Run("update stays hidden until the bump commits", func(t *testing.T) {
+		resetDB(t, store.db)
+		flag := mustCreateFlag(t, store, "new-checkout")
+		env := mustCreateEnv(t, store, "production")
+		want, err := store.GetFlagSetting(ctx, database.GetFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID})
+		if err != nil {
+			t.Fatalf("GetFlagSetting(): %v", err)
+		}
+		tx, err := store.db.BeginTx(ctx, nil)
+		if err != nil {
+			t.Fatalf("BeginTx(): %v", err)
+		}
+		defer tx.Rollback()
+		if _, err := tx.ExecContext(ctx, "SELECT id FROM environments WHERE id = $1 FOR UPDATE", env.ID); err != nil {
+			t.Fatalf("locking the environment: %v", err)
+		}
+
+		done := wantWaits(t, func() error {
+			_, err := store.UpdateFlagSetting(ctx, database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: 1})
+			return err
+		})
+		if diff := cmp.Diff(want, storedFlagSetting(t, store, want.ID)); diff != "" {
+			t.Errorf("update visible before the bump (-want +got):\n%s", diff)
+		}
+		if err := tx.Rollback(); err != nil {
+			t.Fatalf("Rollback(): %v", err)
+		}
+		if err := <-done; err != nil {
+			t.Fatalf("UpdateFlagSetting(): %v", err)
+		}
+		if got := storedFlagSetting(t, store, want.ID); !got.Enabled || got.Fallthrough != 1 {
+			t.Errorf("enabled, fallthrough = %v, %v, want true, 1", got.Enabled, got.Fallthrough)
+		}
+		if got, want := mustGetEnv(t, store, env.ID).Version, env.Version+1; got != want {
+			t.Errorf("version = %d, want %d", got, want)
+		}
+	})
+}
+
+// An update racing the delete of its flag or environment either gets in first or
+// finds nothing, and is never aborted as a deadlock.
+func TestUpdateFlagSettingWhileOwnerIsDeleted(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	tests := map[string]func(flag database.Flag, env database.Environment) error{
+		"DeleteFlag": func(flag database.Flag, _ database.Environment) error {
+			_, err := store.DeleteFlag(ctx, flag.ID)
+			return err
+		},
+		"DeleteEnv": func(_ database.Flag, env database.Environment) error {
+			_, err := store.DeleteEnv(ctx, env.ID)
+			return err
+		},
+	}
+	for name, del := range tests {
+		t.Run(name, func(t *testing.T) {
+			for range 20 {
+				resetDB(t, store.db)
+				flag := mustCreateFlag(t, store, "new-checkout")
+				env := mustCreateEnv(t, store, "production")
+				mustCreateEnv(t, store, "staging")
+
+				updated, deleted := make(chan error, 1), make(chan error, 1)
+				go func() {
+					_, err := store.UpdateFlagSetting(ctx, database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: 1})
+					updated <- err
+				}()
+				go func() { deleted <- del(flag, env) }()
+				if err := <-deleted; err != nil {
+					t.Fatalf("%s(): %v", name, err)
+				}
+				if err := <-updated; err != nil {
+					wantConnectErr(t, err, connect.NewError(connect.CodeNotFound, "can't update the flag setting"))
+				}
+			}
+		})
 	}
 }
