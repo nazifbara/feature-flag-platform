@@ -936,8 +936,8 @@ func rejectNewFlagSettings(t *testing.T, store *Store) {
 	})
 }
 
-// beginMatrixTx starts a transaction holding the lock CreateFlag and CreateEnv
-// share, for a test to stand in for one of them stopped halfway.
+// beginMatrixTx starts a transaction holding the flag/env matrix lock, for a test
+// to stand in for a write stopped halfway.
 func beginMatrixTx(t *testing.T, store *Store) (*sql.Tx, *database.Queries) {
 	t.Helper()
 	ctx := context.Background()

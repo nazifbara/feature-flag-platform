@@ -170,6 +170,9 @@ func TestParseClausesRejectsInvalid(t *testing.T) {
 
 const validClauses = `[{"attribute":"country","operator":"eq","kind":"string","values":["BJ"]}]`
 
+// otherClauses is valid too, and differs from validClauses.
+const otherClauses = `[{"attribute":"age","operator":"gte","kind":"number","values":[18.5]},{"attribute":"isPro","operator":"eq","kind":"boolean","values":[true]}]`
+
 // ruleCount gives the number of committed rules.
 func ruleCount(t *testing.T, store *Store) int {
 	t.Helper()
@@ -827,54 +830,6 @@ func TestCreateRuleReportsErrors(t *testing.T) {
 	})
 }
 
-// wantWaitsForFlagSetting holds a lock on a flag setting's row, checks fn waits
-// for it, then releases it and gives fn's error. FOR SHARE lets a foreign key
-// check through, so only a lock fn takes itself makes it wait.
-func wantWaitsForFlagSetting(t *testing.T, store *Store, settingID uuid.UUID, fn func() error) error {
-	t.Helper()
-	ctx := context.Background()
-	tx, err := store.db.BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatalf("BeginTx(): %v", err)
-	}
-	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, "SELECT id FROM flag_settings WHERE id = $1 FOR SHARE", settingID); err != nil {
-		t.Fatalf("locking the flag setting: %v", err)
-	}
-
-	done := make(chan error, 1)
-	go func() { done <- fn() }()
-	select {
-	case err := <-done:
-		t.Fatalf("finished with %v while the flag setting was locked, want it to wait", err)
-	case <-time.After(200 * time.Millisecond):
-	}
-
-	if err := tx.Rollback(); err != nil {
-		t.Fatalf("Rollback(): %v", err)
-	}
-	return <-done
-}
-
-// CreateRule holds the flag setting's row while it counts and inserts, so its
-// count can't go stale.
-func TestCreateRuleLocksFlagSetting(t *testing.T) {
-	store := newTestStore(t)
-	ctx := context.Background()
-	setting := mustCreateRuleSetting(t, store)
-
-	err := wantWaitsForFlagSetting(t, store, setting.ID, func() error {
-		_, err := store.CreateRule(ctx, database.CreateRuleParams{FlagSettingID: setting.ID, Clauses: json.RawMessage(validClauses)})
-		return err
-	})
-	if err != nil {
-		t.Fatalf("CreateRule() after the lock was released: %v", err)
-	}
-	if n := ruleCount(t, store); n != 1 {
-		t.Fatalf("%d rules, want 1", n)
-	}
-}
-
 // Creates racing for one position wait their turn, and each pushes the others
 // down, so all of them get in with no gaps.
 func TestCreateRuleRacingForAPosition(t *testing.T) {
@@ -908,6 +863,791 @@ func TestCreateRuleRacingForAPosition(t *testing.T) {
 			t.Fatalf("rule %d has position %d, want %d", i, r.Position, i)
 		}
 	}
+}
+
+// A setting belongs to one environment, so only that one changes.
+func TestCreateRuleBumpsEnvVersion(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	// Only the version and updated_at move, and only in the setting's own
+	// environment.
+	t.Run("its environment goes up by one", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		env := mustGetEnv(t, store, setting.EnvironmentID)
+		other := mustCreateEnv(t, store, "staging")
+		mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: setting.ID, Clauses: json.RawMessage(validClauses)})
+		got := mustGetEnv(t, store, env.ID)
+		if !got.UpdatedAt.After(env.UpdatedAt) {
+			t.Errorf("updated_at = %v, want it after %v", got.UpdatedAt, env.UpdatedAt)
+		}
+		want := env
+		want.Version++
+		want.UpdatedAt = got.UpdatedAt
+		if diff := cmp.Diff(want, got); diff != "" {
+			t.Errorf("environment mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff(other, mustGetEnv(t, store, other.ID)); diff != "" {
+			t.Errorf("other environment changed (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("each create counts", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		env := mustGetEnv(t, store, setting.EnvironmentID)
+		mustCreateNamedRules(t, store, setting.ID, "a", "b", "c")
+		if got, want := mustGetEnv(t, store, env.ID).Version, env.Version+3; got != want {
+			t.Fatalf("version = %d, want %d", got, want)
+		}
+	})
+
+	// Creates racing each other don't overwrite each other's bump.
+	t.Run("racing creates all count", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		env := mustGetEnv(t, store, setting.EnvironmentID)
+		const racers = 8
+		errs := make(chan error, racers)
+		for range racers {
+			go func() {
+				_, err := store.CreateRule(ctx, database.CreateRuleParams{FlagSettingID: setting.ID, Clauses: json.RawMessage(validClauses)})
+				errs <- err
+			}()
+		}
+		for range racers {
+			if err := <-errs; err != nil {
+				t.Errorf("CreateRule(): %v", err)
+			}
+		}
+		if got, want := mustGetEnv(t, store, env.ID).Version, env.Version+racers; got != want {
+			t.Fatalf("version = %d, want %d", got, want)
+		}
+	})
+
+	// Nothing changed, so readers have nothing to pick up.
+	t.Run("rejected create leaves versions alone", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		env := mustGetEnv(t, store, setting.EnvironmentID)
+		tests := map[string]database.CreateRuleParams{
+			"bad serve":            {FlagSettingID: setting.ID, Serve: 2, Clauses: json.RawMessage(validClauses)},
+			"no clauses":           {FlagSettingID: setting.ID, Clauses: json.RawMessage(`[]`)},
+			"position past end":    {FlagSettingID: setting.ID, Position: 1, Clauses: json.RawMessage(validClauses)},
+			"unknown flag setting": {FlagSettingID: uuid.New(), Clauses: json.RawMessage(validClauses)},
+		}
+		for name, arg := range tests {
+			t.Run(name, func(t *testing.T) {
+				if _, err := store.CreateRule(ctx, arg); err == nil {
+					t.Fatal("CreateRule() = nil error, want it rejected")
+				}
+				if diff := cmp.Diff(env, mustGetEnv(t, store, env.ID)); diff != "" {
+					t.Fatalf("environment changed (-want +got):\n%s", diff)
+				}
+			})
+		}
+	})
+
+	// The create, its shift and the bump land together or not at all, and the
+	// caller is told which.
+	t.Run("failed bump undoes the create", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		mustCreateNamedRules(t, store, setting.ID, "a")
+		rejectEnvBumps(t, store)
+		got, err := store.CreateRule(ctx, database.CreateRuleParams{FlagSettingID: setting.ID, Name: "new", Clauses: json.RawMessage(validClauses)})
+		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, "can't create the rule"))
+		wantZeroRule(t, got)
+		wantRuleNames(t, store, setting.ID, "a")
+	})
+
+	// A reader never sees the new rule with the old version: while the bump
+	// waits for the environment's row, the create hasn't happened yet.
+	t.Run("create stays hidden until the bump commits", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		env := mustGetEnv(t, store, setting.EnvironmentID)
+		tx, err := store.db.BeginTx(ctx, nil)
+		if err != nil {
+			t.Fatalf("BeginTx(): %v", err)
+		}
+		defer tx.Rollback()
+		if _, err := tx.ExecContext(ctx, "SELECT id FROM environments WHERE id = $1 FOR UPDATE", env.ID); err != nil {
+			t.Fatalf("locking the environment: %v", err)
+		}
+
+		done := wantWaits(t, func() error {
+			_, err := store.CreateRule(ctx, database.CreateRuleParams{FlagSettingID: setting.ID, Clauses: json.RawMessage(validClauses)})
+			return err
+		})
+		if n := ruleCount(t, store); n != 0 {
+			t.Errorf("%d rules visible before the bump, want 0", n)
+		}
+		if err := tx.Rollback(); err != nil {
+			t.Fatalf("Rollback(): %v", err)
+		}
+		if err := <-done; err != nil {
+			t.Fatalf("CreateRule(): %v", err)
+		}
+		if n := ruleCount(t, store); n != 1 {
+			t.Errorf("%d rules, want 1", n)
+		}
+		if got, want := mustGetEnv(t, store, env.ID).Version, env.Version+1; got != want {
+			t.Errorf("version = %d, want %d", got, want)
+		}
+	})
+}
+
+// A create racing the delete of its flag or environment either gets in first or
+// finds nothing, and is never aborted as a deadlock.
+func TestCreateRuleWhileOwnerIsDeleted(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	tests := map[string]func(setting database.FlagSetting) error{
+		"DeleteFlag": func(setting database.FlagSetting) error {
+			_, err := store.DeleteFlag(ctx, setting.FlagID)
+			return err
+		},
+		"DeleteEnv": func(setting database.FlagSetting) error {
+			_, err := store.DeleteEnv(ctx, setting.EnvironmentID)
+			return err
+		},
+	}
+	for name, del := range tests {
+		t.Run(name, func(t *testing.T) {
+			for range 20 {
+				setting := mustCreateRuleSetting(t, store)
+				mustCreateEnv(t, store, "staging")
+
+				created, deleted := make(chan error, 1), make(chan error, 1)
+				go func() {
+					_, err := store.CreateRule(ctx, database.CreateRuleParams{FlagSettingID: setting.ID, Clauses: json.RawMessage(validClauses)})
+					created <- err
+				}()
+				go func() { deleted <- del(setting) }()
+				if err := <-deleted; err != nil {
+					t.Fatalf("%s(): %v", name, err)
+				}
+				if err := <-created; err != nil {
+					wantConnectErr(t, err, connect.NewError(connect.CodeNotFound, "can't create the rule"))
+				}
+			}
+		})
+	}
+}
+
+// A create racing another write to the same setting's rules gets in, and the
+// positions stay contiguous, whichever goes first.
+func TestCreateRuleWhileOthersChangeRules(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	tests := map[string]struct {
+		write func(rules []database.Rule) error
+		want  int
+	}{
+		"DeleteRule": {
+			write: func(rules []database.Rule) error {
+				_, err := store.DeleteRule(ctx, rules[0].ID)
+				return err
+			},
+			want: 3,
+		},
+		"ChangeRulePosition": {
+			write: func(rules []database.Rule) error {
+				_, err := store.ChangeRulePosition(ctx, database.ChangeRulePositionParams{ID: rules[0].ID, Position: 2})
+				return err
+			},
+			want: 4,
+		},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			for range 30 {
+				setting := mustCreateRuleSetting(t, store)
+				rules := mustCreateNamedRules(t, store, setting.ID, "a", "b", "c")
+
+				errs := make(chan error, 2)
+				go func() {
+					_, err := store.CreateRule(ctx, database.CreateRuleParams{FlagSettingID: setting.ID, Clauses: json.RawMessage(validClauses)})
+					errs <- err
+				}()
+				go func() { errs <- test.write(rules) }()
+				for range 2 {
+					if err := <-errs; err != nil {
+						t.Fatalf("write failed: %v", err)
+					}
+				}
+
+				got, err := store.ListRulesBySetting(ctx, setting.ID)
+				if err != nil {
+					t.Fatalf("ListRulesBySetting(): %v", err)
+				}
+				if len(got) != test.want {
+					t.Fatalf("%d rules, want %d", len(got), test.want)
+				}
+				for i, r := range got {
+					if int(r.Position) != i {
+						t.Fatalf("rule %d has position %d, want %d", i, r.Position, i)
+					}
+				}
+			}
+		})
+	}
+}
+
+// ruleWrite is a change to an existing rule, for tests that hold for all of them.
+type ruleWrite struct {
+	// write changes the rule, which must have a neighbour for a move to go to.
+	write func(rule database.Rule) (database.Rule, error)
+	// message is what the write's errors say.
+	message string
+}
+
+func ruleWrites(store *Store) map[string]ruleWrite {
+	ctx := context.Background()
+	return map[string]ruleWrite{
+		"DeleteRule": {
+			write: func(rule database.Rule) (database.Rule, error) {
+				return store.DeleteRule(ctx, rule.ID)
+			},
+			message: "can't delete the rule",
+		},
+		"UpdateRule": {
+			write: func(rule database.Rule) (database.Rule, error) {
+				return store.UpdateRule(ctx, database.UpdateRuleParams{ID: rule.ID, Name: "changed", Serve: 0.75, Clauses: json.RawMessage(otherClauses)})
+			},
+			message: "can't update the rule",
+		},
+		"ChangeRulePosition": {
+			write: func(rule database.Rule) (database.Rule, error) {
+				return store.ChangeRulePosition(ctx, database.ChangeRulePositionParams{ID: rule.ID, Position: 1})
+			},
+			message: "can't update the rule",
+		},
+	}
+}
+
+// These wait for the lock before touching a row. They take settings and then
+// environments, and DeleteEnv the other way round, so without it they can
+// deadlock. They also read a setting's rules before writing, which the lock keeps
+// from going stale.
+func TestRuleWritesWaitForMatrixLock(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	wantWaitsForLock := func(t *testing.T, fn func() error) {
+		t.Helper()
+		tx, _ := beginMatrixTx(t, store)
+		defer tx.Rollback()
+		done := wantWaits(t, fn)
+		if err := tx.Rollback(); err != nil {
+			t.Fatalf("Rollback(): %v", err)
+		}
+		if err := <-done; err != nil {
+			t.Fatalf("write after the lock was released: %v", err)
+		}
+	}
+
+	t.Run("CreateRule", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		wantWaitsForLock(t, func() error {
+			_, err := store.CreateRule(ctx, database.CreateRuleParams{FlagSettingID: setting.ID, Clauses: json.RawMessage(validClauses)})
+			return err
+		})
+	})
+	for name, test := range ruleWrites(store) {
+		t.Run(name, func(t *testing.T) {
+			setting := mustCreateRuleSetting(t, store)
+			rules := mustCreateNamedRules(t, store, setting.ID, "a", "b")
+			wantWaitsForLock(t, func() error {
+				_, err := test.write(rules[0])
+				return err
+			})
+		})
+	}
+}
+
+// A rule belongs to one environment, so only that one changes.
+func TestRuleWritesBumpEnvVersion(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	for name, test := range ruleWrites(store) {
+		t.Run(name, func(t *testing.T) {
+			// Only the version and updated_at move, and only in the rule's own
+			// environment, even with the flag's rules in another one.
+			t.Run("its environment goes up by one", func(t *testing.T) {
+				setting := mustCreateRuleSetting(t, store)
+				rules := mustCreateNamedRules(t, store, setting.ID, "a", "b")
+				otherEnv := mustCreateEnv(t, store, "staging")
+				otherSetting, err := store.GetFlagSetting(ctx, database.GetFlagSettingParams{FlagID: setting.FlagID, EnvironmentID: otherEnv.ID})
+				if err != nil {
+					t.Fatalf("GetFlagSetting(): %v", err)
+				}
+				mustCreateNamedRules(t, store, otherSetting.ID, "a", "b")
+				env, other := mustGetEnv(t, store, setting.EnvironmentID), mustGetEnv(t, store, otherEnv.ID)
+
+				if _, err := test.write(rules[0]); err != nil {
+					t.Fatalf("%s(): %v", name, err)
+				}
+				got := mustGetEnv(t, store, env.ID)
+				if !got.UpdatedAt.After(env.UpdatedAt) {
+					t.Errorf("updated_at = %v, want it after %v", got.UpdatedAt, env.UpdatedAt)
+				}
+				want := env
+				want.Version++
+				want.UpdatedAt = got.UpdatedAt
+				if diff := cmp.Diff(want, got); diff != "" {
+					t.Errorf("environment mismatch (-want +got):\n%s", diff)
+				}
+				if diff := cmp.Diff(other, mustGetEnv(t, store, other.ID)); diff != "" {
+					t.Errorf("other environment changed (-want +got):\n%s", diff)
+				}
+			})
+
+			// Nothing changed, so readers have nothing to pick up.
+			t.Run("unknown rule leaves versions alone", func(t *testing.T) {
+				setting := mustCreateRuleSetting(t, store)
+				mustCreateNamedRules(t, store, setting.ID, "a", "b")
+				env := mustGetEnv(t, store, setting.EnvironmentID)
+				_, err := test.write(database.Rule{ID: uuid.New()})
+				wantConnectErr(t, err, connect.NewError(connect.CodeNotFound, test.message))
+				if diff := cmp.Diff(env, mustGetEnv(t, store, env.ID)); diff != "" {
+					t.Fatalf("environment changed (-want +got):\n%s", diff)
+				}
+			})
+
+			// The write, any shift and the bump land together or not at all, and
+			// the caller is told which.
+			t.Run("failed bump undoes the write", func(t *testing.T) {
+				setting := mustCreateRuleSetting(t, store)
+				rules := mustCreateNamedRules(t, store, setting.ID, "a", "b", "c")
+				rejectEnvBumps(t, store)
+				got, err := test.write(rules[0])
+				wantConnectErr(t, err, connect.NewError(connect.CodeInternal, test.message))
+				wantZeroRule(t, got)
+				stored, err := store.ListRulesBySetting(ctx, setting.ID)
+				if err != nil {
+					t.Fatalf("ListRulesBySetting(): %v", err)
+				}
+				if diff := cmp.Diff(rules, stored); diff != "" {
+					t.Fatalf("rules changed after a failed bump (-want +got):\n%s", diff)
+				}
+			})
+
+			// A reader never sees the new rules with the old version: while the
+			// bump waits for the environment's row, the write hasn't happened yet.
+			t.Run("write stays hidden until the bump commits", func(t *testing.T) {
+				setting := mustCreateRuleSetting(t, store)
+				rules := mustCreateNamedRules(t, store, setting.ID, "a", "b", "c")
+				env := mustGetEnv(t, store, setting.EnvironmentID)
+				tx, err := store.db.BeginTx(ctx, nil)
+				if err != nil {
+					t.Fatalf("BeginTx(): %v", err)
+				}
+				defer tx.Rollback()
+				if _, err := tx.ExecContext(ctx, "SELECT id FROM environments WHERE id = $1 FOR UPDATE", env.ID); err != nil {
+					t.Fatalf("locking the environment: %v", err)
+				}
+
+				done := wantWaits(t, func() error {
+					_, err := test.write(rules[0])
+					return err
+				})
+				stored, err := store.ListRulesBySetting(ctx, setting.ID)
+				if err != nil {
+					t.Fatalf("ListRulesBySetting(): %v", err)
+				}
+				if diff := cmp.Diff(rules, stored); diff != "" {
+					t.Errorf("write visible before the bump (-want +got):\n%s", diff)
+				}
+				if err := tx.Rollback(); err != nil {
+					t.Fatalf("Rollback(): %v", err)
+				}
+				if err := <-done; err != nil {
+					t.Fatalf("%s(): %v", name, err)
+				}
+				if got, want := mustGetEnv(t, store, env.ID).Version, env.Version+1; got != want {
+					t.Errorf("version = %d, want %d", got, want)
+				}
+			})
+		})
+	}
+}
+
+// A write racing the delete of its flag or environment either gets in first or
+// finds nothing, and is never aborted as a deadlock.
+func TestRuleWritesWhileOwnerIsDeleted(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	owners := map[string]func(setting database.FlagSetting) error{
+		"DeleteFlag": func(setting database.FlagSetting) error {
+			_, err := store.DeleteFlag(ctx, setting.FlagID)
+			return err
+		},
+		"DeleteEnv": func(setting database.FlagSetting) error {
+			_, err := store.DeleteEnv(ctx, setting.EnvironmentID)
+			return err
+		},
+	}
+	for name, test := range ruleWrites(store) {
+		for owner, del := range owners {
+			t.Run(name+"/"+owner, func(t *testing.T) {
+				for range 20 {
+					setting := mustCreateRuleSetting(t, store)
+					mustCreateEnv(t, store, "staging")
+					rules := mustCreateNamedRules(t, store, setting.ID, "a", "b")
+
+					written, deleted := make(chan error, 1), make(chan error, 1)
+					go func() {
+						_, err := test.write(rules[0])
+						written <- err
+					}()
+					go func() { deleted <- del(setting) }()
+					if err := <-deleted; err != nil {
+						t.Fatalf("%s(): %v", owner, err)
+					}
+					if err := <-written; err != nil {
+						wantConnectErr(t, err, connect.NewError(connect.CodeNotFound, test.message))
+					}
+				}
+			})
+		}
+	}
+}
+
+// Each delete changes something, and a rule can only go once.
+func TestDeleteRuleBumpCounts(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	t.Run("each delete counts", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rules := mustCreateNamedRules(t, store, setting.ID, "a", "b", "c")
+		env := mustGetEnv(t, store, setting.EnvironmentID)
+		for _, r := range rules {
+			if _, err := store.DeleteRule(ctx, r.ID); err != nil {
+				t.Fatalf("DeleteRule(): %v", err)
+			}
+		}
+		if got, want := mustGetEnv(t, store, env.ID).Version, env.Version+3; got != want {
+			t.Fatalf("version = %d, want %d", got, want)
+		}
+	})
+
+	t.Run("racing deletes of one rule count once", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rules := mustCreateNamedRules(t, store, setting.ID, "a")
+		env := mustGetEnv(t, store, setting.EnvironmentID)
+		const racers = 8
+		errs := make(chan error, racers)
+		for range racers {
+			go func() {
+				_, err := store.DeleteRule(ctx, rules[0].ID)
+				errs <- err
+			}()
+		}
+		for range racers {
+			<-errs
+		}
+		if got, want := mustGetEnv(t, store, env.ID).Version, env.Version+1; got != want {
+			t.Fatalf("version = %d, want %d", got, want)
+		}
+	})
+}
+
+func TestUpdateRuleBumpCounts(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	// A change to any one field is enough.
+	t.Run("each change counts", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rule := mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: setting.ID, Name: "a", Serve: 0.25, Clauses: json.RawMessage(validClauses)})
+		env := mustGetEnv(t, store, setting.EnvironmentID)
+		changes := []database.UpdateRuleParams{
+			{ID: rule.ID, Name: "b", Serve: 0.25, Clauses: rule.Clauses},
+			{ID: rule.ID, Name: "b", Serve: 0.5, Clauses: rule.Clauses},
+			{ID: rule.ID, Name: "b", Serve: 0.5, Clauses: json.RawMessage(otherClauses)},
+		}
+		for i, arg := range changes {
+			if _, err := store.UpdateRule(ctx, arg); err != nil {
+				t.Fatalf("UpdateRule(): %v", err)
+			}
+			if got, want := mustGetEnv(t, store, env.ID).Version, env.Version+int64(i)+1; got != want {
+				t.Fatalf("after change %d: version = %d, want %d", i, got, want)
+			}
+		}
+	})
+
+	// Nothing changed, so readers have nothing to pick up. The clauses are the
+	// stored ones, spelled the way the database gives them back. The name gets
+	// normalized first, so one that only differs by its spaces is the same too.
+	t.Run("same values leave the version alone", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rule := mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: setting.ID, Name: "a", Serve: 0.1, Clauses: json.RawMessage(validClauses)})
+		env := mustGetEnv(t, store, setting.EnvironmentID)
+		for _, n := range []string{rule.Name, "  " + rule.Name + "  "} {
+			if _, err := store.UpdateRule(ctx, database.UpdateRuleParams{ID: rule.ID, Name: n, Serve: rule.Serve, Clauses: rule.Clauses}); err != nil {
+				t.Fatalf("UpdateRule(): %v", err)
+			}
+			if diff := cmp.Diff(env, mustGetEnv(t, store, env.ID)); diff != "" {
+				t.Fatalf("environment changed (-want +got):\n%s", diff)
+			}
+		}
+	})
+
+	// JSONB keeps its own spelling of the clauses, and callers send theirs, so
+	// clauses are compared by what they mean, not by their bytes.
+	t.Run("clauses spelled differently are the same", func(t *testing.T) {
+		tests := map[string]struct{ stored, sent string }{
+			"as first sent": {
+				stored: validClauses,
+				sent:   validClauses,
+			},
+			"extra spaces": {
+				stored: validClauses,
+				sent:   `[ {"attribute": "country", "operator": "eq", "kind": "string", "values": ["BJ"]} ]`,
+			},
+			"keys reordered": {
+				stored: validClauses,
+				sent:   `[{"values":["BJ"],"kind":"string","operator":"eq","attribute":"country"}]`,
+			},
+			"number written another way": {
+				stored: `[{"attribute":"age","operator":"gte","kind":"number","values":[18.5]}]`,
+				sent:   `[{"attribute":"age","operator":"gte","kind":"number","values":[18.50]}]`,
+			},
+		}
+		for name, test := range tests {
+			t.Run(name, func(t *testing.T) {
+				setting := mustCreateRuleSetting(t, store)
+				rule := mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: setting.ID, Name: "a", Serve: 0.5, Clauses: json.RawMessage(test.stored)})
+				env := mustGetEnv(t, store, setting.EnvironmentID)
+				got, err := store.UpdateRule(ctx, database.UpdateRuleParams{ID: rule.ID, Name: rule.Name, Serve: rule.Serve, Clauses: json.RawMessage(test.sent)})
+				if err != nil {
+					t.Fatalf("UpdateRule(): %v", err)
+				}
+				if diff := cmp.Diff(rule, got); diff != "" {
+					t.Errorf("UpdateRule() mismatch (-want +got):\n%s", diff)
+				}
+				if diff := cmp.Diff(env, mustGetEnv(t, store, env.ID)); diff != "" {
+					t.Errorf("environment changed (-want +got):\n%s", diff)
+				}
+			})
+		}
+	})
+
+	// Every part of a clause matters, and so does how many there are.
+	t.Run("changed clauses count", func(t *testing.T) {
+		const stored = `[{"attribute":"country","operator":"il","kind":"string","values":["BJ","FR"]}]`
+		tests := map[string]string{
+			"attribute":  `[{"attribute":"region","operator":"il","kind":"string","values":["BJ","FR"]}]`,
+			"operator":   `[{"attribute":"country","operator":"cnt","kind":"string","values":["BJ","FR"]}]`,
+			"value":      `[{"attribute":"country","operator":"il","kind":"string","values":["BJ","US"]}]`,
+			"value gone": `[{"attribute":"country","operator":"il","kind":"string","values":["BJ"]}]`,
+			"kind":       `[{"attribute":"country","operator":"il","kind":"number","values":[1]}]`,
+			"new clause": `[{"attribute":"country","operator":"il","kind":"string","values":["BJ","FR"]},{"attribute":"isPro","operator":"eq","kind":"boolean","values":[true]}]`,
+		}
+		for name, clauses := range tests {
+			t.Run(name, func(t *testing.T) {
+				setting := mustCreateRuleSetting(t, store)
+				rule := mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: setting.ID, Name: "a", Serve: 0.5, Clauses: json.RawMessage(stored)})
+				env := mustGetEnv(t, store, setting.EnvironmentID)
+				got, err := store.UpdateRule(ctx, database.UpdateRuleParams{ID: rule.ID, Name: rule.Name, Serve: rule.Serve, Clauses: json.RawMessage(clauses)})
+				if err != nil {
+					t.Fatalf("UpdateRule(): %v", err)
+				}
+				wantSameJSON(t, got.Clauses, clauses)
+				if got, want := mustGetEnv(t, store, env.ID).Version, env.Version+1; got != want {
+					t.Fatalf("version = %d, want %d", got, want)
+				}
+			})
+		}
+	})
+
+	// Clauses are the same only when they're written the same, so a new order
+	// counts as a change and gets saved, even if it would match the same users.
+	t.Run("a new order counts", func(t *testing.T) {
+		tests := map[string]struct{ stored, sent string }{
+			"values reordered": {
+				stored: `[{"attribute":"country","operator":"il","kind":"string","values":["BJ","FR"]}]`,
+				sent:   `[{"attribute":"country","operator":"il","kind":"string","values":["FR","BJ"]}]`,
+			},
+			"clauses swapped": {
+				stored: `[{"attribute":"age","operator":"gte","kind":"number","values":[18]},{"attribute":"isPro","operator":"eq","kind":"boolean","values":[true]}]`,
+				sent:   `[{"attribute":"isPro","operator":"eq","kind":"boolean","values":[true]},{"attribute":"age","operator":"gte","kind":"number","values":[18]}]`,
+			},
+		}
+		for name, test := range tests {
+			t.Run(name, func(t *testing.T) {
+				setting := mustCreateRuleSetting(t, store)
+				rule := mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: setting.ID, Name: "a", Serve: 0.5, Clauses: json.RawMessage(test.stored)})
+				env := mustGetEnv(t, store, setting.EnvironmentID)
+				if _, err := store.UpdateRule(ctx, database.UpdateRuleParams{ID: rule.ID, Name: rule.Name, Serve: rule.Serve, Clauses: json.RawMessage(test.sent)}); err != nil {
+					t.Fatalf("UpdateRule(): %v", err)
+				}
+				wantSameJSON(t, storedRule(t, store, rule.ID).Clauses, test.sent)
+				if got, want := mustGetEnv(t, store, env.ID).Version, env.Version+1; got != want {
+					t.Fatalf("version = %d, want %d", got, want)
+				}
+			})
+		}
+	})
+
+	// Stored clauses that no longer parse don't stop an update replacing them.
+	t.Run("bad stored clauses can be replaced", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rule := mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: setting.ID, Name: "a", Serve: 0.5, Clauses: json.RawMessage(validClauses)})
+		env := mustGetEnv(t, store, setting.EnvironmentID)
+		if _, err := store.db.Exec(`UPDATE rules SET clauses = '[{"attribute":"country","operator":"nope","kind":"string","values":["BJ"]}]' WHERE id = $1`, rule.ID); err != nil {
+			t.Fatalf("corrupting the clauses: %v", err)
+		}
+		got, err := store.UpdateRule(ctx, database.UpdateRuleParams{ID: rule.ID, Name: rule.Name, Serve: rule.Serve, Clauses: json.RawMessage(validClauses)})
+		if err != nil {
+			t.Fatalf("UpdateRule(): %v", err)
+		}
+		wantSameJSON(t, got.Clauses, validClauses)
+		wantSameJSON(t, storedRule(t, store, rule.ID).Clauses, validClauses)
+		if got, want := mustGetEnv(t, store, env.ID).Version, env.Version+1; got != want {
+			t.Fatalf("version = %d, want %d", got, want)
+		}
+	})
+
+	// Nothing changed, so readers have nothing to pick up.
+	t.Run("rejected update leaves versions alone", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rule := mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: setting.ID, Clauses: json.RawMessage(validClauses)})
+		env := mustGetEnv(t, store, setting.EnvironmentID)
+		tests := map[string]database.UpdateRuleParams{
+			"bad serve":  {ID: rule.ID, Serve: 2, Clauses: json.RawMessage(validClauses)},
+			"no clauses": {ID: rule.ID, Clauses: json.RawMessage(`[]`)},
+		}
+		for name, arg := range tests {
+			t.Run(name, func(t *testing.T) {
+				if _, err := store.UpdateRule(ctx, arg); err == nil {
+					t.Fatal("UpdateRule() = nil error, want it rejected")
+				}
+				if diff := cmp.Diff(env, mustGetEnv(t, store, env.ID)); diff != "" {
+					t.Fatalf("environment changed (-want +got):\n%s", diff)
+				}
+			})
+		}
+	})
+
+	// Updates racing each other don't overwrite each other's bump. Every value
+	// is different, so each racer has something to change.
+	t.Run("racing changes all count", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rule := mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: setting.ID, Clauses: json.RawMessage(validClauses)})
+		env := mustGetEnv(t, store, setting.EnvironmentID)
+		const racers = 8
+		errs := make(chan error, racers)
+		for i := range racers {
+			go func() {
+				_, err := store.UpdateRule(ctx, database.UpdateRuleParams{ID: rule.ID, Serve: float32(i+1) / racers, Clauses: rule.Clauses})
+				errs <- err
+			}()
+		}
+		for range racers {
+			if err := <-errs; err != nil {
+				t.Errorf("UpdateRule(): %v", err)
+			}
+		}
+		if got, want := mustGetEnv(t, store, env.ID).Version, env.Version+racers; got != want {
+			t.Fatalf("version = %d, want %d", got, want)
+		}
+	})
+
+	// Racers writing the same values each compare before they write, so only
+	// the first one finds something to change.
+	t.Run("racing same values count once", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rule := mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: setting.ID, Clauses: json.RawMessage(validClauses)})
+		env := mustGetEnv(t, store, setting.EnvironmentID)
+		const racers = 8
+		errs := make(chan error, racers)
+		for range racers {
+			go func() {
+				_, err := store.UpdateRule(ctx, database.UpdateRuleParams{ID: rule.ID, Name: "changed", Serve: rule.Serve, Clauses: rule.Clauses})
+				errs <- err
+			}()
+		}
+		for range racers {
+			if err := <-errs; err != nil {
+				t.Errorf("UpdateRule(): %v", err)
+			}
+		}
+		if got, want := mustGetEnv(t, store, env.ID).Version, env.Version+1; got != want {
+			t.Fatalf("version = %d, want %d", got, want)
+		}
+	})
+}
+
+func TestChangeRulePositionBumpCounts(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	t.Run("each move counts", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rules := mustCreateNamedRules(t, store, setting.ID, "a", "b", "c")
+		env := mustGetEnv(t, store, setting.EnvironmentID)
+		for i, position := range []int32{1, 2, 0} {
+			if _, err := store.ChangeRulePosition(ctx, database.ChangeRulePositionParams{ID: rules[0].ID, Position: position}); err != nil {
+				t.Fatalf("ChangeRulePosition(): %v", err)
+			}
+			if got, want := mustGetEnv(t, store, env.ID).Version, env.Version+int64(i)+1; got != want {
+				t.Fatalf("after move %d: version = %d, want %d", i, got, want)
+			}
+		}
+	})
+
+	// Nothing changed, so readers have nothing to pick up.
+	t.Run("own position leaves the version alone", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rules := mustCreateNamedRules(t, store, setting.ID, "a", "b")
+		env := mustGetEnv(t, store, setting.EnvironmentID)
+		if _, err := store.ChangeRulePosition(ctx, database.ChangeRulePositionParams{ID: rules[1].ID, Position: 1}); err != nil {
+			t.Fatalf("ChangeRulePosition(): %v", err)
+		}
+		if diff := cmp.Diff(env, mustGetEnv(t, store, env.ID)); diff != "" {
+			t.Fatalf("environment changed (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("rejected move leaves versions alone", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rules := mustCreateNamedRules(t, store, setting.ID, "a", "b")
+		env := mustGetEnv(t, store, setting.EnvironmentID)
+		for _, position := range []int32{-1, 2} {
+			if _, err := store.ChangeRulePosition(ctx, database.ChangeRulePositionParams{ID: rules[0].ID, Position: position}); err == nil {
+				t.Fatalf("ChangeRulePosition() to %d = nil error, want it rejected", position)
+			}
+			if diff := cmp.Diff(env, mustGetEnv(t, store, env.ID)); diff != "" {
+				t.Fatalf("environment changed (-want +got):\n%s", diff)
+			}
+		}
+	})
+
+	// The first racer moves the rule, and the rest find it already there.
+	t.Run("racing moves to one position count once", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rules := mustCreateNamedRules(t, store, setting.ID, "a", "b", "c")
+		env := mustGetEnv(t, store, setting.EnvironmentID)
+		const racers = 8
+		errs := make(chan error, racers)
+		for range racers {
+			go func() {
+				_, err := store.ChangeRulePosition(ctx, database.ChangeRulePositionParams{ID: rules[0].ID, Position: 2})
+				errs <- err
+			}()
+		}
+		for range racers {
+			if err := <-errs; err != nil {
+				t.Errorf("ChangeRulePosition(): %v", err)
+			}
+		}
+		if got, want := mustGetEnv(t, store, env.ID).Version, env.Version+1; got != want {
+			t.Fatalf("version = %d, want %d", got, want)
+		}
+	})
 }
 
 // Rules belong to a flag setting, and go when its flag or environment does.
@@ -1637,25 +2377,6 @@ func TestDeleteRule(t *testing.T) {
 	})
 }
 
-// DeleteRule holds the flag setting's row, so a create's count can't go stale.
-func TestDeleteRuleLocksFlagSetting(t *testing.T) {
-	store := newTestStore(t)
-	ctx := context.Background()
-	setting := mustCreateRuleSetting(t, store)
-	rule := mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: setting.ID, Clauses: json.RawMessage(validClauses)})
-
-	err := wantWaitsForFlagSetting(t, store, setting.ID, func() error {
-		_, err := store.DeleteRule(ctx, rule.ID)
-		return err
-	})
-	if err != nil {
-		t.Fatalf("DeleteRule() after the lock was released: %v", err)
-	}
-	if n := ruleCount(t, store); n != 0 {
-		t.Fatalf("%d rules, want 0", n)
-	}
-}
-
 // The lock comes before the delete: otherwise a create holding the lock could
 // count a rule that's on its way out.
 func TestDeleteRuleLeavesRuleUntilLocked(t *testing.T) {
@@ -1664,14 +2385,8 @@ func TestDeleteRuleLeavesRuleUntilLocked(t *testing.T) {
 	setting := mustCreateRuleSetting(t, store)
 	rule := mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: setting.ID, Clauses: json.RawMessage(validClauses)})
 
-	tx, err := store.db.BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatalf("BeginTx(): %v", err)
-	}
+	tx, _ := beginMatrixTx(t, store)
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, "SELECT id FROM flag_settings WHERE id = $1 FOR SHARE", setting.ID); err != nil {
-		t.Fatalf("locking the flag setting: %v", err)
-	}
 
 	done := make(chan error, 1)
 	go func() {
@@ -1691,21 +2406,15 @@ func TestDeleteRuleLeavesRuleUntilLocked(t *testing.T) {
 }
 
 // Deletes racing for one rule have one winner, and the others find it gone. The
-// lock holds them all back until each has found the rule.
+// lock holds them all back so they really do race.
 func TestDeleteRuleRacing(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
 	setting := mustCreateRuleSetting(t, store)
 	rule := mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: setting.ID, Clauses: json.RawMessage(validClauses)})
 
-	tx, err := store.db.BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatalf("BeginTx(): %v", err)
-	}
+	tx, _ := beginMatrixTx(t, store)
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, "SELECT id FROM flag_settings WHERE id = $1 FOR SHARE", setting.ID); err != nil {
-		t.Fatalf("locking the flag setting: %v", err)
-	}
 
 	const racers = 8
 	errs := make(chan error, racers)
@@ -1733,19 +2442,12 @@ func TestDeleteRuleRacing(t *testing.T) {
 	}
 }
 
-// queueForFlagSetting makes ops queue up for a flag setting's lock in order,
+// queueForMatrixLock makes ops queue up for the flag/env matrix lock in order,
 // then releases them all and waits for them.
-func queueForFlagSetting(t *testing.T, store *Store, settingID uuid.UUID, ops ...func() error) {
+func queueForMatrixLock(t *testing.T, store *Store, ops ...func() error) {
 	t.Helper()
-	ctx := context.Background()
-	tx, err := store.db.BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatalf("BeginTx(): %v", err)
-	}
+	tx, _ := beginMatrixTx(t, store)
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, "SELECT id FROM flag_settings WHERE id = $1 FOR SHARE", settingID); err != nil {
-		t.Fatalf("locking the flag setting: %v", err)
-	}
 	errs := make(chan error, len(ops))
 	for _, op := range ops {
 		go func() { errs <- op() }()
@@ -1797,14 +2499,14 @@ func TestDeleteRuleWhileOthersMoveIt(t *testing.T) {
 	t.Run("an earlier rule is deleted first", func(t *testing.T) {
 		setting := mustCreateRuleSetting(t, store)
 		rules := mustCreateNamedRules(t, store, setting.ID, "a", "b", "c", "d", "e")
-		queueForFlagSetting(t, store, setting.ID, remove(rules[0].ID), remove(rules[1].ID), remove(rules[2].ID))
+		queueForMatrixLock(t, store, remove(rules[0].ID), remove(rules[1].ID), remove(rules[2].ID))
 		wantRuleNames(t, store, setting.ID, "d", "e")
 	})
 
 	t.Run("a rule is created before it first", func(t *testing.T) {
 		setting := mustCreateRuleSetting(t, store)
 		rules := mustCreateNamedRules(t, store, setting.ID, "a", "b", "c", "d")
-		queueForFlagSetting(t, store, setting.ID, func() error {
+		queueForMatrixLock(t, store, func() error {
 			_, err := store.CreateRule(ctx, database.CreateRuleParams{FlagSettingID: setting.ID, Position: 0, Name: "new", Clauses: json.RawMessage(validClauses)})
 			return err
 		}, remove(rules[2].ID))
@@ -1889,7 +2591,6 @@ func TestDeleteRuleReportsErrors(t *testing.T) {
 func TestUpdateRule(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
-	const otherClauses = `[{"attribute":"age","operator":"gte","kind":"number","values":[18.5]},{"attribute":"isPro","operator":"eq","kind":"boolean","values":[true]}]`
 
 	create := func(t *testing.T, settingID uuid.UUID, position int32) database.Rule {
 		t.Helper()
@@ -1940,19 +2641,34 @@ func TestUpdateRule(t *testing.T) {
 		}
 	})
 
-	// Every update counts, even one that changes nothing.
-	t.Run("each update moves updated_at", func(t *testing.T) {
+	t.Run("each change moves updated_at", func(t *testing.T) {
 		setting := mustCreateRuleSetting(t, store)
 		rule := create(t, setting.ID, 0)
-		arg := database.UpdateRuleParams{ID: rule.ID, Name: rule.Name, Serve: rule.Serve, Clauses: rule.Clauses}
+		arg := database.UpdateRuleParams{ID: rule.ID, Name: "first", Serve: rule.Serve, Clauses: rule.Clauses}
 
 		first := update(t, arg)
+		arg.Name = "second"
 		second := update(t, arg)
 		if !first.UpdatedAt.After(rule.UpdatedAt) {
 			t.Errorf("first updated_at = %v, want it after %v", first.UpdatedAt, rule.UpdatedAt)
 		}
 		if !second.UpdatedAt.After(first.UpdatedAt) {
 			t.Errorf("second updated_at = %v, want it after %v", second.UpdatedAt, first.UpdatedAt)
+		}
+	})
+
+	// Writing the values the rule already has isn't an update, so updated_at
+	// stays put and the caller still gets the rule back. The clauses are the
+	// stored ones, spelled the way the database gives them back.
+	t.Run("same values change nothing", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rule := create(t, setting.ID, 0)
+		got := update(t, database.UpdateRuleParams{ID: rule.ID, Name: rule.Name, Serve: rule.Serve, Clauses: rule.Clauses})
+		if diff := cmp.Diff(rule, got); diff != "" {
+			t.Errorf("UpdateRule() mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff(rule, storedRule(t, store, rule.ID)); diff != "" {
+			t.Errorf("stored rule changed (-want +got):\n%s", diff)
 		}
 	})
 
@@ -2618,22 +3334,6 @@ func TestChangeRulePositionNotFound(t *testing.T) {
 	wantZeroRule(t, got)
 }
 
-func TestChangeRulePositionLocksFlagSetting(t *testing.T) {
-	store := newTestStore(t)
-	ctx := context.Background()
-	setting := mustCreateRuleSetting(t, store)
-	rules := mustCreateNamedRules(t, store, setting.ID, "a", "b")
-
-	err := wantWaitsForFlagSetting(t, store, setting.ID, func() error {
-		_, err := store.ChangeRulePosition(ctx, database.ChangeRulePositionParams{ID: rules[0].ID, Position: 1})
-		return err
-	})
-	if err != nil {
-		t.Fatalf("ChangeRulePosition() after the lock was released: %v", err)
-	}
-	wantRuleNames(t, store, setting.ID, "b", "a")
-}
-
 // The rule's position and the rule count can both change while a move waits for
 // the lock, so it has to read them after.
 func TestChangeRulePositionWhileOthersChangeRules(t *testing.T) {
@@ -2662,28 +3362,28 @@ func TestChangeRulePositionWhileOthersChangeRules(t *testing.T) {
 	t.Run("a rule is created before it first", func(t *testing.T) {
 		setting := mustCreateRuleSetting(t, store)
 		rules := mustCreateNamedRules(t, store, setting.ID, "a", "b", "c", "d")
-		queueForFlagSetting(t, store, setting.ID, create(setting.ID, 0), move(rules[2].ID, 0))
+		queueForMatrixLock(t, store, create(setting.ID, 0), move(rules[2].ID, 0))
 		wantRuleNames(t, store, setting.ID, "c", "new", "a", "b", "d")
 	})
 
 	t.Run("an earlier rule is deleted first", func(t *testing.T) {
 		setting := mustCreateRuleSetting(t, store)
 		rules := mustCreateNamedRules(t, store, setting.ID, "a", "b", "c", "d")
-		queueForFlagSetting(t, store, setting.ID, remove(rules[0].ID), move(rules[1].ID, 2))
+		queueForMatrixLock(t, store, remove(rules[0].ID), move(rules[1].ID, 2))
 		wantRuleNames(t, store, setting.ID, "c", "d", "b")
 	})
 
 	t.Run("another move goes first", func(t *testing.T) {
 		setting := mustCreateRuleSetting(t, store)
 		rules := mustCreateNamedRules(t, store, setting.ID, "a", "b", "c", "d")
-		queueForFlagSetting(t, store, setting.ID, move(rules[3].ID, 0), move(rules[1].ID, 3))
+		queueForMatrixLock(t, store, move(rules[3].ID, 0), move(rules[1].ID, 3))
 		wantRuleNames(t, store, setting.ID, "d", "a", "c", "b")
 	})
 
 	t.Run("the range grows first", func(t *testing.T) {
 		setting := mustCreateRuleSetting(t, store)
 		rules := mustCreateNamedRules(t, store, setting.ID, "a", "b", "c")
-		queueForFlagSetting(t, store, setting.ID, create(setting.ID, 3), move(rules[0].ID, 3))
+		queueForMatrixLock(t, store, create(setting.ID, 3), move(rules[0].ID, 3))
 		wantRuleNames(t, store, setting.ID, "b", "c", "new", "a")
 	})
 
@@ -2691,7 +3391,7 @@ func TestChangeRulePositionWhileOthersChangeRules(t *testing.T) {
 		setting := mustCreateRuleSetting(t, store)
 		rules := mustCreateNamedRules(t, store, setting.ID, "a", "b", "c")
 		var moveErr error
-		queueForFlagSetting(t, store, setting.ID, remove(rules[0].ID), func() error {
+		queueForMatrixLock(t, store, remove(rules[0].ID), func() error {
 			moveErr = move(rules[2].ID, 2)()
 			return nil
 		})
@@ -2703,7 +3403,7 @@ func TestChangeRulePositionWhileOthersChangeRules(t *testing.T) {
 		setting := mustCreateRuleSetting(t, store)
 		rules := mustCreateNamedRules(t, store, setting.ID, "a", "b", "c")
 		var moveErr error
-		queueForFlagSetting(t, store, setting.ID, remove(rules[0].ID), func() error {
+		queueForMatrixLock(t, store, remove(rules[0].ID), func() error {
 			moveErr = move(rules[0].ID, 1)()
 			return nil
 		})
@@ -2720,14 +3420,8 @@ func TestChangeRulePositionRacing(t *testing.T) {
 	setting := mustCreateRuleSetting(t, store)
 	rules := mustCreateNamedRules(t, store, setting.ID, "a", "b", "c", "d", "e", "f")
 
-	tx, err := store.db.BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatalf("BeginTx(): %v", err)
-	}
+	tx, _ := beginMatrixTx(t, store)
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, "SELECT id FROM flag_settings WHERE id = $1 FOR SHARE", setting.ID); err != nil {
-		t.Fatalf("locking the flag setting: %v", err)
-	}
 
 	const racers = 12
 	errs := make(chan error, racers)

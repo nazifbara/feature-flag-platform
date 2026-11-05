@@ -1,6 +1,9 @@
 -- name: GetFlagSetting :one
 SELECT * FROM flag_settings WHERE flag_id = $1 AND environment_id = $2;
 
+-- name: GetFlagSettingByID :one
+SELECT * FROM flag_settings WHERE id = $1;
+
 -- name: UpdateFlagSetting :one
 UPDATE flag_settings
 SET enabled = $3, fallthrough = $4, updated_at = clock_timestamp()
@@ -19,9 +22,6 @@ FROM flag_settings fs
 JOIN flags f ON f.id = fs.flag_id
 WHERE fs.environment_id = $1
 ORDER BY f.key;
-
--- name: LockFlagSetting :one
-SELECT id FROM flag_settings WHERE id = $1 FOR UPDATE;
 
 -- name: LockFlagEnvMatrix :exec
 -- Taken first by writes to the flag/env matrix, so CreateFlag and CreateEnv can't
