@@ -84,13 +84,33 @@ func (s *Store) GetFlag(ctx context.Context, id uuid.UUID) (database.Flag, error
 }
 
 // UpdateFlag changes the key of the flag with the given id, applying the same
-// key rules as CreateFlag.
+// key rules as CreateFlag, and bumps the version of every environment, in one
+// transaction, unless the flag already has that key, which changes nothing.
 func (s *Store) UpdateFlag(ctx context.Context, id uuid.UUID, key string) (database.Flag, error) {
 	key, err := normalizeFlagKey("update", key)
 	if err != nil {
 		return database.Flag{}, err
 	}
-	flag, err := s.Queries.UpdateFlag(ctx, database.UpdateFlagParams{ID: id, Key: key})
+	var flag database.Flag
+	err = s.ExecTx(ctx, func(q *database.Queries) error {
+		if err := q.LockFlagEnvMatrix(ctx); err != nil {
+			return err
+		}
+		currentFlag, err := q.GetFlag(ctx, id)
+		if err != nil {
+			return err
+		}
+		if currentFlag.Key == key {
+			flag = currentFlag
+			return nil
+		}
+		f, err := q.UpdateFlag(ctx, database.UpdateFlagParams{ID: id, Key: key})
+		if err != nil {
+			return err
+		}
+		flag = f
+		return q.IncrementAllEnvVersions(ctx)
+	})
 	if err != nil {
 		return database.Flag{}, ffserrors.FromDBErr(err, "can't update the flag")
 	}
