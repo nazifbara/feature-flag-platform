@@ -25,3 +25,6 @@ RETURNING *;
 
 -- name: IncrementAllEnvVersions :exec
 UPDATE environments SET version = version + 1, updated_at = clock_timestamp();
+
+-- name: IncrementEnvVersion :exec
+UPDATE environments SET version = version + 1, updated_at = clock_timestamp() WHERE id = $1;

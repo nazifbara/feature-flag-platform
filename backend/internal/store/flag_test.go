@@ -971,6 +971,10 @@ func TestDeleteFlag(t *testing.T) {
 		for _, e := range envs {
 			kept = append(kept, mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: other.ID, EnvironmentID: e.ID, Fallthrough: 0.5}))
 		}
+		// Updating the settings bumped the environments.
+		for i, e := range envs {
+			envs[i] = mustGetEnv(t, store, e.ID)
+		}
 		if _, err := store.DeleteFlag(ctx, f.ID); err != nil {
 			t.Fatalf("DeleteFlag(): %v", err)
 		}

@@ -24,7 +24,8 @@ ORDER BY f.key;
 SELECT id FROM flag_settings WHERE id = $1 FOR UPDATE;
 
 -- name: LockFlagEnvMatrix :exec
--- Serializes CreateFlag and CreateEnv so neither can miss the other's new row.
+-- Taken first by writes to the flag/env matrix, so CreateFlag and CreateEnv can't
+-- miss each other's new row and writers can't deadlock on the rows they share.
 SELECT pg_advisory_xact_lock(7236401);
 
 -- name: CreateSettingsForFlag :exec

@@ -28,12 +28,35 @@ func (s *Store) GetFlagSetting(ctx context.Context, arg database.GetFlagSettingP
 }
 
 // UpdateFlagSetting replaces a flag's settings in one environment, with its
-// fallthrough checked by checkFallthrough.
+// fallthrough checked by checkFallthrough, and bumps that environment's version.
+// Values the setting already has change nothing, and it comes back as it is.
 func (s *Store) UpdateFlagSetting(ctx context.Context, arg database.UpdateFlagSettingParams) (database.FlagSetting, error) {
 	if err := checkFallthrough(arg.Fallthrough); err != nil {
 		return database.FlagSetting{}, err
 	}
-	setting, err := s.Queries.UpdateFlagSetting(ctx, arg)
+	var setting database.FlagSetting
+	err := s.ExecTx(ctx, func(q *database.Queries) error {
+		if err := q.LockFlagEnvMatrix(ctx); err != nil {
+			return err
+		}
+		currentSetting, err := q.GetFlagSetting(ctx, database.GetFlagSettingParams{
+			EnvironmentID: arg.EnvironmentID,
+			FlagID:        arg.FlagID,
+		})
+		if err != nil {
+			return err
+		}
+		if currentSetting.Enabled == arg.Enabled && currentSetting.Fallthrough == arg.Fallthrough {
+			setting = currentSetting
+			return nil
+		}
+		stg, err := q.UpdateFlagSetting(ctx, arg)
+		if err != nil {
+			return err
+		}
+		setting = stg
+		return q.IncrementEnvVersion(ctx, stg.EnvironmentID)
+	})
 	if err != nil {
 		return database.FlagSetting{}, ffserrors.FromDBErr(err, "can't update the flag setting")
 	}
