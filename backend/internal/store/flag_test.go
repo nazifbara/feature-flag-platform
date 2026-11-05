@@ -688,8 +688,8 @@ func TestUpdateFlag(t *testing.T) {
 	})
 
 	// Updating to its own key, in any case or spacing, is not a conflict
-	// with itself. It still counts as an update, so updated_at moves.
-	t.Run("own key accepted", func(t *testing.T) {
+	// with itself. It isn't an update either, so updated_at stays.
+	t.Run("own key changes nothing", func(t *testing.T) {
 		for _, key := range []string{"new-checkout", "NEW-CHECKOUT", " New-Checkout "} {
 			t.Run(key, func(t *testing.T) {
 				resetDB(t, store.db)
@@ -698,11 +698,11 @@ func TestUpdateFlag(t *testing.T) {
 				if err != nil {
 					t.Fatalf("UpdateFlag(%q): %v", key, err)
 				}
-				if got.ID != f.ID || got.Key != f.Key || !got.CreatedAt.Equal(f.CreatedAt) {
-					t.Errorf("UpdateFlag(%q) = %+v, want ID, key and created_at of %+v", key, got, f)
+				if diff := cmp.Diff(f, got); diff != "" {
+					t.Errorf("UpdateFlag(%q) mismatch (-want +got):\n%s", key, diff)
 				}
-				if !got.UpdatedAt.After(f.UpdatedAt) {
-					t.Errorf("UpdateFlag(%q) updated_at = %v, want it after %v", key, got.UpdatedAt, f.UpdatedAt)
+				if diff := cmp.Diff(f, storedFlag(t, store, f.ID)); diff != "" {
+					t.Errorf("flag changed (-want +got):\n%s", diff)
 				}
 			})
 		}
@@ -853,6 +853,189 @@ func TestUpdateFlagRolledBack(t *testing.T) {
 	if diff := cmp.Diff(f, storedFlag(t, store, f.ID)); diff != "" {
 		t.Fatalf("flag changed after rollback (-want +got):\n%s", diff)
 	}
+}
+
+// Every environment serves a flag's key, so all of them change with it.
+func TestUpdateFlagBumpsEnvVersions(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	// Only the version and updated_at move, the version by one from wherever
+	// each environment was.
+	t.Run("every environment goes up by one", func(t *testing.T) {
+		resetDB(t, store.db)
+		older := mustCreateEnv(t, store, "staging")
+		mustCreateFlag(t, store, "dark-mode")
+		newer := mustCreateEnv(t, store, "production")
+		f := mustCreateFlag(t, store, "new-checkout")
+		before := []database.Environment{mustGetEnv(t, store, older.ID), mustGetEnv(t, store, newer.ID)}
+		if before[0].Version == before[1].Version {
+			t.Fatalf("both environments at version %d, want them to differ", before[0].Version)
+		}
+		if _, err := store.UpdateFlag(ctx, f.ID, "checkout-v2"); err != nil {
+			t.Fatalf("UpdateFlag(): %v", err)
+		}
+		for _, env := range before {
+			got := mustGetEnv(t, store, env.ID)
+			if !got.UpdatedAt.After(env.UpdatedAt) {
+				t.Errorf("%s updated_at = %v, want it after %v", env.Name, got.UpdatedAt, env.UpdatedAt)
+			}
+			want := env
+			want.Version++
+			want.UpdatedAt = got.UpdatedAt
+			if diff := cmp.Diff(want, got); diff != "" {
+				t.Errorf("%s mismatch (-want +got):\n%s", env.Name, diff)
+			}
+		}
+	})
+
+	t.Run("each change counts", func(t *testing.T) {
+		resetDB(t, store.db)
+		f := mustCreateFlag(t, store, "new-checkout")
+		env := mustCreateEnv(t, store, "production")
+		for i := range 3 {
+			if _, err := store.UpdateFlag(ctx, f.ID, fmt.Sprintf("key-%d", i)); err != nil {
+				t.Fatalf("UpdateFlag(): %v", err)
+			}
+		}
+		if got, want := mustGetEnv(t, store, env.ID).Version, env.Version+3; got != want {
+			t.Fatalf("version = %d, want %d", got, want)
+		}
+	})
+
+	// Nothing changed, so readers have nothing to pick up.
+	t.Run("own key leaves versions alone", func(t *testing.T) {
+		for _, key := range []string{"new-checkout", "NEW-CHECKOUT", " New-Checkout "} {
+			t.Run(key, func(t *testing.T) {
+				resetDB(t, store.db)
+				f := mustCreateFlag(t, store, "new-checkout")
+				env := mustCreateEnv(t, store, "production")
+				if _, err := store.UpdateFlag(ctx, f.ID, key); err != nil {
+					t.Fatalf("UpdateFlag(%q): %v", key, err)
+				}
+				if diff := cmp.Diff(env, mustGetEnv(t, store, env.ID)); diff != "" {
+					t.Fatalf("environment changed (-want +got):\n%s", diff)
+				}
+			})
+		}
+	})
+
+	// Going back to an earlier key is still a change from the current one.
+	t.Run("returning to an old key counts", func(t *testing.T) {
+		resetDB(t, store.db)
+		f := mustCreateFlag(t, store, "new-checkout")
+		env := mustCreateEnv(t, store, "production")
+		for _, key := range []string{"checkout-v2", "new-checkout"} {
+			if _, err := store.UpdateFlag(ctx, f.ID, key); err != nil {
+				t.Fatalf("UpdateFlag(%q): %v", key, err)
+			}
+		}
+		if got, want := mustGetEnv(t, store, env.ID).Version, env.Version+2; got != want {
+			t.Fatalf("version = %d, want %d", got, want)
+		}
+	})
+
+	// Whichever gets there first makes the change; the others find the key
+	// already set.
+	t.Run("racing to the same key counts once", func(t *testing.T) {
+		resetDB(t, store.db)
+		f := mustCreateFlag(t, store, "new-checkout")
+		env := mustCreateEnv(t, store, "production")
+		const racers = 8
+		errs := make(chan error, racers)
+		for range racers {
+			go func() {
+				_, err := store.UpdateFlag(ctx, f.ID, "checkout-v2")
+				errs <- err
+			}()
+		}
+		for range racers {
+			if err := <-errs; err != nil {
+				t.Errorf("UpdateFlag(): %v", err)
+			}
+		}
+		if got, want := mustGetEnv(t, store, env.ID).Version, env.Version+1; got != want {
+			t.Fatalf("version = %d, want %d", got, want)
+		}
+	})
+
+	// Updates racing on one flag don't overwrite each other's bump.
+	t.Run("racing updates all count", func(t *testing.T) {
+		resetDB(t, store.db)
+		f := mustCreateFlag(t, store, "new-checkout")
+		env := mustCreateEnv(t, store, "production")
+		const racers = 8
+		errs := make(chan error, racers)
+		for i := range racers {
+			go func() {
+				_, err := store.UpdateFlag(ctx, f.ID, fmt.Sprintf("key-%d", i))
+				errs <- err
+			}()
+		}
+		for range racers {
+			if err := <-errs; err != nil {
+				t.Errorf("UpdateFlag(): %v", err)
+			}
+		}
+		if got, want := mustGetEnv(t, store, env.ID).Version, env.Version+racers; got != want {
+			t.Fatalf("version = %d, want %d", got, want)
+		}
+	})
+
+	t.Run("no environments to bump", func(t *testing.T) {
+		resetDB(t, store.db)
+		f := mustCreateFlag(t, store, "new-checkout")
+		if _, err := store.UpdateFlag(ctx, f.ID, "checkout-v2"); err != nil {
+			t.Fatalf("UpdateFlag(): %v", err)
+		}
+	})
+
+	// Nothing changed, so readers have nothing to pick up.
+	t.Run("rejected update leaves versions alone", func(t *testing.T) {
+		resetDB(t, store.db)
+		mustCreateFlag(t, store, "taken")
+		f := mustCreateFlag(t, store, "new-checkout")
+		env := mustCreateEnv(t, store, "production")
+		tests := map[string]struct {
+			id   uuid.UUID
+			key  string
+			want connect.Code
+		}{
+			"invalid key": {f.ID, "not valid", connect.CodeInvalidArgument},
+			"taken key":   {f.ID, "taken", connect.CodeAlreadyExists},
+			"unknown ID":  {uuid.New(), "checkout-v2", connect.CodeNotFound},
+		}
+		for name, test := range tests {
+			t.Run(name, func(t *testing.T) {
+				_, err := store.UpdateFlag(ctx, test.id, test.key)
+				if got := connect.CodeOf(err); got != test.want {
+					t.Fatalf("UpdateFlag() code = %v, want %v (error: %v)", got, test.want, err)
+				}
+				if diff := cmp.Diff(env, mustGetEnv(t, store, env.ID)); diff != "" {
+					t.Fatalf("environment changed (-want +got):\n%s", diff)
+				}
+			})
+		}
+	})
+
+	// The new key and the bump land together or not at all.
+	t.Run("failed bump keeps the old key", func(t *testing.T) {
+		resetDB(t, store.db)
+		f := mustCreateFlag(t, store, "new-checkout")
+		env := mustCreateEnv(t, store, "production")
+		rejectEnvBumps(t, store)
+		got, err := store.UpdateFlag(ctx, f.ID, "checkout-v2")
+		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, "can't update the flag"))
+		if diff := cmp.Diff(database.Flag{}, got); diff != "" {
+			t.Fatalf("returned a flag on error (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff(f, storedFlag(t, store, f.ID)); diff != "" {
+			t.Errorf("flag changed after a failed bump (-want +got):\n%s", diff)
+		}
+		if got := mustGetEnv(t, store, env.ID).Version; got != env.Version {
+			t.Errorf("version = %d, want %d", got, env.Version)
+		}
+	})
 }
 
 func TestUpdateFlagReportsErrors(t *testing.T) {

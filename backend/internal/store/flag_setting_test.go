@@ -1299,6 +1299,10 @@ func TestWritesWaitForMatrixLock(t *testing.T) {
 	ctx := context.Background()
 
 	tests := map[string]func(flag database.Flag, env database.Environment) error{
+		"UpdateFlag": func(flag database.Flag, _ database.Environment) error {
+			_, err := store.UpdateFlag(ctx, flag.ID, "checkout-v2")
+			return err
+		},
 		"DeleteFlag": func(flag database.Flag, _ database.Environment) error {
 			_, err := store.DeleteFlag(ctx, flag.ID)
 			return err
