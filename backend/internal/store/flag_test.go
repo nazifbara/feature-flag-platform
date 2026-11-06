@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
@@ -11,6 +12,7 @@ import (
 
 	"connectrpc.com/connect/v2"
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/nazifbara/flagsvc/backend/internal/database"
 )
 
@@ -430,6 +432,237 @@ func TestCreateFlagBumpsEnvVersions(t *testing.T) {
 		}
 		if n := flagSettingCount(t, store); n != 0 {
 			t.Errorf("%d flag settings after a failed bump, want 0", n)
+		}
+		if got := mustGetEnv(t, store, env.ID).Version; got != env.Version {
+			t.Errorf("version = %d, want %d", got, env.Version)
+		}
+	})
+}
+
+// changeLogCount gives the number of committed change log entries.
+func changeLogCount(t *testing.T, store *Store) int {
+	t.Helper()
+	var n int
+	if err := store.db.QueryRow("SELECT count(*) FROM change_logs").Scan(&n); err != nil {
+		t.Fatalf("counting change logs: %v", err)
+	}
+	return n
+}
+
+// storedChangeLogs reads the change log entries for the flag key straight from
+// the table, oldest version first.
+func storedChangeLogs(t *testing.T, store *Store, key string) []database.ChangeLog {
+	t.Helper()
+	rows, err := store.db.Query(`
+		SELECT id, target_version, environment_id, flag_old_key, flag_new_key, enabled,
+		  fallthrough, rule_serve, rule_clauses, rule_old_position, rule_new_position,
+		  action, created_at
+		FROM change_logs WHERE flag_new_key = $1
+		ORDER BY target_version, environment_id`, key)
+	if err != nil {
+		t.Fatalf("reading change logs: %v", err)
+	}
+	defer rows.Close()
+	var logs []database.ChangeLog
+	for rows.Next() {
+		var l database.ChangeLog
+		err := rows.Scan(&l.ID, &l.TargetVersion, &l.EnvironmentID, &l.FlagOldKey, &l.FlagNewKey, &l.Enabled,
+			&l.Fallthrough, &l.RuleServe, &l.RuleClauses, &l.RuleOldPosition, &l.RuleNewPosition,
+			&l.Action, &l.CreatedAt)
+		if err != nil {
+			t.Fatalf("reading change log: %v", err)
+		}
+		logs = append(logs, l)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("reading change logs: %v", err)
+	}
+	return logs
+}
+
+// rejectNewChangeLogs makes logging a change fail until the test ends.
+func rejectNewChangeLogs(t *testing.T, store *Store) {
+	t.Helper()
+	if _, err := store.db.Exec("ALTER TABLE change_logs ADD CONSTRAINT reject_new CHECK (false) NOT VALID"); err != nil {
+		t.Fatalf("adding the constraint: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := store.db.Exec("ALTER TABLE change_logs DROP CONSTRAINT reject_new"); err != nil {
+			t.Errorf("dropping the constraint: %v", err)
+		}
+	})
+}
+
+// A new flag is logged in every environment, so SDKs can pick it up.
+func TestCreateFlagLogsChange(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	// Each entry carries the flag's normalized key, the setting it starts with
+	// and the version its environment moved to, and nothing else.
+	t.Run("one entry per environment", func(t *testing.T) {
+		resetDB(t, store.db)
+		older := mustCreateEnv(t, store, "staging")
+		mustCreateFlag(t, store, "dark-mode")
+		newer := mustCreateEnv(t, store, "production")
+		f, err := store.CreateFlag(ctx, " New-Checkout ")
+		if err != nil {
+			t.Fatalf("CreateFlag(): %v", err)
+		}
+		var want []database.ChangeLog
+		for _, env := range []database.Environment{newer, older} {
+			want = append(want, database.ChangeLog{
+				TargetVersion: mustGetEnv(t, store, env.ID).Version,
+				EnvironmentID: env.ID,
+				FlagNewKey:    sql.NullString{String: "new-checkout", Valid: true},
+				Enabled:       sql.NullBool{Bool: false, Valid: true},
+				Fallthrough:   sql.NullFloat64{Float64: 0, Valid: true},
+				Action:        "flag-created",
+			})
+		}
+		got := storedChangeLogs(t, store, f.Key)
+		if want[0].TargetVersion > want[1].TargetVersion {
+			want[0], want[1] = want[1], want[0]
+		}
+		ignore := cmpopts.IgnoreFields(database.ChangeLog{}, "ID", "CreatedAt")
+		if diff := cmp.Diff(want, got, ignore); diff != "" {
+			t.Fatalf("change logs mismatch (-want +got):\n%s", diff)
+		}
+		if got[0].ID == got[1].ID {
+			t.Errorf("both entries have ID %v, want them to differ", got[0].ID)
+		}
+	})
+
+	// The entries come from one change, so they share a time.
+	t.Run("entries share a created_at", func(t *testing.T) {
+		resetDB(t, store.db)
+		for _, name := range []string{"staging", "production", "development"} {
+			mustCreateEnv(t, store, name)
+		}
+		f := mustCreateFlag(t, store, "new-checkout")
+		logs := storedChangeLogs(t, store, f.Key)
+		if len(logs) != 3 {
+			t.Fatalf("%d entries, want 3", len(logs))
+		}
+		for _, l := range logs[1:] {
+			if !l.CreatedAt.Equal(logs[0].CreatedAt) {
+				t.Errorf("created_at %v, want %v", l.CreatedAt, logs[0].CreatedAt)
+			}
+		}
+	})
+
+	// The entry is about the new flag only: the others are not logged again.
+	t.Run("other flags are not logged again", func(t *testing.T) {
+		resetDB(t, store.db)
+		mustCreateEnv(t, store, "production")
+		mustCreateFlag(t, store, "dark-mode")
+		before := changeLogCount(t, store)
+		mustCreateFlag(t, store, "new-checkout")
+		if got, want := changeLogCount(t, store), before+1; got != want {
+			t.Fatalf("%d entries, want %d", got, want)
+		}
+	})
+
+	t.Run("no environments to log", func(t *testing.T) {
+		resetDB(t, store.db)
+		mustCreateFlag(t, store, "new-checkout")
+		if n := changeLogCount(t, store); n != 0 {
+			t.Fatalf("%d entries, want 0", n)
+		}
+	})
+
+	// Flags racing to be created each log the version they moved to, so no
+	// two entries claim the same one.
+	t.Run("racing flags log their own versions", func(t *testing.T) {
+		resetDB(t, store.db)
+		env := mustCreateEnv(t, store, "production")
+		const racers = 8
+		errs := make(chan error, racers)
+		for i := range racers {
+			go func() {
+				_, err := store.CreateFlag(ctx, fmt.Sprintf("flag-%d", i))
+				errs <- err
+			}()
+		}
+		for range racers {
+			if err := <-errs; err != nil {
+				t.Errorf("CreateFlag(): %v", err)
+			}
+		}
+		seen := map[int64]string{}
+		for i := range racers {
+			key := fmt.Sprintf("flag-%d", i)
+			logs := storedChangeLogs(t, store, key)
+			if len(logs) != 1 {
+				t.Fatalf("%s has %d entries, want 1", key, len(logs))
+			}
+			v := logs[0].TargetVersion
+			if v <= env.Version || v > env.Version+racers {
+				t.Errorf("%s logged version %d, want it in (%d, %d]", key, v, env.Version, env.Version+racers)
+			}
+			if other, ok := seen[v]; ok {
+				t.Errorf("%s and %s both logged version %d", other, key, v)
+			}
+			seen[v] = key
+		}
+	})
+
+	// Nothing changed, so there is nothing to log.
+	t.Run("rejected flag logs nothing", func(t *testing.T) {
+		resetDB(t, store.db)
+		mustCreateEnv(t, store, "production")
+		mustCreateFlag(t, store, "new-checkout")
+		before := changeLogCount(t, store)
+		for _, key := range []string{"", "not valid", "new-checkout"} {
+			if _, err := store.CreateFlag(ctx, key); err == nil {
+				t.Fatalf("CreateFlag(%q) = nil error, want it rejected", key)
+			}
+			if got := changeLogCount(t, store); got != before {
+				t.Fatalf("%d entries after CreateFlag(%q), want %d", got, key, before)
+			}
+		}
+	})
+
+	t.Run("failed settings log nothing", func(t *testing.T) {
+		resetDB(t, store.db)
+		mustCreateEnv(t, store, "production")
+		rejectNewFlagSettings(t, store)
+		if _, err := store.CreateFlag(ctx, "new-checkout"); err == nil {
+			t.Fatal("CreateFlag() = nil error, want it to fail")
+		}
+		if n := changeLogCount(t, store); n != 0 {
+			t.Fatalf("%d entries, want 0", n)
+		}
+	})
+
+	t.Run("failed bump logs nothing", func(t *testing.T) {
+		resetDB(t, store.db)
+		mustCreateEnv(t, store, "production")
+		rejectEnvBumps(t, store)
+		if _, err := store.CreateFlag(ctx, "new-checkout"); err == nil {
+			t.Fatal("CreateFlag() = nil error, want it to fail")
+		}
+		if n := changeLogCount(t, store); n != 0 {
+			t.Fatalf("%d entries, want 0", n)
+		}
+	})
+
+	// The flag, its settings, the bump and the log land together or not at
+	// all, so SDKs never miss a flag that exists.
+	t.Run("failed log undoes the flag", func(t *testing.T) {
+		resetDB(t, store.db)
+		env := mustCreateEnv(t, store, "production")
+		rejectNewChangeLogs(t, store)
+		got, err := store.CreateFlag(ctx, "new-checkout")
+		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, "can't create the flag"))
+		if diff := cmp.Diff(database.Flag{}, got); diff != "" {
+			t.Fatalf("returned a flag on error (-want +got):\n%s", diff)
+		}
+		if n := flagCount(t, store); n != 0 {
+			t.Errorf("%d flags after a failed log, want 0", n)
+		}
+		if n := flagSettingCount(t, store); n != 0 {
+			t.Errorf("%d flag settings after a failed log, want 0", n)
 		}
 		if got := mustGetEnv(t, store, env.ID).Version; got != env.Version {
 			t.Errorf("version = %d, want %d", got, env.Version)
