@@ -29,3 +29,31 @@ JOIN environments e ON e.id = fs.environment_id
 JOIN flags f ON f.id = fs.flag_id
 CROSS JOIN now
 WHERE fs.flag_id = sqlc.arg('flag_id');
+
+-- name: CreateChangeLogsForFlagUpdate :exec
+-- Logs a flag's new key in every environment, next to the key it replaced,
+-- with the environment's version. It reads the new key and the versions, so it
+-- runs after the flag is updated and the versions bumped. The clock is read
+-- once so all the entries for one update share a created_at.
+WITH now AS (SELECT clock_timestamp() AS ts)
+INSERT INTO change_logs (
+  id,
+  target_version,
+  environment_id,
+  flag_old_key,
+  flag_new_key,
+  action,
+  created_at
+)
+SELECT
+  gen_random_uuid(),
+  e.version,
+  e.id,
+  sqlc.arg('old_key')::varchar,
+  f.key,
+  'flag-updated',
+  now.ts
+FROM environments e
+CROSS JOIN flags f
+CROSS JOIN now
+WHERE f.id = sqlc.arg('flag_id');
