@@ -12,6 +12,7 @@ import (
 
 	"connectrpc.com/connect/v2"
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/nazifbara/flagsvc/backend/internal/database"
 )
 
@@ -1572,6 +1573,232 @@ func TestUpdateFlagSettingBumpsEnvVersion(t *testing.T) {
 		}
 		if got, want := mustGetEnv(t, store, env.ID).Version, env.Version+1; got != want {
 			t.Errorf("version = %d, want %d", got, want)
+		}
+	})
+}
+
+// A changed setting is logged in its environment, so SDKs can pick it up.
+func TestUpdateFlagSettingLogsChange(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	// The entry carries the flag's key, the new values and the version the
+	// environment moved to, and nothing else. Other flags and environments
+	// are around, so an entry for any of them would show.
+	t.Run("one entry for the setting", func(t *testing.T) {
+		resetDB(t, store.db)
+		mustCreateFlag(t, store, "dark-mode")
+		flag := mustCreateFlag(t, store, "new-checkout")
+		mustCreateEnv(t, store, "staging")
+		env := mustCreateEnv(t, store, "production")
+		before := changeLogCount(t, store)
+		mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: 0.5})
+		want := []database.ChangeLog{{
+			TargetVersion: mustGetEnv(t, store, env.ID).Version,
+			EnvironmentID: env.ID,
+			FlagNewKey:    sql.NullString{String: "new-checkout", Valid: true},
+			Enabled:       sql.NullBool{Bool: true, Valid: true},
+			Fallthrough:   sql.NullFloat64{Float64: 0.5, Valid: true},
+			Action:        "setting-updated",
+		}}
+		ignore := cmpopts.IgnoreFields(database.ChangeLog{}, "ID", "CreatedAt")
+		if diff := cmp.Diff(want, storedChangeLogsFor(t, store, "setting-updated"), ignore); diff != "" {
+			t.Fatalf("change logs mismatch (-want +got):\n%s", diff)
+		}
+		if got, want := changeLogCount(t, store), before+1; got != want {
+			t.Fatalf("%d entries, want %d", got, want)
+		}
+	})
+
+	// An SDK replaying the entry ends up with the stored setting. 0.1 has no
+	// exact binary form, so the entry has to hold the same float32.
+	t.Run("entry matches the stored setting", func(t *testing.T) {
+		resetDB(t, store.db)
+		flag := mustCreateFlag(t, store, "new-checkout")
+		env := mustCreateEnv(t, store, "production")
+		s := mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: 0.1})
+		logs := storedChangeLogsFor(t, store, "setting-updated")
+		if len(logs) != 1 {
+			t.Fatalf("%d entries, want 1", len(logs))
+		}
+		stored := storedFlagSetting(t, store, s.ID)
+		if got := float32(logs[0].Fallthrough.Float64); got != stored.Fallthrough {
+			t.Errorf("logged fallthrough %v, want %v", got, stored.Fallthrough)
+		}
+		if logs[0].Enabled.Bool != stored.Enabled {
+			t.Errorf("logged enabled %v, want %v", logs[0].Enabled.Bool, stored.Enabled)
+		}
+	})
+
+	// The key is read when the setting changes, so a renamed flag is logged
+	// under its new key.
+	t.Run("logs the flag's current key", func(t *testing.T) {
+		resetDB(t, store.db)
+		flag := mustCreateFlag(t, store, "new-checkout")
+		env := mustCreateEnv(t, store, "production")
+		if _, err := store.UpdateFlag(ctx, flag.ID, "checkout-v2"); err != nil {
+			t.Fatalf("UpdateFlag(): %v", err)
+		}
+		mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: true})
+		logs := storedChangeLogsFor(t, store, "setting-updated")
+		if len(logs) != 1 {
+			t.Fatalf("%d entries, want 1", len(logs))
+		}
+		if got := logs[0].FlagNewKey.String; got != "checkout-v2" {
+			t.Errorf("logged key %q, want %q", got, "checkout-v2")
+		}
+	})
+
+	// Each change gets its own entry with its own version, and earlier ones
+	// stay. A new setting starts disabled with a fallthrough of 0.
+	t.Run("each change counts", func(t *testing.T) {
+		resetDB(t, store.db)
+		flag := mustCreateFlag(t, store, "new-checkout")
+		env := mustCreateEnv(t, store, "production")
+		changes := []struct {
+			enabled  bool
+			fraction float32
+		}{{true, 0}, {true, 0.5}, {false, 0.5}}
+		for _, c := range changes {
+			mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: c.enabled, Fallthrough: c.fraction})
+		}
+		logs := storedChangeLogsFor(t, store, "setting-updated")
+		if len(logs) != len(changes) {
+			t.Fatalf("%d entries, want %d", len(logs), len(changes))
+		}
+		for i, c := range changes {
+			l := logs[i]
+			if want := env.Version + int64(i) + 1; l.TargetVersion != want {
+				t.Errorf("entry %d logged version %d, want %d", i, l.TargetVersion, want)
+			}
+			if l.Enabled.Bool != c.enabled || float32(l.Fallthrough.Float64) != c.fraction {
+				t.Errorf("entry %d logged enabled, fallthrough = %v, %v, want %v, %v", i, l.Enabled.Bool, l.Fallthrough.Float64, c.enabled, c.fraction)
+			}
+		}
+	})
+
+	// Nothing changed, so there is nothing to log.
+	t.Run("same values log nothing", func(t *testing.T) {
+		resetDB(t, store.db)
+		arg := database.UpdateFlagSettingParams{
+			FlagID:        mustCreateFlag(t, store, "new-checkout").ID,
+			EnvironmentID: mustCreateEnv(t, store, "production").ID,
+			Enabled:       true,
+			Fallthrough:   0.1,
+		}
+		mustUpdateFlagSetting(t, store, arg)
+		before := changeLogCount(t, store)
+		mustUpdateFlagSetting(t, store, arg)
+		if got := changeLogCount(t, store); got != before {
+			t.Fatalf("%d entries, want %d", got, before)
+		}
+	})
+
+	// Updates racing each other each log the version they moved to, so no two
+	// entries claim the same one. Every value is different, so each racer has
+	// something to change.
+	t.Run("racing changes log their own versions", func(t *testing.T) {
+		resetDB(t, store.db)
+		flag := mustCreateFlag(t, store, "new-checkout")
+		env := mustCreateEnv(t, store, "production")
+		const racers = 8
+		errs := make(chan error, racers)
+		for i := range racers {
+			go func() {
+				_, err := store.UpdateFlagSetting(ctx, database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: float32(i+1) / racers})
+				errs <- err
+			}()
+		}
+		for range racers {
+			if err := <-errs; err != nil {
+				t.Errorf("UpdateFlagSetting(): %v", err)
+			}
+		}
+		logs := storedChangeLogsFor(t, store, "setting-updated")
+		if len(logs) != racers {
+			t.Fatalf("%d entries, want %d", len(logs), racers)
+		}
+		fractions := map[float64]bool{}
+		for i, l := range logs {
+			if want := env.Version + int64(i) + 1; l.TargetVersion != want {
+				t.Errorf("entry %d logged version %d, want %d", i, l.TargetVersion, want)
+			}
+			if fractions[l.Fallthrough.Float64] {
+				t.Errorf("fallthrough %v logged twice", l.Fallthrough.Float64)
+			}
+			fractions[l.Fallthrough.Float64] = true
+		}
+		// The last entry is what an SDK ends up with, so it has to be what's
+		// stored.
+		stored, err := store.GetFlagSetting(ctx, database.GetFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID})
+		if err != nil {
+			t.Fatalf("GetFlagSetting(): %v", err)
+		}
+		if got := float32(logs[racers-1].Fallthrough.Float64); got != stored.Fallthrough {
+			t.Errorf("last entry logged fallthrough %v, want the stored %v", got, stored.Fallthrough)
+		}
+	})
+
+	// Nothing changed, so there is nothing to log.
+	t.Run("rejected update logs nothing", func(t *testing.T) {
+		resetDB(t, store.db)
+		flag := mustCreateFlag(t, store, "new-checkout")
+		env := mustCreateEnv(t, store, "production")
+		lonely := mustCreateFlag(t, store, "beta-banner")
+		mustRemoveFlagSetting(t, store, lonely.ID, env.ID)
+		before := changeLogCount(t, store)
+		tests := map[string]database.UpdateFlagSettingParams{
+			"bad fallthrough":     {FlagID: flag.ID, EnvironmentID: env.ID, Fallthrough: 2},
+			"unknown flag":        {FlagID: uuid.New(), EnvironmentID: env.ID, Enabled: true},
+			"unknown environment": {FlagID: flag.ID, EnvironmentID: uuid.New(), Enabled: true},
+			"no setting":          {FlagID: lonely.ID, EnvironmentID: env.ID, Enabled: true},
+		}
+		for name, arg := range tests {
+			t.Run(name, func(t *testing.T) {
+				if _, err := store.UpdateFlagSetting(ctx, arg); err == nil {
+					t.Fatal("UpdateFlagSetting() = nil error, want it rejected")
+				}
+				if got := changeLogCount(t, store); got != before {
+					t.Fatalf("%d entries, want %d", got, before)
+				}
+			})
+		}
+	})
+
+	t.Run("failed bump logs nothing", func(t *testing.T) {
+		resetDB(t, store.db)
+		flag := mustCreateFlag(t, store, "new-checkout")
+		env := mustCreateEnv(t, store, "production")
+		rejectEnvBumps(t, store)
+		if _, err := store.UpdateFlagSetting(ctx, database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: true}); err == nil {
+			t.Fatal("UpdateFlagSetting() = nil error, want it to fail")
+		}
+		if n := len(storedChangeLogsFor(t, store, "setting-updated")); n != 0 {
+			t.Fatalf("%d entries, want 0", n)
+		}
+	})
+
+	// The update, the bump and the log land together or not at all, so SDKs
+	// never miss a change.
+	t.Run("failed log undoes the update and the bump", func(t *testing.T) {
+		resetDB(t, store.db)
+		flag := mustCreateFlag(t, store, "new-checkout")
+		env := mustCreateEnv(t, store, "production")
+		want, err := store.GetFlagSetting(ctx, database.GetFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID})
+		if err != nil {
+			t.Fatalf("GetFlagSetting(): %v", err)
+		}
+		rejectNewChangeLogs(t, store)
+		got, err := store.UpdateFlagSetting(ctx, database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: 1})
+		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, "can't update the flag setting"))
+		if got != (database.FlagSetting{}) {
+			t.Fatalf("UpdateFlagSetting() = %+v on error, want the zero FlagSetting", got)
+		}
+		if diff := cmp.Diff(want, storedFlagSetting(t, store, want.ID)); diff != "" {
+			t.Errorf("setting changed after a failed log (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff(env, mustGetEnv(t, store, env.ID)); diff != "" {
+			t.Errorf("environment changed after a failed log (-want +got):\n%s", diff)
 		}
 	})
 }

@@ -81,3 +81,36 @@ SELECT
   now.ts
 FROM environments e
 CROSS JOIN now;
+
+-- name: CreateChangeLogsForSettingUpdate :exec
+-- Logs a flag's new setting in one environment, with the flag's key and the
+-- environment's version. It reads both, so it runs after the setting is
+-- updated and the version bumped.
+WITH now AS (SELECT clock_timestamp() AS ts)
+INSERT INTO change_logs (
+  id,
+  target_version,
+  environment_id,
+  flag_new_key,
+  enabled,
+  fallthrough,
+  action,
+  created_at
+)
+SELECT
+  gen_random_uuid(),
+  e.version,
+  fs.environment_id,
+  f.key,
+  fs.enabled,
+  fs.fallthrough,
+  'setting-updated',
+  now.ts
+FROM flag_settings fs
+CROSS JOIN flags f
+CROSS JOIN environments e
+CROSS JOIN now
+WHERE
+  e.id = fs.environment_id AND
+  f.id = fs.flag_id AND
+  fs.id = sqlc.arg('flag_setting_id');
