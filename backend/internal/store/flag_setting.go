@@ -55,7 +55,10 @@ func (s *Store) UpdateFlagSetting(ctx context.Context, arg database.UpdateFlagSe
 			return err
 		}
 		setting = stg
-		return q.IncrementEnvVersion(ctx, stg.EnvironmentID)
+		if err := q.IncrementEnvVersion(ctx, stg.EnvironmentID); err != nil {
+			return err
+		}
+		return q.CreateChangeLogsForSettingUpdate(ctx, stg.ID)
 	})
 	if err != nil {
 		return database.FlagSetting{}, ffserrors.FromDBErr(err, "can't update the flag setting")
