@@ -1846,6 +1846,205 @@ func TestDeleteFlagBumpsEnvVersions(t *testing.T) {
 	})
 }
 
+// A deleted flag is logged in every environment, so SDKs can drop it.
+func TestDeleteFlagLogsChange(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	// Each entry carries the key the flag had and the version its environment
+	// moved to, and nothing else.
+	t.Run("one entry per environment", func(t *testing.T) {
+		resetDB(t, store.db)
+		older := mustCreateEnv(t, store, "staging")
+		mustCreateFlag(t, store, "dark-mode")
+		newer := mustCreateEnv(t, store, "production")
+		f := mustCreateFlag(t, store, "new-checkout")
+		if _, err := store.DeleteFlag(ctx, f.ID); err != nil {
+			t.Fatalf("DeleteFlag(): %v", err)
+		}
+		var want []database.ChangeLog
+		for _, env := range []database.Environment{older, newer} {
+			want = append(want, database.ChangeLog{
+				TargetVersion: mustGetEnv(t, store, env.ID).Version,
+				EnvironmentID: env.ID,
+				FlagNewKey:    sql.NullString{String: "new-checkout", Valid: true},
+				Action:        "flag-deleted",
+			})
+		}
+		got := storedChangeLogsFor(t, store, "flag-deleted")
+		if want[0].TargetVersion > want[1].TargetVersion {
+			want[0], want[1] = want[1], want[0]
+		}
+		ignore := cmpopts.IgnoreFields(database.ChangeLog{}, "ID", "CreatedAt")
+		if diff := cmp.Diff(want, got, ignore); diff != "" {
+			t.Fatalf("change logs mismatch (-want +got):\n%s", diff)
+		}
+		if len(got) == 2 && got[0].ID == got[1].ID {
+			t.Errorf("both entries have ID %v, want them to differ", got[0].ID)
+		}
+	})
+
+	// The entries come from one change, so they share a time.
+	t.Run("entries share a created_at", func(t *testing.T) {
+		resetDB(t, store.db)
+		for _, name := range []string{"staging", "production", "development"} {
+			mustCreateEnv(t, store, name)
+		}
+		f := mustCreateFlag(t, store, "new-checkout")
+		if _, err := store.DeleteFlag(ctx, f.ID); err != nil {
+			t.Fatalf("DeleteFlag(): %v", err)
+		}
+		logs := storedChangeLogsFor(t, store, "flag-deleted")
+		if len(logs) != 3 {
+			t.Fatalf("%d entries, want 3", len(logs))
+		}
+		for _, l := range logs[1:] {
+			if !l.CreatedAt.Equal(logs[0].CreatedAt) {
+				t.Errorf("created_at %v, want %v", l.CreatedAt, logs[0].CreatedAt)
+			}
+		}
+	})
+
+	// Only the deleted flag is logged.
+	t.Run("other flags are not logged", func(t *testing.T) {
+		resetDB(t, store.db)
+		mustCreateEnv(t, store, "production")
+		mustCreateFlag(t, store, "dark-mode")
+		f := mustCreateFlag(t, store, "new-checkout")
+		before := changeLogCount(t, store)
+		if _, err := store.DeleteFlag(ctx, f.ID); err != nil {
+			t.Fatalf("DeleteFlag(): %v", err)
+		}
+		if got, want := changeLogCount(t, store), before+1; got != want {
+			t.Fatalf("%d entries, want %d", got, want)
+		}
+	})
+
+	// The log is a record, so what was said about the flag stays after it's
+	// gone.
+	t.Run("earlier entries stay", func(t *testing.T) {
+		resetDB(t, store.db)
+		mustCreateEnv(t, store, "production")
+		f := mustCreateFlag(t, store, "new-checkout")
+		if _, err := store.UpdateFlag(ctx, f.ID, "checkout-v2"); err != nil {
+			t.Fatalf("UpdateFlag(): %v", err)
+		}
+		before := changeLogCount(t, store)
+		if _, err := store.DeleteFlag(ctx, f.ID); err != nil {
+			t.Fatalf("DeleteFlag(): %v", err)
+		}
+		if got, want := changeLogCount(t, store), before+1; got != want {
+			t.Fatalf("%d entries, want %d", got, want)
+		}
+	})
+
+	t.Run("no environments to log", func(t *testing.T) {
+		resetDB(t, store.db)
+		f := mustCreateFlag(t, store, "new-checkout")
+		if _, err := store.DeleteFlag(ctx, f.ID); err != nil {
+			t.Fatalf("DeleteFlag(): %v", err)
+		}
+		if n := changeLogCount(t, store); n != 0 {
+			t.Fatalf("%d entries, want 0", n)
+		}
+	})
+
+	// Flags racing to be deleted each log the version they moved to, so no
+	// two entries claim the same one.
+	t.Run("racing deletes log their own versions", func(t *testing.T) {
+		resetDB(t, store.db)
+		env := mustCreateEnv(t, store, "production")
+		const racers = 8
+		var flags []database.Flag
+		for i := range racers {
+			flags = append(flags, mustCreateFlag(t, store, fmt.Sprintf("flag-%d", i)))
+		}
+		before := mustGetEnv(t, store, env.ID).Version
+		errs := make(chan error, racers)
+		for _, f := range flags {
+			go func() {
+				_, err := store.DeleteFlag(ctx, f.ID)
+				errs <- err
+			}()
+		}
+		for range racers {
+			if err := <-errs; err != nil {
+				t.Errorf("DeleteFlag(): %v", err)
+			}
+		}
+		logs := storedChangeLogsFor(t, store, "flag-deleted")
+		if len(logs) != racers {
+			t.Fatalf("%d entries, want %d", len(logs), racers)
+		}
+		keys := map[string]bool{}
+		for i, l := range logs {
+			if want := before + int64(i) + 1; l.TargetVersion != want {
+				t.Errorf("entry %d logged version %d, want %d", i, l.TargetVersion, want)
+			}
+			if keys[l.FlagNewKey.String] {
+				t.Errorf("%s logged twice", l.FlagNewKey.String)
+			}
+			keys[l.FlagNewKey.String] = true
+		}
+	})
+
+	// Nothing changed, so there is nothing to log.
+	t.Run("not found logs nothing", func(t *testing.T) {
+		resetDB(t, store.db)
+		mustCreateEnv(t, store, "production")
+		f := mustCreateFlag(t, store, "new-checkout")
+		if _, err := store.DeleteFlag(ctx, f.ID); err != nil {
+			t.Fatalf("DeleteFlag(): %v", err)
+		}
+		before := changeLogCount(t, store)
+		for _, id := range []uuid.UUID{f.ID, uuid.New(), uuid.Nil()} {
+			_, err := store.DeleteFlag(ctx, id)
+			wantConnectErr(t, err, connect.NewError(connect.CodeNotFound, "can't delete the flag"))
+			if got := changeLogCount(t, store); got != before {
+				t.Fatalf("%d entries after deleting %v, want %d", got, id, before)
+			}
+		}
+	})
+
+	t.Run("failed bump logs nothing", func(t *testing.T) {
+		resetDB(t, store.db)
+		f := mustCreateFlag(t, store, "new-checkout")
+		mustCreateEnv(t, store, "production")
+		rejectEnvBumps(t, store)
+		if _, err := store.DeleteFlag(ctx, f.ID); err == nil {
+			t.Fatal("DeleteFlag() = nil error, want it to fail")
+		}
+		if n := len(storedChangeLogsFor(t, store, "flag-deleted")); n != 0 {
+			t.Fatalf("%d entries, want 0", n)
+		}
+	})
+
+	// The delete, the bump and the log land together or not at all, so SDKs
+	// never keep serving a flag that's gone.
+	t.Run("failed log keeps the flag and its settings", func(t *testing.T) {
+		resetDB(t, store.db)
+		env := mustCreateEnv(t, store, "production")
+		f := mustCreateFlag(t, store, "new-checkout")
+		s := mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: f.ID, EnvironmentID: env.ID, Fallthrough: 0.5})
+		before := mustGetEnv(t, store, env.ID)
+		rejectNewChangeLogs(t, store)
+		got, err := store.DeleteFlag(ctx, f.ID)
+		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, "can't delete the flag"))
+		if diff := cmp.Diff(database.Flag{}, got); diff != "" {
+			t.Fatalf("returned a flag on error (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff(f, storedFlag(t, store, f.ID)); diff != "" {
+			t.Errorf("flag changed after a failed log (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff(s, storedFlagSetting(t, store, s.ID)); diff != "" {
+			t.Errorf("setting changed after a failed log (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff(before, mustGetEnv(t, store, env.ID)); diff != "" {
+			t.Errorf("environment changed after a failed log (-want +got):\n%s", diff)
+		}
+	})
+}
+
 func TestDeleteFlagReportsErrors(t *testing.T) {
 	store := newTestStore(t)
 	f := mustCreateFlag(t, store, "new-checkout")

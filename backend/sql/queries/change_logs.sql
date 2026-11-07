@@ -57,3 +57,27 @@ FROM environments e
 CROSS JOIN flags f
 CROSS JOIN now
 WHERE f.id = sqlc.arg('flag_id');
+
+-- name: CreateChangeLogsForFlagDelete :exec
+-- Logs a flag's deletion in every environment, with the flag's key and the
+-- environment's version. The flag is gone by then, so its key is passed in;
+-- the versions are read, so it runs after they're bumped. The clock is read
+-- once so all the entries for one deletion share a created_at.
+WITH now AS (SELECT clock_timestamp() As ts)
+INSERT INTO change_logs (
+  id,
+  target_version,
+  environment_id,
+  flag_new_key,
+  action,
+  created_at
+)
+SELECT
+  gen_random_uuid(),
+  e.version,
+  e.id,
+  sqlc.arg('flag_key')::varchar,
+  'flag-deleted',
+  now.ts
+FROM environments e
+CROSS JOIN now;
