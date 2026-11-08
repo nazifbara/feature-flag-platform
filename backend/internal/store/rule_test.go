@@ -2232,8 +2232,8 @@ func TestUpdateRuleLogsChange(t *testing.T) {
 	})
 
 	// Updates racing each other each log the version they moved to, so no two
-	// entries claim the same one. Every serve is different, so each racer has
-	// something to change.
+	// entries claim the same one. Every serve is different, and none is the 0.25
+	// the rule starts with, so each racer has something to change.
 	t.Run("racing changes log their own versions", func(t *testing.T) {
 		setting := mustCreateRuleSetting(t, store)
 		rule := mustCreateNamedRules(t, store, setting.ID, "a")[0]
@@ -2242,7 +2242,7 @@ func TestUpdateRuleLogsChange(t *testing.T) {
 		errs := make(chan error, racers)
 		for i := range racers {
 			go func() {
-				_, err := store.UpdateRule(ctx, database.UpdateRuleParams{ID: rule.ID, Name: "a", Serve: float32(i+1) / racers, Clauses: rule.Clauses})
+				_, err := store.UpdateRule(ctx, database.UpdateRuleParams{ID: rule.ID, Name: "a", Serve: float32(i+1) / (racers + 1), Clauses: rule.Clauses})
 				errs <- err
 			}()
 		}
