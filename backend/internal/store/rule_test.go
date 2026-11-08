@@ -2394,6 +2394,270 @@ func TestChangeRulePositionBumpCounts(t *testing.T) {
 	})
 }
 
+// replayRuleLogs replays the setting's rule entries the way an SDK would, in
+// version order, and gives the serve of each rule it ends up with, in order.
+// A created rule is inserted at its position, a deleted one removed from its
+// position and a moved one taken from its old position and put at its new one,
+// the rest moving to make room or close the gap.
+func replayRuleLogs(t *testing.T, store *Store) []float32 {
+	t.Helper()
+	var rules []float32
+	for _, l := range queryChangeLogs(t, store, "action IN ('rule-created', 'rule-deleted', 'rule-position-changed')") {
+		p := int(l.RuleNewPosition.Int32)
+		switch l.Action {
+		case "rule-created":
+			rules = slices.Insert(rules, p, float32(l.RuleServe.Float64))
+		case "rule-deleted":
+			if p >= len(rules) {
+				t.Fatalf("entry at version %d deletes position %d of %d rules", l.TargetVersion, p, len(rules))
+			}
+			rules = slices.Delete(rules, p, p+1)
+		case "rule-position-changed":
+			old := int(l.RuleOldPosition.Int32)
+			if old >= len(rules) || p >= len(rules) {
+				t.Fatalf("entry at version %d moves position %d to %d of %d rules", l.TargetVersion, old, p, len(rules))
+			}
+			serve := rules[old]
+			rules = slices.Insert(slices.Delete(rules, old, old+1), p, serve)
+		}
+	}
+	return rules
+}
+
+// storedServes gives the serve of each of the setting's rules, in order.
+func storedServes(t *testing.T, store *Store, settingID uuid.UUID) []float32 {
+	t.Helper()
+	rules, err := store.ListRulesBySetting(context.Background(), settingID)
+	if err != nil {
+		t.Fatalf("ListRulesBySetting(): %v", err)
+	}
+	var serves []float32
+	for _, r := range rules {
+		serves = append(serves, r.Serve)
+	}
+	return serves
+}
+
+// A moved rule is logged in its setting's environment, so SDKs can reorder
+// their rules.
+func TestChangeRulePositionLogsChange(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	// mustCreateServedRules gives the setting n rules, the i-th serving
+	// (i+1)/10, so a replay can tell them apart.
+	mustCreateServedRules := func(t *testing.T, settingID uuid.UUID, n int) []database.Rule {
+		t.Helper()
+		rules := make([]database.Rule, n)
+		for i := range rules {
+			rules[i] = mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: settingID, Position: int32(i), Serve: float32(i+1) / 10, Clauses: json.RawMessage(validClauses)})
+		}
+		return rules
+	}
+	move := func(t *testing.T, id uuid.UUID, position int32) {
+		t.Helper()
+		if _, err := store.ChangeRulePosition(ctx, database.ChangeRulePositionParams{ID: id, Position: position}); err != nil {
+			t.Fatalf("ChangeRulePosition(): %v", err)
+		}
+	}
+
+	// The entry carries the flag's key, both positions and the version the
+	// environment moved to, and nothing else. The rules the move shifts get no
+	// entry of their own, and other flags and environments are around, so an
+	// entry for any of them would show.
+	t.Run("one entry for the rule", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		mustCreateFlag(t, store, "dark-mode")
+		mustCreateEnv(t, store, "staging")
+		rules := mustCreateNamedRules(t, store, setting.ID, "a", "b", "c", "d")
+		before := changeLogCount(t, store)
+		move(t, rules[0].ID, 2)
+		wantRuleNames(t, store, setting.ID, "b", "c", "a", "d")
+		want := []database.ChangeLog{{
+			TargetVersion:   mustGetEnv(t, store, setting.EnvironmentID).Version,
+			EnvironmentID:   setting.EnvironmentID,
+			FlagNewKey:      sql.NullString{String: "new-checkout", Valid: true},
+			RuleOldPosition: sql.NullInt32{Int32: 0, Valid: true},
+			RuleNewPosition: sql.NullInt32{Int32: 2, Valid: true},
+			Action:          "rule-position-changed",
+		}}
+		ignore := cmpopts.IgnoreFields(database.ChangeLog{}, "ID", "CreatedAt")
+		if diff := cmp.Diff(want, storedChangeLogsFor(t, store, "rule-position-changed"), ignore); diff != "" {
+			t.Fatalf("change logs mismatch (-want +got):\n%s", diff)
+		}
+		if got, want := changeLogCount(t, store), before+1; got != want {
+			t.Fatalf("%d entries, want %d", got, want)
+		}
+	})
+
+	// Moves in both directions, mixed with creates and deletes, replay to the
+	// stored rules in the stored order.
+	t.Run("replaying the entries gives the stored rules", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rules := mustCreateServedRules(t, setting.ID, 5)
+		move(t, rules[0].ID, 4)
+		move(t, rules[3].ID, 0)
+		if _, err := store.DeleteRule(ctx, rules[2].ID); err != nil {
+			t.Fatalf("DeleteRule(): %v", err)
+		}
+		move(t, rules[4].ID, 2)
+		mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: setting.ID, Position: 1, Serve: 0.9, Clauses: json.RawMessage(validClauses)})
+		move(t, rules[1].ID, 4)
+		if diff := cmp.Diff(storedServes(t, store, setting.ID), replayRuleLogs(t, store)); diff != "" {
+			t.Fatalf("replayed rules mismatch (-stored +replayed):\n%s", diff)
+		}
+	})
+
+	// The key and old position are read when the rule moves, so a renamed flag
+	// and a rule pushed by an earlier write are logged as they are then.
+	t.Run("logs the current key and position", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rules := mustCreateNamedRules(t, store, setting.ID, "a", "b", "c")
+		if _, err := store.UpdateFlag(ctx, setting.FlagID, "checkout-v2"); err != nil {
+			t.Fatalf("UpdateFlag(): %v", err)
+		}
+		// b moves from 1 to 2 to make room.
+		mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: setting.ID, Position: 0, Name: "new", Clauses: json.RawMessage(validClauses)})
+		move(t, rules[1].ID, 0)
+		logs := storedChangeLogsFor(t, store, "rule-position-changed")
+		if len(logs) != 1 {
+			t.Fatalf("%d entries, want 1", len(logs))
+		}
+		if got := logs[0].FlagNewKey.String; got != "checkout-v2" {
+			t.Errorf("logged key %q, want %q", got, "checkout-v2")
+		}
+		if got := logs[0].RuleOldPosition.Int32; got != 2 {
+			t.Errorf("logged old position %d, want 2", got)
+		}
+		if got := logs[0].RuleNewPosition.Int32; got != 0 {
+			t.Errorf("logged new position %d, want 0", got)
+		}
+	})
+
+	// Each move gets its own entry with its own version, and earlier ones stay.
+	t.Run("each move counts", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rules := mustCreateNamedRules(t, store, setting.ID, "a", "b", "c")
+		env := mustGetEnv(t, store, setting.EnvironmentID)
+		moves := []struct{ from, to int32 }{{0, 2}, {2, 1}, {1, 0}}
+		for _, m := range moves {
+			move(t, rules[0].ID, m.to)
+		}
+		logs := storedChangeLogsFor(t, store, "rule-position-changed")
+		if len(logs) != len(moves) {
+			t.Fatalf("%d entries, want %d", len(logs), len(moves))
+		}
+		for i, m := range moves {
+			l := logs[i]
+			if want := env.Version + int64(i) + 1; l.TargetVersion != want {
+				t.Errorf("entry %d logged version %d, want %d", i, l.TargetVersion, want)
+			}
+			if l.RuleOldPosition.Int32 != m.from || l.RuleNewPosition.Int32 != m.to {
+				t.Errorf("entry %d logged a move from %d to %d, want %d to %d", i, l.RuleOldPosition.Int32, l.RuleNewPosition.Int32, m.from, m.to)
+			}
+		}
+	})
+
+	// Nothing changed, so there is nothing to log.
+	t.Run("own position logs nothing", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rules := mustCreateNamedRules(t, store, setting.ID, "a", "b")
+		before := changeLogCount(t, store)
+		move(t, rules[1].ID, 1)
+		if got := changeLogCount(t, store); got != before {
+			t.Fatalf("%d entries, want %d", got, before)
+		}
+	})
+
+	// Moves racing each other each log the version they moved to and the
+	// positions they saw then, so replaying them gives the stored order.
+	t.Run("racing moves log their own versions", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		const racers = 8
+		rules := mustCreateServedRules(t, setting.ID, racers)
+		env := mustGetEnv(t, store, setting.EnvironmentID)
+		errs := make(chan error, racers)
+		for i, r := range rules {
+			go func() {
+				// Each rule heads for the other end, so most of them still
+				// have somewhere to go when their turn comes.
+				_, err := store.ChangeRulePosition(ctx, database.ChangeRulePositionParams{ID: r.ID, Position: int32(racers - 1 - i)})
+				errs <- err
+			}()
+		}
+		for range racers {
+			if err := <-errs; err != nil {
+				t.Errorf("ChangeRulePosition(): %v", err)
+			}
+		}
+		logs := storedChangeLogsFor(t, store, "rule-position-changed")
+		if len(logs) == 0 {
+			t.Fatal("no entries, want at least one")
+		}
+		for i, l := range logs {
+			if want := env.Version + int64(i) + 1; l.TargetVersion != want {
+				t.Errorf("entry %d logged version %d, want %d", i, l.TargetVersion, want)
+			}
+		}
+		if got, want := mustGetEnv(t, store, env.ID).Version, env.Version+int64(len(logs)); got != want {
+			t.Errorf("version = %d, want one bump per entry, %d", got, want)
+		}
+		if diff := cmp.Diff(storedServes(t, store, setting.ID), replayRuleLogs(t, store)); diff != "" {
+			t.Fatalf("replayed rules mismatch (-stored +replayed):\n%s", diff)
+		}
+	})
+
+	// Nothing changed, so there is nothing to log.
+	t.Run("rejected move logs nothing", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rules := mustCreateNamedRules(t, store, setting.ID, "a", "b")
+		before := changeLogCount(t, store)
+		tests := map[string]database.ChangeRulePositionParams{
+			"negative position": {ID: rules[0].ID, Position: -1},
+			"position past end": {ID: rules[0].ID, Position: 2},
+			"unknown rule":      {ID: uuid.New(), Position: 1},
+		}
+		for name, arg := range tests {
+			t.Run(name, func(t *testing.T) {
+				if _, err := store.ChangeRulePosition(ctx, arg); err == nil {
+					t.Fatal("ChangeRulePosition() = nil error, want it rejected")
+				}
+				if got := changeLogCount(t, store); got != before {
+					t.Fatalf("%d entries, want %d", got, before)
+				}
+			})
+		}
+	})
+
+	t.Run("failed bump logs nothing", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rules := mustCreateNamedRules(t, store, setting.ID, "a", "b")
+		rejectEnvBumps(t, store)
+		if _, err := store.ChangeRulePosition(ctx, database.ChangeRulePositionParams{ID: rules[0].ID, Position: 1}); err == nil {
+			t.Fatal("ChangeRulePosition() = nil error, want it to fail")
+		}
+		if n := len(storedChangeLogsFor(t, store, "rule-position-changed")); n != 0 {
+			t.Fatalf("%d entries, want 0", n)
+		}
+	})
+
+	// The move, its shift, the bump and the log land together or not at all,
+	// so SDKs never evaluate rules in an order that's gone.
+	t.Run("failed log undoes the move", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rules := mustCreateNamedRules(t, store, setting.ID, "a", "b", "c")
+		env := mustGetEnv(t, store, setting.EnvironmentID)
+		rejectNewChangeLogs(t, store)
+		got, err := store.ChangeRulePosition(ctx, database.ChangeRulePositionParams{ID: rules[0].ID, Position: 2})
+		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, "can't update the rule"))
+		wantZeroRule(t, got)
+		wantRuleNames(t, store, setting.ID, "a", "b", "c")
+		if diff := cmp.Diff(env, mustGetEnv(t, store, env.ID)); diff != "" {
+			t.Errorf("environment changed after a failed log (-want +got):\n%s", diff)
+		}
+	})
+}
+
 // Rules belong to a flag setting, and go when its flag or environment does.
 func TestRulesDeletedWithOwner(t *testing.T) {
 	store := newTestStore(t)
