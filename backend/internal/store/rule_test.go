@@ -1315,6 +1315,63 @@ func ruleWrites(store *Store) map[string]ruleWrite {
 	}
 }
 
+// rejectRulePositions makes saving a rule at a position that fails check (an SQL
+// condition on position) fail until the test ends, leaving the rows already
+// there alone.
+func rejectRulePositions(t *testing.T, store *Store, check string) {
+	t.Helper()
+	if _, err := store.db.Exec("ALTER TABLE rules ADD CONSTRAINT reject_position CHECK (" + check + ") NOT VALID"); err != nil {
+		t.Fatalf("adding the constraint: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := store.db.Exec("ALTER TABLE rules DROP CONSTRAINT reject_position"); err != nil {
+			t.Errorf("dropping the constraint: %v", err)
+		}
+	})
+}
+
+// A write whose shift of the other rules fails changes nothing, and the caller
+// is told. Each check lets the rules a and b stay where they are but not where
+// the shift moves b.
+func TestRuleWritesFailedShift(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	tests := map[string]struct {
+		check   string
+		write   func(rules []database.Rule) (database.Rule, error)
+		message string
+	}{
+		// b moves from 1 to 2 to make room.
+		"CreateRule": {"position < 2", func(rules []database.Rule) (database.Rule, error) {
+			return store.CreateRule(ctx, database.CreateRuleParams{FlagSettingID: rules[0].FlagSettingID, Name: "new", Clauses: json.RawMessage(validClauses)})
+		}, "can't create the rule"},
+		// b moves from 1 to 0 to fill the gap.
+		"DeleteRule": {"position <> 0", func(rules []database.Rule) (database.Rule, error) {
+			return store.DeleteRule(ctx, rules[0].ID)
+		}, "can't delete the rule"},
+		// b moves from 1 to 0 to make room for a.
+		"ChangeRulePosition": {"position <> 0", func(rules []database.Rule) (database.Rule, error) {
+			return store.ChangeRulePosition(ctx, database.ChangeRulePositionParams{ID: rules[0].ID, Position: 1})
+		}, "can't update the rule"},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			setting := mustCreateRuleSetting(t, store)
+			rules := mustCreateNamedRules(t, store, setting.ID, "a", "b")
+			want := matrixState(t, store)
+			rejectRulePositions(t, store, test.check)
+			got, err := test.write(rules)
+			wantConnectErr(t, err, connect.NewError(connect.CodeInternal, test.message))
+			wantZeroRule(t, got)
+			wantRuleNames(t, store, setting.ID, "a", "b")
+			if got := matrixState(t, store); got != want {
+				t.Fatalf("state = %s, want %s", got, want)
+			}
+		})
+	}
+}
+
 // These wait for the lock before touching a row. They take settings and then
 // environments, and DeleteEnv the other way round, so without it they can
 // deadlock. They also read a setting's rules before writing, which the lock keeps
