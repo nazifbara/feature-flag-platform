@@ -1549,15 +1549,15 @@ func TestUpdateRuleBumpCounts(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
 
-	// A change to any one field is enough.
+	// A change to the serve or the clauses alone is enough.
 	t.Run("each change counts", func(t *testing.T) {
 		setting := mustCreateRuleSetting(t, store)
 		rule := mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: setting.ID, Name: "a", Serve: 0.25, Clauses: json.RawMessage(validClauses)})
 		env := mustGetEnv(t, store, setting.EnvironmentID)
 		changes := []database.UpdateRuleParams{
-			{ID: rule.ID, Name: "b", Serve: 0.25, Clauses: rule.Clauses},
-			{ID: rule.ID, Name: "b", Serve: 0.5, Clauses: rule.Clauses},
-			{ID: rule.ID, Name: "b", Serve: 0.5, Clauses: json.RawMessage(otherClauses)},
+			{ID: rule.ID, Name: "a", Serve: 0.5, Clauses: rule.Clauses},
+			{ID: rule.ID, Name: "a", Serve: 0.5, Clauses: json.RawMessage(otherClauses)},
+			{ID: rule.ID, Name: "b", Serve: 0.75, Clauses: json.RawMessage(otherClauses)},
 		}
 		for i, arg := range changes {
 			if _, err := store.UpdateRule(ctx, arg); err != nil {
@@ -1757,7 +1757,7 @@ func TestUpdateRuleBumpCounts(t *testing.T) {
 		errs := make(chan error, racers)
 		for range racers {
 			go func() {
-				_, err := store.UpdateRule(ctx, database.UpdateRuleParams{ID: rule.ID, Name: "changed", Serve: rule.Serve, Clauses: rule.Clauses})
+				_, err := store.UpdateRule(ctx, database.UpdateRuleParams{ID: rule.ID, Name: rule.Name, Serve: 0.75, Clauses: rule.Clauses})
 				errs <- err
 			}()
 		}
@@ -1768,6 +1768,272 @@ func TestUpdateRuleBumpCounts(t *testing.T) {
 		}
 		if got, want := mustGetEnv(t, store, env.ID).Version, env.Version+1; got != want {
 			t.Fatalf("version = %d, want %d", got, want)
+		}
+	})
+
+	// SDKs never see a rule's name, so a new name alone gives them nothing to
+	// pick up. The name is still saved.
+	t.Run("a name-only change leaves the version alone", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rule := mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: setting.ID, Name: "a", Serve: 0.25, Clauses: json.RawMessage(validClauses)})
+		env := mustGetEnv(t, store, setting.EnvironmentID)
+		got, err := store.UpdateRule(ctx, database.UpdateRuleParams{ID: rule.ID, Name: "b", Serve: rule.Serve, Clauses: rule.Clauses})
+		if err != nil {
+			t.Fatalf("UpdateRule(): %v", err)
+		}
+		if got.Name != "b" {
+			t.Errorf("UpdateRule() name = %q, want %q", got.Name, "b")
+		}
+		if stored := storedRule(t, store, rule.ID); stored.Name != "b" {
+			t.Errorf("stored name = %q, want %q", stored.Name, "b")
+		}
+		if diff := cmp.Diff(env, mustGetEnv(t, store, env.ID)); diff != "" {
+			t.Fatalf("environment changed (-want +got):\n%s", diff)
+		}
+	})
+}
+
+// An updated rule is logged in its setting's environment, so SDKs can pick it
+// up.
+func TestUpdateRuleLogsChange(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	// The entry carries the flag's key, the rule's new serve and clauses, the
+	// position it stays at and the version the environment moved to, and
+	// nothing else. Other rules, flags and environments are around, so an
+	// entry for any of them would show.
+	t.Run("one entry for the rule", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		mustCreateFlag(t, store, "dark-mode")
+		mustCreateEnv(t, store, "staging")
+		rules := mustCreateNamedRules(t, store, setting.ID, "a", "b", "c")
+		before := changeLogCount(t, store)
+		if _, err := store.UpdateRule(ctx, database.UpdateRuleParams{ID: rules[1].ID, Name: "b", Serve: 0.75, Clauses: json.RawMessage(otherClauses)}); err != nil {
+			t.Fatalf("UpdateRule(): %v", err)
+		}
+		logs := storedChangeLogsFor(t, store, "rule-updated")
+		if len(logs) != 1 {
+			t.Fatalf("%d entries, want 1", len(logs))
+		}
+		wantSameJSON(t, *logs[0].RuleClauses, otherClauses)
+		want := database.ChangeLog{
+			TargetVersion:   mustGetEnv(t, store, setting.EnvironmentID).Version,
+			EnvironmentID:   setting.EnvironmentID,
+			FlagNewKey:      sql.NullString{String: "new-checkout", Valid: true},
+			RuleServe:       sql.NullFloat64{Float64: 0.75, Valid: true},
+			RuleNewPosition: sql.NullInt32{Int32: 1, Valid: true},
+			Action:          "rule-updated",
+		}
+		ignore := cmpopts.IgnoreFields(database.ChangeLog{}, "ID", "CreatedAt", "RuleClauses")
+		if diff := cmp.Diff(want, logs[0], ignore); diff != "" {
+			t.Fatalf("change log mismatch (-want +got):\n%s", diff)
+		}
+		if got, want := changeLogCount(t, store), before+1; got != want {
+			t.Fatalf("%d entries, want %d", got, want)
+		}
+	})
+
+	// An SDK replacing the rule at the logged position with the logged values
+	// ends up with the stored rule. 0.1 has no exact binary form, so the entry
+	// has to hold the same float32.
+	t.Run("entry matches the stored rule", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rule := mustCreateNamedRules(t, store, setting.ID, "a")[0]
+		if _, err := store.UpdateRule(ctx, database.UpdateRuleParams{ID: rule.ID, Name: "a", Serve: 0.1, Clauses: json.RawMessage(otherClauses)}); err != nil {
+			t.Fatalf("UpdateRule(): %v", err)
+		}
+		logs := storedChangeLogsFor(t, store, "rule-updated")
+		if len(logs) != 1 {
+			t.Fatalf("%d entries, want 1", len(logs))
+		}
+		stored := storedRule(t, store, rule.ID)
+		if got := float32(logs[0].RuleServe.Float64); got != stored.Serve {
+			t.Errorf("logged serve %v, want %v", got, stored.Serve)
+		}
+		wantSameJSON(t, *logs[0].RuleClauses, string(stored.Clauses))
+	})
+
+	// The key and position are read when the rule changes, so a renamed flag
+	// and a moved rule are logged as they are now.
+	t.Run("logs the current key and position", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rules := mustCreateNamedRules(t, store, setting.ID, "a", "b")
+		if _, err := store.UpdateFlag(ctx, setting.FlagID, "checkout-v2"); err != nil {
+			t.Fatalf("UpdateFlag(): %v", err)
+		}
+		if _, err := store.ChangeRulePosition(ctx, database.ChangeRulePositionParams{ID: rules[1].ID, Position: 0}); err != nil {
+			t.Fatalf("ChangeRulePosition(): %v", err)
+		}
+		if _, err := store.UpdateRule(ctx, database.UpdateRuleParams{ID: rules[1].ID, Name: "b", Serve: 0.75, Clauses: rules[1].Clauses}); err != nil {
+			t.Fatalf("UpdateRule(): %v", err)
+		}
+		logs := storedChangeLogsFor(t, store, "rule-updated")
+		if len(logs) != 1 {
+			t.Fatalf("%d entries, want 1", len(logs))
+		}
+		if got := logs[0].FlagNewKey.String; got != "checkout-v2" {
+			t.Errorf("logged key %q, want %q", got, "checkout-v2")
+		}
+		if got := logs[0].RuleNewPosition.Int32; got != 0 {
+			t.Errorf("logged position %d, want 0", got)
+		}
+	})
+
+	// Each change gets its own entry with its own version, and earlier ones
+	// stay.
+	t.Run("each change counts", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rule := mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: setting.ID, Name: "a", Serve: 0.25, Clauses: json.RawMessage(validClauses)})
+		env := mustGetEnv(t, store, setting.EnvironmentID)
+		changes := []struct {
+			serve   float32
+			clauses string
+		}{{0.5, validClauses}, {0.5, otherClauses}, {0.75, validClauses}}
+		for _, c := range changes {
+			if _, err := store.UpdateRule(ctx, database.UpdateRuleParams{ID: rule.ID, Name: "a", Serve: c.serve, Clauses: json.RawMessage(c.clauses)}); err != nil {
+				t.Fatalf("UpdateRule(): %v", err)
+			}
+		}
+		logs := storedChangeLogsFor(t, store, "rule-updated")
+		if len(logs) != len(changes) {
+			t.Fatalf("%d entries, want %d", len(logs), len(changes))
+		}
+		for i, c := range changes {
+			l := logs[i]
+			if want := env.Version + int64(i) + 1; l.TargetVersion != want {
+				t.Errorf("entry %d logged version %d, want %d", i, l.TargetVersion, want)
+			}
+			if float32(l.RuleServe.Float64) != c.serve {
+				t.Errorf("entry %d logged serve %v, want %v", i, l.RuleServe.Float64, c.serve)
+			}
+			wantSameJSON(t, *l.RuleClauses, c.clauses)
+		}
+	})
+
+	// Nothing changed, so there is nothing to log. The name is normalized and
+	// the clauses compared by meaning, so these are all the same rule.
+	t.Run("same values log nothing", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rule := mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: setting.ID, Name: "a", Serve: 0.1, Clauses: json.RawMessage(validClauses)})
+		before := changeLogCount(t, store)
+		for _, arg := range []database.UpdateRuleParams{
+			{ID: rule.ID, Name: rule.Name, Serve: rule.Serve, Clauses: rule.Clauses},
+			{ID: rule.ID, Name: "  " + rule.Name + "  ", Serve: rule.Serve, Clauses: rule.Clauses},
+			{ID: rule.ID, Name: rule.Name, Serve: rule.Serve, Clauses: json.RawMessage(`[{"values":["BJ"],"kind":"string","operator":"eq","attribute":"country"}]`)},
+		} {
+			if _, err := store.UpdateRule(ctx, arg); err != nil {
+				t.Fatalf("UpdateRule(): %v", err)
+			}
+			if got := changeLogCount(t, store); got != before {
+				t.Fatalf("%d entries after UpdateRule(%+v), want %d", got, arg, before)
+			}
+		}
+	})
+
+	// SDKs never see a rule's name, so a new name alone has nothing to log.
+	t.Run("a name-only change logs nothing", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rule := mustCreateNamedRules(t, store, setting.ID, "a")[0]
+		before := changeLogCount(t, store)
+		if _, err := store.UpdateRule(ctx, database.UpdateRuleParams{ID: rule.ID, Name: "b", Serve: rule.Serve, Clauses: rule.Clauses}); err != nil {
+			t.Fatalf("UpdateRule(): %v", err)
+		}
+		if got := changeLogCount(t, store); got != before {
+			t.Fatalf("%d entries, want %d", got, before)
+		}
+	})
+
+	// Updates racing each other each log the version they moved to, so no two
+	// entries claim the same one. Every serve is different, so each racer has
+	// something to change.
+	t.Run("racing changes log their own versions", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rule := mustCreateNamedRules(t, store, setting.ID, "a")[0]
+		env := mustGetEnv(t, store, setting.EnvironmentID)
+		const racers = 8
+		errs := make(chan error, racers)
+		for i := range racers {
+			go func() {
+				_, err := store.UpdateRule(ctx, database.UpdateRuleParams{ID: rule.ID, Name: "a", Serve: float32(i+1) / racers, Clauses: rule.Clauses})
+				errs <- err
+			}()
+		}
+		for range racers {
+			if err := <-errs; err != nil {
+				t.Errorf("UpdateRule(): %v", err)
+			}
+		}
+		logs := storedChangeLogsFor(t, store, "rule-updated")
+		if len(logs) != racers {
+			t.Fatalf("%d entries, want %d", len(logs), racers)
+		}
+		serves := map[float64]bool{}
+		for i, l := range logs {
+			if want := env.Version + int64(i) + 1; l.TargetVersion != want {
+				t.Errorf("entry %d logged version %d, want %d", i, l.TargetVersion, want)
+			}
+			if serves[l.RuleServe.Float64] {
+				t.Errorf("serve %v logged twice", l.RuleServe.Float64)
+			}
+			serves[l.RuleServe.Float64] = true
+		}
+		// The last entry is what an SDK ends up with, so it has to be what's
+		// stored.
+		if got, want := float32(logs[racers-1].RuleServe.Float64), storedRule(t, store, rule.ID).Serve; got != want {
+			t.Errorf("last entry logged serve %v, want the stored %v", got, want)
+		}
+	})
+
+	// Nothing changed, so there is nothing to log.
+	t.Run("rejected update logs nothing", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rule := mustCreateNamedRules(t, store, setting.ID, "a")[0]
+		before := changeLogCount(t, store)
+		tests := map[string]database.UpdateRuleParams{
+			"bad serve":    {ID: rule.ID, Name: "a", Serve: 2, Clauses: rule.Clauses},
+			"no clauses":   {ID: rule.ID, Name: "a", Serve: 0.5, Clauses: json.RawMessage(`[]`)},
+			"unknown rule": {ID: uuid.New(), Name: "a", Serve: 0.5, Clauses: rule.Clauses},
+		}
+		for name, arg := range tests {
+			t.Run(name, func(t *testing.T) {
+				if _, err := store.UpdateRule(ctx, arg); err == nil {
+					t.Fatal("UpdateRule() = nil error, want it rejected")
+				}
+				if got := changeLogCount(t, store); got != before {
+					t.Fatalf("%d entries, want %d", got, before)
+				}
+			})
+		}
+	})
+
+	t.Run("failed bump logs nothing", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rule := mustCreateNamedRules(t, store, setting.ID, "a")[0]
+		rejectEnvBumps(t, store)
+		if _, err := store.UpdateRule(ctx, database.UpdateRuleParams{ID: rule.ID, Name: "a", Serve: 0.75, Clauses: rule.Clauses}); err == nil {
+			t.Fatal("UpdateRule() = nil error, want it to fail")
+		}
+		if n := len(storedChangeLogsFor(t, store, "rule-updated")); n != 0 {
+			t.Fatalf("%d entries, want 0", n)
+		}
+	})
+
+	// The update, the bump and the log land together or not at all, so SDKs
+	// never miss a change.
+	t.Run("failed log undoes the update", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rule := mustCreateNamedRules(t, store, setting.ID, "a")[0]
+		env := mustGetEnv(t, store, setting.EnvironmentID)
+		rejectNewChangeLogs(t, store)
+		got, err := store.UpdateRule(ctx, database.UpdateRuleParams{ID: rule.ID, Name: "b", Serve: 0.75, Clauses: json.RawMessage(otherClauses)})
+		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, "can't update the rule"))
+		wantZeroRule(t, got)
+		if diff := cmp.Diff(rule, storedRule(t, store, rule.ID)); diff != "" {
+			t.Errorf("rule changed after a failed log (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff(env, mustGetEnv(t, store, env.ID)); diff != "" {
+			t.Errorf("environment changed after a failed log (-want +got):\n%s", diff)
 		}
 	})
 }
