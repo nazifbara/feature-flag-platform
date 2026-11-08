@@ -226,10 +226,12 @@ func (s *Store) DeleteRule(ctx context.Context, id uuid.UUID) (database.Rule, er
 }
 
 // UpdateRule replaces the name, serve and clauses of the rule with the given id
-// and returns it as updated. The rule's position doesn't change. It bumps the
-// version of the rule's environment, unless the rule already has those values,
-// which changes nothing. Clauses are compared as parsed, so JSON spacing and key
-// order don't count, but the order of clauses and of their values does.
+// and returns it as updated. The rule's position doesn't change. When the serve
+// or clauses change, it bumps the version of the rule's environment and logs the
+// update there. A new name alone is saved without either, since SDKs never see
+// it, and values the rule already has change nothing. Clauses are compared as
+// parsed, so JSON spacing and key order don't count, but the order of clauses
+// and of their values does.
 func (s *Store) UpdateRule(ctx context.Context, args database.UpdateRuleParams) (database.Rule, error) {
 	name, err := normalizeRuleName("update", args.Name)
 	if err != nil {
@@ -264,11 +266,19 @@ func (s *Store) UpdateRule(ctx context.Context, args database.UpdateRuleParams) 
 			return err
 		}
 		rule = r
+		if currentRule.Name != args.Name &&
+			reflect.DeepEqual(parsedCurrentClauses, parsedClauses) &&
+			currentRule.Serve == args.Serve {
+			return nil
+		}
 		setting, err := q.GetFlagSettingByID(ctx, rule.FlagSettingID)
 		if err != nil {
 			return err
 		}
-		return q.IncrementEnvVersion(ctx, setting.EnvironmentID)
+		if err := q.IncrementEnvVersion(ctx, setting.EnvironmentID); err != nil {
+			return err
+		}
+		return q.CreateChangeLogsForRuleUpdate(ctx, r.ID)
 	})
 	if err != nil {
 		if _, ok := errors.AsType[*connect.Error](err); ok {
