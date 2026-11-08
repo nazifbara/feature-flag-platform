@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -482,6 +483,37 @@ func TestUpdateFlagSettingRolledBack(t *testing.T) {
 	}
 	if diff := cmp.Diff(s, storedFlagSetting(t, store, s.ID)); diff != "" {
 		t.Fatalf("setting changed after rollback (-want +got):\n%s", diff)
+	}
+}
+
+// A setting whose write fails stays as it was, nothing is bumped or logged, and
+// the caller is told.
+func TestUpdateFlagSettingFailedWrite(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	flag := mustCreateFlag(t, store, "new-checkout")
+	env := mustCreateEnv(t, store, "production")
+	s := mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Fallthrough: 0.5})
+	want := matrixState(t, store)
+	if _, err := store.db.Exec("ALTER TABLE flag_settings ADD CONSTRAINT reject_full CHECK (fallthrough < 1) NOT VALID"); err != nil {
+		t.Fatalf("adding the constraint: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := store.db.Exec("ALTER TABLE flag_settings DROP CONSTRAINT reject_full"); err != nil {
+			t.Errorf("dropping the constraint: %v", err)
+		}
+	})
+
+	got, err := store.UpdateFlagSetting(ctx, database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: 1})
+	wantConnectErr(t, err, connect.NewError(connect.CodeInternal, "can't update the flag setting"))
+	if got != (database.FlagSetting{}) {
+		t.Fatalf("UpdateFlagSetting() = %+v on error, want the zero FlagSetting", got)
+	}
+	if diff := cmp.Diff(s, storedFlagSetting(t, store, s.ID)); diff != "" {
+		t.Errorf("setting changed after a failed write (-want +got):\n%s", diff)
+	}
+	if got := matrixState(t, store); got != want {
+		t.Errorf("state = %s, want %s", got, want)
 	}
 }
 
@@ -1331,6 +1363,104 @@ func TestWritesWaitForMatrixLock(t *testing.T) {
 			}
 			if err := <-done; err != nil {
 				t.Fatalf("%s(): %v", name, err)
+			}
+		})
+	}
+}
+
+// matrixState sums up the flags, environments, rules and change logs, so a test
+// can check a failed write left all of them alone.
+func matrixState(t *testing.T, store *Store) string {
+	t.Helper()
+	var flags, envs, versions, rules, logs int64
+	err := store.db.QueryRow(`
+		SELECT (SELECT count(*) FROM flags), (SELECT count(*) FROM environments),
+		  (SELECT coalesce(sum(version), 0) FROM environments),
+		  (SELECT count(*) FROM rules), (SELECT count(*) FROM change_logs)`).
+		Scan(&flags, &envs, &versions, &rules, &logs)
+	if err != nil {
+		t.Fatalf("reading the matrix state: %v", err)
+	}
+	return fmt.Sprintf("%d flags, %d environments at versions summing to %d, %d rules, %d change logs", flags, envs, versions, rules, logs)
+}
+
+// A write whose caller gives up while it waits for the lock stops there, says it
+// was canceled, and changes nothing.
+func TestWritesCanceledWhileWaitingForMatrixLock(t *testing.T) {
+	store := newTestStore(t)
+
+	type fixture struct {
+		flag  database.Flag
+		env   database.Environment
+		rules []database.Rule
+	}
+	tests := map[string]struct {
+		write   func(ctx context.Context, f fixture) error
+		message string
+	}{
+		"CreateEnv": {func(ctx context.Context, _ fixture) error {
+			_, err := store.CreateEnv(ctx, "staging")
+			return err
+		}, "can't create the environment"},
+		"DeleteEnv": {func(ctx context.Context, f fixture) error {
+			_, err := store.DeleteEnv(ctx, f.env.ID)
+			return err
+		}, "can't delete the environment"},
+		"CreateFlag": {func(ctx context.Context, _ fixture) error {
+			_, err := store.CreateFlag(ctx, "dark-mode")
+			return err
+		}, "can't create the flag"},
+		"UpdateFlag": {func(ctx context.Context, f fixture) error {
+			_, err := store.UpdateFlag(ctx, f.flag.ID, "checkout-v2")
+			return err
+		}, "can't update the flag"},
+		"DeleteFlag": {func(ctx context.Context, f fixture) error {
+			_, err := store.DeleteFlag(ctx, f.flag.ID)
+			return err
+		}, "can't delete the flag"},
+		"UpdateFlagSetting": {func(ctx context.Context, f fixture) error {
+			_, err := store.UpdateFlagSetting(ctx, database.UpdateFlagSettingParams{FlagID: f.flag.ID, EnvironmentID: f.env.ID, Enabled: true, Fallthrough: 1})
+			return err
+		}, "can't update the flag setting"},
+		"CreateRule": {func(ctx context.Context, f fixture) error {
+			_, err := store.CreateRule(ctx, database.CreateRuleParams{FlagSettingID: f.rules[0].FlagSettingID, Clauses: json.RawMessage(validClauses)})
+			return err
+		}, "can't create the rule"},
+		"DeleteRule": {func(ctx context.Context, f fixture) error {
+			_, err := store.DeleteRule(ctx, f.rules[0].ID)
+			return err
+		}, "can't delete the rule"},
+		"UpdateRule": {func(ctx context.Context, f fixture) error {
+			_, err := store.UpdateRule(ctx, database.UpdateRuleParams{ID: f.rules[0].ID, Name: "a", Serve: 0.75, Clauses: f.rules[0].Clauses})
+			return err
+		}, "can't update the rule"},
+		"ChangeRulePosition": {func(ctx context.Context, f fixture) error {
+			_, err := store.ChangeRulePosition(ctx, database.ChangeRulePositionParams{ID: f.rules[0].ID, Position: 1})
+			return err
+		}, "can't update the rule"},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			setting := mustCreateRuleSetting(t, store)
+			f := fixture{
+				flag:  storedFlag(t, store, setting.FlagID),
+				env:   mustGetEnv(t, store, setting.EnvironmentID),
+				rules: mustCreateNamedRules(t, store, setting.ID, "a", "b"),
+			}
+			want := matrixState(t, store)
+			tx, _ := beginMatrixTx(t, store)
+			defer tx.Rollback()
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			done := wantWaits(t, func() error { return test.write(ctx, f) })
+			cancel()
+			wantConnectErr(t, <-done, connect.NewError(connect.CodeCanceled, test.message))
+			if err := tx.Rollback(); err != nil {
+				t.Fatalf("Rollback(): %v", err)
+			}
+			if got := matrixState(t, store); got != want {
+				t.Fatalf("state = %s, want %s", got, want)
 			}
 		})
 	}
