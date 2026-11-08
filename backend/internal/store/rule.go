@@ -102,7 +102,8 @@ func normalizeRuleName(action, name string) (string, error) {
 // CreateRule adds a rule to a flag's settings in one environment, at a position
 // from 0 up to the setting's rule count. Rules from that position on get a
 // position one higher, which makes room. Clauses are checked by parseClauses, so
-// a saved rule can always be loaded back. It bumps that environment's version.
+// a saved rule can always be loaded back. It bumps that environment's version and
+// logs the new rule there.
 func (s *Store) CreateRule(ctx context.Context, args database.CreateRuleParams) (database.Rule, error) {
 	name, err := normalizeRuleName("create", args.Name)
 	if err != nil {
@@ -148,7 +149,10 @@ func (s *Store) CreateRule(ctx context.Context, args database.CreateRuleParams) 
 		if err != nil {
 			return err
 		}
-		return q.IncrementEnvVersion(ctx, setting.EnvironmentID)
+		if err := q.IncrementEnvVersion(ctx, setting.EnvironmentID); err != nil {
+			return err
+		}
+		return q.CreateChangeLogsForRuleCreate(ctx, rule.ID)
 	})
 	if err != nil {
 		if _, ok := errors.AsType[*connect.Error](err); ok {
