@@ -302,8 +302,9 @@ func (s *Store) CountRulesBySetting(ctx context.Context, flagSettingID uuid.UUID
 // ChangeRulePosition moves the rule with the given id to a position from 0 up to
 // the setting's rule count minus one and returns it as updated. Rules between its
 // old and new positions get a position one higher or lower, which keeps the
-// positions contiguous. It bumps the version of the rule's environment, unless
-// the rule is already at that position, which changes nothing.
+// positions contiguous. It bumps the version of the rule's environment and logs
+// the move there, unless the rule is already at that position, which changes
+// nothing.
 func (s *Store) ChangeRulePosition(ctx context.Context, args database.ChangeRulePositionParams) (database.Rule, error) {
 	if err := checkPosition("update", args.Position); err != nil {
 		return database.Rule{}, err
@@ -350,7 +351,13 @@ func (s *Store) ChangeRulePosition(ctx context.Context, args database.ChangeRule
 		if err != nil {
 			return err
 		}
-		return q.IncrementEnvVersion(ctx, setting.EnvironmentID)
+		if err := q.IncrementEnvVersion(ctx, setting.EnvironmentID); err != nil {
+			return err
+		}
+		return q.CreateChangeLogsForRulePositionChange(ctx, database.CreateChangeLogsForRulePositionChangeParams{
+			OldPosition: rule.Position,
+			RuleID:      rule.ID,
+		})
 	})
 	if err != nil {
 		return database.Rule{}, ffserrors.FromDBErr(err, "can't update the rule")

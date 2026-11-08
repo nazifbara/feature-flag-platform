@@ -196,6 +196,44 @@ WHERE
     AND e.id = fs.environment_id;
 
 
+-- name: CreateChangeLogsForRulePositionChange :exec
+-- Logs a rule's move in its setting's environment, with the flag's key, the
+-- position it left and the one it took, and the environment's version. The old
+-- position is gone by then, so it's passed in; the new one and the version are
+-- read, so it runs after the rule is moved and the version bumped.
+WITH now AS (SELECT clock_timestamp() AS ts)
+
+INSERT INTO change_logs (
+    id,
+    target_version,
+    environment_id,
+    flag_new_key,
+    rule_old_position,
+    rule_new_position,
+    action,
+    created_at
+)
+SELECT
+    gen_random_uuid(),
+    e.version,
+    e.id,
+    f.key,
+    sqlc.arg('old_position')::integer,
+    r.position,
+    'rule-position-changed',
+    now.ts
+FROM rules AS r
+CROSS JOIN environments AS e
+CROSS JOIN flags AS f
+CROSS JOIN flag_settings AS fs
+CROSS JOIN now
+WHERE
+    r.id = sqlc.arg('rule_id')
+    AND fs.id = r.flag_setting_id
+    AND f.id = fs.flag_id
+    AND e.id = fs.environment_id;
+
+
 -- name: CreateChangeLogsForRuleDelete :exec
 -- Logs a rule's deletion in its setting's environment, with the flag's key, the
 -- position the rule had and the environment's version. The rule is gone by then,
