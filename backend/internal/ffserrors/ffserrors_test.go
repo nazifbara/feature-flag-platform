@@ -58,3 +58,64 @@ func TestFromDBErr(t *testing.T) {
 		})
 	}
 }
+
+// A connect.Error already says what the client should see, so FromDBErr keeps
+// its code and message instead of replacing them. Whatever wrapped it is kept as
+// a cause, so it can still be logged.
+func TestFromDBErrKeepsConnectErrors(t *testing.T) {
+	invalid := connect.NewError(connect.CodeInvalidArgument, "can't create a rule with a position outside [0, 2]")
+	rollbackErr := errors.New("rollback failed")
+	tests := map[string]struct {
+		err  error
+		want *connect.Error
+		// causes are what errors.Is must still find in the result.
+		causes []error
+	}{
+		"wrapped": {
+			err:    fmt.Errorf("query: %w", invalid),
+			want:   invalid,
+			causes: []error{invalid},
+		},
+		// ExecTx wraps the error this way when the rollback fails too.
+		"next to a rollback error": {
+			err:    fmt.Errorf("tx error: %w, rollback error: %w", invalid, rollbackErr),
+			want:   invalid,
+			causes: []error{invalid, rollbackErr},
+		},
+		// A connect.Error wrapping a database error keeps its own code, not
+		// the one the database error would map to.
+		"with a database cause": {
+			err:    fmt.Errorf("move: %w", connect.NewError(connect.CodeFailedPrecondition, "can't move the rule").WithCause(sql.ErrNoRows)),
+			want:   connect.NewError(connect.CodeFailedPrecondition, "can't move the rule"),
+			causes: []error{sql.ErrNoRows},
+		},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			got := FromDBErr(test.err, "can't save the thing")
+			connectErr, ok := got.(*connect.Error)
+			if !ok {
+				t.Fatalf("FromDBErr(%v) = %T, want *connect.Error", test.err, got)
+			}
+			if connectErr.Code() != test.want.Code() || connectErr.Message() != test.want.Message() {
+				t.Errorf("FromDBErr(%v) = %v, want %v", test.err, got, test.want)
+			}
+			if !errors.Is(got, test.err) {
+				t.Errorf("FromDBErr(%v) = %v, want it to wrap the original error", test.err, got)
+			}
+			for _, cause := range test.causes {
+				if !errors.Is(got, cause) {
+					t.Errorf("FromDBErr(%v) lost the cause %v", test.err, cause)
+				}
+			}
+		})
+	}
+
+	// Nothing wraps it, so there is nothing to keep and it comes back as it
+	// is, not as its own cause.
+	t.Run("as is", func(t *testing.T) {
+		if got := FromDBErr(invalid, "can't save the thing"); got != invalid {
+			t.Fatalf("FromDBErr(%v) = %v, want the same error back", invalid, got)
+		}
+	})
+}
