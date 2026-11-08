@@ -2,8 +2,8 @@
 INSERT INTO users (
     id,
     email,
-    firstName,
-    lastName,
+    firstname,
+    lastname,
     created_at,
     updated_at
 )
@@ -14,4 +14,4 @@ VALUES (
     $4,
     NOW(),
     NOW()
-) RETURNING *; 
+) RETURNING *;
