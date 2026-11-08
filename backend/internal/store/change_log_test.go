@@ -4,11 +4,209 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 	"uuid"
 
+	"connectrpc.com/connect/v2"
+	"github.com/google/go-cmp/cmp"
 	"github.com/lib/pq"
 	"github.com/nazifbara/flagsvc/backend/internal/database"
 )
+
+// mustChangeSetting changes the flag's setting in env n times, each change
+// moving env up one version and logging one entry.
+func mustChangeSetting(t *testing.T, store *Store, flag database.Flag, env database.Environment, n int) {
+	t.Helper()
+	for i := range n {
+		mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{
+			FlagID:        flag.ID,
+			EnvironmentID: env.ID,
+			Enabled:       i%2 == 0,
+			Fallthrough:   float32(i+1) / float32(n+1),
+		})
+	}
+}
+
+// mustChangeSince gives what ChangeSince gives for env since version.
+func mustChangeSince(t *testing.T, store *Store, env uuid.UUID, version int64) []database.ChangeLog {
+	t.Helper()
+	got, err := store.ChangeSince(context.Background(), database.ChangeSinceParams{EnvironmentID: env, Version: version})
+	if err != nil {
+		t.Fatalf("ChangeSince(%d): %v", version, err)
+	}
+	return got
+}
+
+// SDKs replay the entries one after the other, so they must get every entry
+// past their version, oldest first, and only those of their environment.
+func TestChangeSince(t *testing.T) {
+	store := newTestStore(t)
+
+	t.Run("nothing for an SDK up to date", func(t *testing.T) {
+		resetDB(t, store.db)
+		env := mustCreateEnv(t, store, "production")
+		mustChangeSetting(t, store, mustCreateFlag(t, store, "new-checkout"), env, 2)
+		env = mustGetEnv(t, store, env.ID)
+		if got := mustChangeSince(t, store, env.ID, env.Version); len(got) != 0 {
+			t.Fatalf("ChangeSince(%d) = %+v, want no entries", env.Version, got)
+		}
+	})
+
+	// Replaying in any other order would leave the SDK with an older setting,
+	// or with rules in the wrong places.
+	t.Run("entries past the version, oldest first", func(t *testing.T) {
+		resetDB(t, store.db)
+		env := mustCreateEnv(t, store, "production")
+		flag := mustCreateFlag(t, store, "new-checkout")
+		since := mustGetEnv(t, store, env.ID).Version
+		mustChangeSetting(t, store, flag, env, 5)
+
+		want := queryChangeLogs(t, store, "environment_id = $1 AND target_version > $2", env.ID, since)
+		if len(want) != 5 {
+			t.Fatalf("%d entries past version %d, want 5", len(want), since)
+		}
+		if diff := cmp.Diff(want, mustChangeSince(t, store, env.ID, since)); diff != "" {
+			t.Fatalf("ChangeSince(%d) (-want +got):\n%s", since, diff)
+		}
+	})
+
+	t.Run("only the environment's entries", func(t *testing.T) {
+		resetDB(t, store.db)
+		env := mustCreateEnv(t, store, "production")
+		other := mustCreateEnv(t, store, "staging")
+		flag := mustCreateFlag(t, store, "new-checkout")
+		mustChangeSetting(t, store, flag, other, 3)
+
+		got := mustChangeSince(t, store, env.ID, 1)
+		want := queryChangeLogs(t, store, "environment_id = $1", env.ID)
+		if diff := cmp.Diff(want, got); diff != "" {
+			t.Fatalf("ChangeSince(1) (-want +got):\n%s", diff)
+		}
+	})
+
+	// The furthest an SDK can be behind and still catch up: every entry it is
+	// missing comes back, none cut off.
+	t.Run("every entry for an SDK as far behind as allowed", func(t *testing.T) {
+		resetDB(t, store.db)
+		env := mustCreateEnv(t, store, "production")
+		flag := mustCreateFlag(t, store, "new-checkout")
+		since := mustGetEnv(t, store, env.ID).Version
+		mustChangeSetting(t, store, flag, env, maxChangesBehind)
+
+		got := mustChangeSince(t, store, env.ID, since)
+		want := queryChangeLogs(t, store, "environment_id = $1 AND target_version > $2", env.ID, since)
+		if diff := cmp.Diff(want, got); diff != "" {
+			t.Fatalf("ChangeSince(%d) (-want +got):\n%s", since, diff)
+		}
+		if len(got) != maxChangesBehind {
+			t.Fatalf("ChangeSince(%d) gave %d entries, want %d", since, len(got), maxChangesBehind)
+		}
+	})
+
+	// One version too many and the SDK has to sync from scratch instead.
+	t.Run("too old an SDK one version further behind", func(t *testing.T) {
+		resetDB(t, store.db)
+		env := mustCreateEnv(t, store, "production")
+		flag := mustCreateFlag(t, store, "new-checkout")
+		since := mustGetEnv(t, store, env.ID).Version
+		mustChangeSetting(t, store, flag, env, maxChangesBehind+1)
+
+		got, err := store.ChangeSince(context.Background(), database.ChangeSinceParams{EnvironmentID: env.ID, Version: since})
+		wantConnectErr(t, err, connect.NewError(connect.CodeFailedPrecondition, "too old"))
+		if got != nil {
+			t.Fatalf("ChangeSince(%d) = %+v on error, want nil", since, got)
+		}
+	})
+
+	// An SDK can't be ahead of the server, so its version is wrong.
+	t.Run("rejects a version past the environment's", func(t *testing.T) {
+		resetDB(t, store.db)
+		env := mustCreateEnv(t, store, "production")
+		got, err := store.ChangeSince(context.Background(), database.ChangeSinceParams{EnvironmentID: env.ID, Version: env.Version + 1})
+		connectErr, ok := errors.AsType[*connect.Error](err)
+		if !ok || connectErr.Code() != connect.CodeInvalidArgument {
+			t.Fatalf("ChangeSince(%d) error = %v, want code %v", env.Version+1, err, connect.CodeInvalidArgument)
+		}
+		if got != nil {
+			t.Fatalf("ChangeSince(%d) = %+v on error, want nil", env.Version+1, got)
+		}
+	})
+
+	t.Run("not found for an unknown environment", func(t *testing.T) {
+		resetDB(t, store.db)
+		got, err := store.ChangeSince(context.Background(), database.ChangeSinceParams{EnvironmentID: uuid.New(), Version: 1})
+		wantConnectErr(t, err, connect.NewError(connect.CodeNotFound, "can't get the change logs"))
+		if got != nil {
+			t.Fatalf("ChangeSince() = %+v on error, want nil", got)
+		}
+	})
+}
+
+// ChangeSince reads the version and the entries under the lock, so it can't see
+// a version a write has bumped but not logged yet.
+func TestChangeSinceWaitsForMatrixLock(t *testing.T) {
+	store := newTestStore(t)
+	env := mustCreateEnv(t, store, "production")
+	tx, _ := beginMatrixTx(t, store)
+	defer tx.Rollback()
+
+	done := wantWaits(t, func() error {
+		_, err := store.ChangeSince(context.Background(), database.ChangeSinceParams{EnvironmentID: env.ID, Version: env.Version})
+		return err
+	})
+	if err := tx.Rollback(); err != nil {
+		t.Fatalf("Rollback(): %v", err)
+	}
+	if err := <-done; err != nil {
+		t.Fatalf("ChangeSince(): %v", err)
+	}
+}
+
+func TestChangeSinceReportsErrors(t *testing.T) {
+	store := newTestStore(t)
+	env := mustCreateEnv(t, store, "production")
+	arg := database.ChangeSinceParams{EnvironmentID: env.ID, Version: env.Version}
+
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	expired, cancelExpired := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancelExpired()
+
+	tests := map[string]struct {
+		ctx  context.Context
+		want *connect.Error
+	}{
+		"canceled context": {
+			ctx:  canceled,
+			want: connect.NewError(connect.CodeCanceled, "can't get the change logs"),
+		},
+		"expired deadline": {
+			ctx:  expired,
+			want: connect.NewError(connect.CodeDeadlineExceeded, "can't get the change logs"),
+		},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			got, err := store.ChangeSince(test.ctx, arg)
+			wantConnectErr(t, err, test.want)
+			if got != nil {
+				t.Fatalf("ChangeSince() = %+v on error, want nil", got)
+			}
+		})
+	}
+
+	// Run last: it closes the connection pool the other cases use.
+	t.Run("closed database is internal", func(t *testing.T) {
+		if err := store.db.Close(); err != nil {
+			t.Fatalf("closing the database: %v", err)
+		}
+		got, err := store.ChangeSince(context.Background(), arg)
+		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, "can't get the change logs"))
+		if got != nil {
+			t.Fatalf("ChangeSince() = %+v on error, want nil", got)
+		}
+	})
+}
 
 // An environment's versions and its entries go one to one, which is what keeps
 // ChangeSince to maxChangesBehind entries, so the table takes at most one entry

@@ -1,3 +1,9 @@
+-- name: ChangeSince :many
+-- Gives an environment's entries past a version, at most 40 of them.
+SELECT * FROM change_logs
+WHERE environment_id = sqlc.arg('environment_id') AND target_version > sqlc.arg('version')
+ORDER BY target_version ASC;
+
 -- name: CreateChangeLogsForEnvDelete :exec
 -- Logs an environment's deletion, with the version after the one it was at, so
 -- SDKs syncing it see a newer version. The environment is gone by then, so its
