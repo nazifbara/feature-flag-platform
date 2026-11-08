@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,6 +16,7 @@ import (
 
 	"connectrpc.com/connect/v2"
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/lib/pq"
 	"github.com/nazifbara/flagsvc/backend/internal/database"
 )
@@ -989,6 +991,195 @@ func TestCreateRuleBumpsEnvVersion(t *testing.T) {
 		}
 		if got, want := mustGetEnv(t, store, env.ID).Version, env.Version+1; got != want {
 			t.Errorf("version = %d, want %d", got, want)
+		}
+	})
+}
+
+// A new rule is logged in its setting's environment, so SDKs can pick it up.
+func TestCreateRuleLogsChange(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	// The entry carries the flag's key, the rule's serve, clauses and position
+	// and the version the environment moved to, and nothing else. Other flags
+	// and environments are around, so an entry for any of them would show.
+	t.Run("one entry for the rule", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		mustCreateFlag(t, store, "dark-mode")
+		mustCreateEnv(t, store, "staging")
+		before := changeLogCount(t, store)
+		mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: setting.ID, Name: "benin", Serve: 0.25, Clauses: json.RawMessage(validClauses)})
+		logs := storedChangeLogsFor(t, store, "rule-created")
+		if len(logs) != 1 {
+			t.Fatalf("%d entries, want 1", len(logs))
+		}
+		wantSameJSON(t, *logs[0].RuleClauses, validClauses)
+		want := database.ChangeLog{
+			TargetVersion:   mustGetEnv(t, store, setting.EnvironmentID).Version,
+			EnvironmentID:   setting.EnvironmentID,
+			FlagNewKey:      sql.NullString{String: "new-checkout", Valid: true},
+			RuleServe:       sql.NullFloat64{Float64: 0.25, Valid: true},
+			RuleNewPosition: sql.NullInt32{Int32: 0, Valid: true},
+			Action:          "rule-created",
+		}
+		ignore := cmpopts.IgnoreFields(database.ChangeLog{}, "ID", "CreatedAt", "RuleClauses")
+		if diff := cmp.Diff(want, logs[0], ignore); diff != "" {
+			t.Fatalf("change log mismatch (-want +got):\n%s", diff)
+		}
+		if got, want := changeLogCount(t, store), before+1; got != want {
+			t.Fatalf("%d entries, want %d", got, want)
+		}
+	})
+
+	// A rule put between others is logged at the position it gets, and the
+	// rules it pushed down get no entry of their own.
+	t.Run("rule in the middle logs its position", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		mustCreateNamedRules(t, store, setting.ID, "a", "b", "c")
+		before := changeLogCount(t, store)
+		mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: setting.ID, Position: 1, Name: "new", Clauses: json.RawMessage(validClauses)})
+		wantRuleNames(t, store, setting.ID, "a", "new", "b", "c")
+		if got, want := changeLogCount(t, store), before+1; got != want {
+			t.Fatalf("%d entries, want %d", got, want)
+		}
+		logs := storedChangeLogsFor(t, store, "rule-created")
+		if got := logs[len(logs)-1].RuleNewPosition; got != (sql.NullInt32{Int32: 1, Valid: true}) {
+			t.Errorf("logged position %+v, want 1", got)
+		}
+	})
+
+	// An SDK inserting each rule at its logged position, pushing the rest down,
+	// ends up with the stored rules in the stored order. 0.1 has no exact
+	// binary form, so serves are compared as the float32 the rule holds.
+	t.Run("replaying the entries gives the stored rules", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		creates := []struct {
+			position int32
+			serve    float32
+			clauses  string
+		}{{0, 0.1, validClauses}, {0, 0.2, otherClauses}, {2, 0.3, validClauses}, {1, 0.4, otherClauses}, {4, 0.5, validClauses}}
+		for _, c := range creates {
+			mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: setting.ID, Position: c.position, Clauses: json.RawMessage(c.clauses), Serve: c.serve})
+		}
+		type replayed struct {
+			serve   float32
+			clauses json.RawMessage
+		}
+		var got []replayed
+		for _, l := range storedChangeLogsFor(t, store, "rule-created") {
+			got = slices.Insert(got, int(l.RuleNewPosition.Int32), replayed{float32(l.RuleServe.Float64), *l.RuleClauses})
+		}
+		rules, err := store.ListRulesBySetting(ctx, setting.ID)
+		if err != nil {
+			t.Fatalf("ListRulesBySetting(): %v", err)
+		}
+		if len(got) != len(rules) {
+			t.Fatalf("replayed %d rules, want %d", len(got), len(rules))
+		}
+		for i, r := range rules {
+			if got[i].serve != r.Serve {
+				t.Errorf("replayed rule %d serves %v, want %v", i, got[i].serve, r.Serve)
+			}
+			wantSameJSON(t, got[i].clauses, string(r.Clauses))
+		}
+	})
+
+	t.Run("each create counts", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		env := mustGetEnv(t, store, setting.EnvironmentID)
+		mustCreateNamedRules(t, store, setting.ID, "a", "b", "c")
+		logs := storedChangeLogsFor(t, store, "rule-created")
+		if len(logs) != 3 {
+			t.Fatalf("%d entries, want 3", len(logs))
+		}
+		for i, l := range logs {
+			if want := env.Version + int64(i) + 1; l.TargetVersion != want {
+				t.Errorf("entry %d logged version %d, want %d", i, l.TargetVersion, want)
+			}
+			if l.RuleNewPosition.Int32 != int32(i) {
+				t.Errorf("entry %d logged position %d, want %d", i, l.RuleNewPosition.Int32, i)
+			}
+		}
+	})
+
+	// Creates racing each other each log the version they moved to, so no two
+	// entries claim the same one. Each racer goes first, so each logs position 0.
+	t.Run("racing creates log their own versions", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		env := mustGetEnv(t, store, setting.EnvironmentID)
+		const racers = 8
+		errs := make(chan error, racers)
+		for range racers {
+			go func() {
+				_, err := store.CreateRule(ctx, database.CreateRuleParams{FlagSettingID: setting.ID, Clauses: json.RawMessage(validClauses)})
+				errs <- err
+			}()
+		}
+		for range racers {
+			if err := <-errs; err != nil {
+				t.Errorf("CreateRule(): %v", err)
+			}
+		}
+		logs := storedChangeLogsFor(t, store, "rule-created")
+		if len(logs) != racers {
+			t.Fatalf("%d entries, want %d", len(logs), racers)
+		}
+		for i, l := range logs {
+			if want := env.Version + int64(i) + 1; l.TargetVersion != want {
+				t.Errorf("entry %d logged version %d, want %d", i, l.TargetVersion, want)
+			}
+			if l.RuleNewPosition.Int32 != 0 {
+				t.Errorf("entry %d logged position %d, want 0", i, l.RuleNewPosition.Int32)
+			}
+		}
+	})
+
+	// Nothing changed, so there is nothing to log.
+	t.Run("rejected create logs nothing", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		before := changeLogCount(t, store)
+		tests := map[string]database.CreateRuleParams{
+			"bad serve":            {FlagSettingID: setting.ID, Serve: 2, Clauses: json.RawMessage(validClauses)},
+			"no clauses":           {FlagSettingID: setting.ID, Clauses: json.RawMessage(`[]`)},
+			"position past end":    {FlagSettingID: setting.ID, Position: 1, Clauses: json.RawMessage(validClauses)},
+			"unknown flag setting": {FlagSettingID: uuid.New(), Clauses: json.RawMessage(validClauses)},
+		}
+		for name, arg := range tests {
+			t.Run(name, func(t *testing.T) {
+				if _, err := store.CreateRule(ctx, arg); err == nil {
+					t.Fatal("CreateRule() = nil error, want it rejected")
+				}
+				if got := changeLogCount(t, store); got != before {
+					t.Fatalf("%d entries, want %d", got, before)
+				}
+			})
+		}
+	})
+
+	t.Run("failed bump logs nothing", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rejectEnvBumps(t, store)
+		if _, err := store.CreateRule(ctx, database.CreateRuleParams{FlagSettingID: setting.ID, Clauses: json.RawMessage(validClauses)}); err == nil {
+			t.Fatal("CreateRule() = nil error, want it to fail")
+		}
+		if n := len(storedChangeLogsFor(t, store, "rule-created")); n != 0 {
+			t.Fatalf("%d entries, want 0", n)
+		}
+	})
+
+	// The create, its shift, the bump and the log land together or not at all,
+	// so SDKs never miss a rule.
+	t.Run("failed log undoes the create", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		mustCreateNamedRules(t, store, setting.ID, "a", "b")
+		env := mustGetEnv(t, store, setting.EnvironmentID)
+		rejectNewChangeLogs(t, store)
+		got, err := store.CreateRule(ctx, database.CreateRuleParams{FlagSettingID: setting.ID, Name: "new", Clauses: json.RawMessage(validClauses)})
+		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, "can't create the rule"))
+		wantZeroRule(t, got)
+		wantRuleNames(t, store, setting.ID, "a", "b")
+		if diff := cmp.Diff(env, mustGetEnv(t, store, env.ID)); diff != "" {
+			t.Errorf("environment changed after a failed log (-want +got):\n%s", diff)
 		}
 	})
 }

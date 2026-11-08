@@ -114,3 +114,40 @@ WHERE
   e.id = fs.environment_id AND
   f.id = fs.flag_id AND
   fs.id = sqlc.arg('flag_setting_id');
+
+-- name: CreateChangeLogsForRuleCreate :exec
+-- Logs a new rule in its setting's environment, with the flag's key, the rule's
+-- serve, clauses and position, and the environment's version. It reads them
+-- all, so it runs after the rule is created and the version bumped.
+WITH now AS (SELECT clock_timestamp() AS ts)
+INSERT INTO change_logs (
+  id,
+  target_version,
+  environment_id,
+  flag_new_key,
+  rule_serve,
+  rule_clauses,
+  rule_new_position,
+  action,
+  created_at
+)
+SELECT
+  gen_random_uuid(),
+  e.version,
+  e.id,
+  f.key,
+  r.serve,
+  r.clauses,
+  r.position,
+  'rule-created',
+  now.ts
+FROM rules r
+CROSS JOIN environments e
+CROSS JOIN flags f
+CROSS JOIN flag_settings fs
+CROSS JOIN now
+WHERE
+  r.id = sqlc.arg('rule_id') AND
+  fs.id = r.flag_setting_id AND
+  f.id = fs.flag_id AND
+  e.id = fs.environment_id;
