@@ -1,3 +1,21 @@
+-- name: CreateChangeLogsForEnvDelete :exec
+-- Logs an environment's deletion, with the version after the one it was at, so
+-- SDKs syncing it see a newer version. The environment is gone by then, so its
+-- id and the version are passed in.
+INSERT INTO change_logs (
+    id,
+    target_version,
+    environment_id,
+    action,
+    created_at
+) VALUES (
+    gen_random_uuid(),
+    sqlc.arg('version'),
+    sqlc.arg('environment_id'),
+    'env-deleted',
+    clock_timestamp()
+);
+
 -- name: CreateChangeLogsForFlag :exec
 -- Logs a new flag in every environment, with the setting it starts with there
 -- and the environment's version. It reads both, so it runs after the settings

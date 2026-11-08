@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"os"
 	"strings"
@@ -1030,6 +1031,178 @@ func TestDeleteEnvRolledBack(t *testing.T) {
 	if diff := cmp.Diff(env, mustGetEnv(t, store, env.ID)); diff != "" {
 		t.Fatalf("environment changed after rollback (-want +got):\n%s", diff)
 	}
+}
+
+// A deleted environment is logged, so its SDKs learn it's gone.
+func TestDeleteEnvLogsChange(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	// The entry carries the environment and the version after the one it was
+	// at, and nothing else. The other environment, the flags and their settings
+	// and rules are around, so an entry for any of them would show.
+	t.Run("one entry for the environment", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		mustCreateNamedRules(t, store, setting.ID, "a")
+		mustCreateEnv(t, store, "staging")
+		mustCreateFlag(t, store, "dark-mode")
+		env := mustGetEnv(t, store, setting.EnvironmentID)
+		before := changeLogCount(t, store)
+		if _, err := store.DeleteEnv(ctx, env.ID); err != nil {
+			t.Fatalf("DeleteEnv(): %v", err)
+		}
+		want := []database.ChangeLog{{
+			TargetVersion: env.Version + 1,
+			EnvironmentID: env.ID,
+			Action:        "env-deleted",
+		}}
+		ignore := cmpopts.IgnoreFields(database.ChangeLog{}, "ID", "CreatedAt")
+		if diff := cmp.Diff(want, storedChangeLogsFor(t, store, "env-deleted"), ignore); diff != "" {
+			t.Fatalf("change logs mismatch (-want +got):\n%s", diff)
+		}
+		if got, want := changeLogCount(t, store), before+1; got != want {
+			t.Fatalf("%d entries, want %d", got, want)
+		}
+	})
+
+	// The entries are a record, so what was said about the environment stays
+	// after it's gone, and the deletion comes last, after everything else
+	// logged there.
+	t.Run("comes after the environment's earlier entries", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		mustCreateNamedRules(t, store, setting.ID, "a", "b")
+		mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: setting.FlagID, EnvironmentID: setting.EnvironmentID, Enabled: true})
+		earlier := queryChangeLogs(t, store, "environment_id = $1", setting.EnvironmentID)
+		if len(earlier) == 0 {
+			t.Fatal("no earlier entries, want some")
+		}
+		if _, err := store.DeleteEnv(ctx, setting.EnvironmentID); err != nil {
+			t.Fatalf("DeleteEnv(): %v", err)
+		}
+		logs := queryChangeLogs(t, store, "environment_id = $1", setting.EnvironmentID)
+		if len(logs) != len(earlier)+1 {
+			t.Fatalf("%d entries, want %d", len(logs), len(earlier)+1)
+		}
+		if diff := cmp.Diff(earlier, logs[:len(earlier)]); diff != "" {
+			t.Errorf("earlier entries changed (-want +got):\n%s", diff)
+		}
+		last := logs[len(logs)-1]
+		if last.Action != "env-deleted" {
+			t.Fatalf("last entry is %q, want env-deleted", last.Action)
+		}
+		if prev := earlier[len(earlier)-1].TargetVersion; last.TargetVersion != prev+1 {
+			t.Errorf("logged version %d, want %d, one after the last entry", last.TargetVersion, prev+1)
+		}
+	})
+
+	// A write racing the delete either gets in first, and is logged before
+	// the deletion, or finds nothing, so the deletion is always the
+	// environment's last entry.
+	t.Run("racing writes are logged before it", func(t *testing.T) {
+		for range 20 {
+			setting := mustCreateRuleSetting(t, store)
+			rules := mustCreateNamedRules(t, store, setting.ID, "a")
+			writes := []func() error{
+				func() error {
+					_, err := store.UpdateFlagSetting(ctx, database.UpdateFlagSettingParams{FlagID: setting.FlagID, EnvironmentID: setting.EnvironmentID, Enabled: true})
+					return err
+				},
+				func() error {
+					_, err := store.UpdateRule(ctx, database.UpdateRuleParams{ID: rules[0].ID, Name: "a", Serve: 0.75, Clauses: rules[0].Clauses})
+					return err
+				},
+				func() error {
+					_, err := store.CreateRule(ctx, database.CreateRuleParams{FlagSettingID: setting.ID, Clauses: json.RawMessage(validClauses)})
+					return err
+				},
+			}
+			errs := make(chan error, len(writes))
+			for _, w := range writes {
+				go func() { errs <- w() }()
+			}
+			if _, err := store.DeleteEnv(ctx, setting.EnvironmentID); err != nil {
+				t.Fatalf("DeleteEnv(): %v", err)
+			}
+			for range writes {
+				// A write that comes second finds nothing to change.
+				if err := <-errs; err != nil && connect.CodeOf(err) != connect.CodeNotFound {
+					t.Errorf("write: %v", err)
+				}
+			}
+			logs := queryChangeLogs(t, store, "environment_id = $1", setting.EnvironmentID)
+			last := logs[len(logs)-1]
+			if last.Action != "env-deleted" {
+				t.Fatalf("last entry is %q at version %d, want env-deleted", last.Action, last.TargetVersion)
+			}
+			for i, l := range logs[1:] {
+				if l.TargetVersion != logs[i].TargetVersion+1 {
+					t.Fatalf("entry %d logged version %d after %d, want them consecutive", i+1, l.TargetVersion, logs[i].TargetVersion)
+				}
+			}
+		}
+	})
+
+	// Only the first of several racing deletes finds the environment, so it
+	// is logged once.
+	t.Run("racing deletes log once", func(t *testing.T) {
+		resetDB(t, store.db)
+		env := mustCreateEnv(t, store, "production")
+		const racers = 8
+		errs := make(chan error, racers)
+		for range racers {
+			go func() {
+				_, err := store.DeleteEnv(ctx, env.ID)
+				errs <- err
+			}()
+		}
+		for range racers {
+			<-errs
+		}
+		if n := len(storedChangeLogsFor(t, store, "env-deleted")); n != 1 {
+			t.Fatalf("%d entries, want 1", n)
+		}
+	})
+
+	// Nothing changed, so there is nothing to log.
+	t.Run("not found logs nothing", func(t *testing.T) {
+		resetDB(t, store.db)
+		env := mustCreateEnv(t, store, "production")
+		if _, err := store.DeleteEnv(ctx, env.ID); err != nil {
+			t.Fatalf("DeleteEnv(): %v", err)
+		}
+		before := changeLogCount(t, store)
+		for _, id := range []uuid.UUID{env.ID, uuid.New(), uuid.Nil()} {
+			_, err := store.DeleteEnv(ctx, id)
+			wantConnectErr(t, err, connect.NewError(connect.CodeNotFound, "can't delete the environment"))
+			if got := changeLogCount(t, store); got != before {
+				t.Fatalf("%d entries after deleting %v, want %d", got, id, before)
+			}
+		}
+	})
+
+	// The delete and the log land together or not at all, so SDKs never keep
+	// serving an environment that's gone.
+	t.Run("failed log keeps the environment", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		mustCreateNamedRules(t, store, setting.ID, "a")
+		env := mustGetEnv(t, store, setting.EnvironmentID)
+		want := matrixState(t, store)
+		rejectNewChangeLogs(t, store)
+		got, err := store.DeleteEnv(ctx, env.ID)
+		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, "can't delete the environment"))
+		if diff := cmp.Diff(database.Environment{}, got); diff != "" {
+			t.Fatalf("returned an environment on error (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff(env, mustGetEnv(t, store, env.ID)); diff != "" {
+			t.Errorf("environment changed after a failed log (-want +got):\n%s", diff)
+		}
+		if got := matrixState(t, store); got != want {
+			t.Errorf("state = %s, want %s", got, want)
+		}
+		if n := flagSettingCount(t, store); n != 1 {
+			t.Errorf("%d flag settings after a failed log, want 1", n)
+		}
+	})
 }
 
 func TestDeleteEnvReportsErrors(t *testing.T) {

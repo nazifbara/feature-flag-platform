@@ -84,8 +84,9 @@ func (s *Store) ListEnvs(ctx context.Context) ([]database.Environment, error) {
 	return envs, nil
 }
 
-// DeleteEnv deletes the environment with the given id and returns it as it
-// was.
+// DeleteEnv deletes the environment with the given id, along with its settings
+// and their rules, logs the deletion at the version after the one it was at, and
+// returns it as it was.
 func (s *Store) DeleteEnv(ctx context.Context, id uuid.UUID) (database.Environment, error) {
 	var env database.Environment
 	err := s.ExecTx(ctx, func(q *database.Queries) error {
@@ -97,7 +98,10 @@ func (s *Store) DeleteEnv(ctx context.Context, id uuid.UUID) (database.Environme
 			return err
 		}
 		env = e
-		return nil
+		return q.CreateChangeLogsForEnvDelete(ctx, database.CreateChangeLogsForEnvDeleteParams{
+			EnvironmentID: e.ID,
+			Version:       e.Version + 1,
+		})
 	})
 	if err != nil {
 		return database.Environment{}, ffserrors.FromDBErr(err, "can't delete the environment")
