@@ -20,6 +20,7 @@ CREATE TABLE change_logs (
         )
     ),
     created_at TIMESTAMPTZ NOT NULL,
+    UNIQUE (environment_id, target_version),
 
     -- Each action requires the columns it describes and forbids the rest. The
     -- new key or position says what a row is about; the old one is only kept by
