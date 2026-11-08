@@ -12,8 +12,17 @@ import (
 
 // FromDBErr maps a database error to the connect.Error with the matching code.
 // msg reaches the client, so it must not reveal internals. err is kept as the
-// cause, which connect doesn't send to the client.
+// cause, which connect doesn't send to the client. An err that already holds a
+// connect.Error, such as a validation error returned from inside a transaction,
+// comes back as that connect.Error, keeping its code and message, with err as
+// a cause when it wraps more, such as a failed rollback.
 func FromDBErr(err error, msg string) error {
+	if connectErr, ok := errors.AsType[*connect.Error](err); ok {
+		if connectErr == err {
+			return connectErr
+		}
+		return connectErr.WithCause(err)
+	}
 	switch {
 	case errors.Is(err, context.Canceled):
 		return connect.NewError(connect.CodeCanceled, msg).WithCause(err)
