@@ -1,0 +1,14 @@
+# The SQL is Postgres run through sqlc, which this overrides ~/.sqlfluff for.
+[sqlfluff]
+dialect = postgres
+templater = placeholder
+max_line_length = 100
+# AM04: sqlc expands SELECT * and RETURNING * into the table's columns.
+# RF04: columns such as key, position, version and action are keywords.
+# AL03: INSERT ... SELECT takes its columns by position, so they need no alias.
+# AL08: it also reads the same column twice there, such as one clock for
+# created_at and updated_at, which it takes for a reused alias.
+exclude_rules = AM04, RF04, AL03, AL08
+
+[sqlfluff:templater:placeholder]
+param_style = dollar

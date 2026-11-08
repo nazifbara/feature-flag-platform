@@ -1,10 +1,10 @@
 -- +goose Up
 CREATE TABLE flags (
-  id UUID PRIMARY KEY,
-  key VARCHAR(100) NOT NULL UNIQUE,
-  salt VARCHAR(100) NOT NULL,
-  created_at TIMESTAMPTZ NOT NULL,
-  updated_at TIMESTAMPTZ NOT NULL
+    id UUID PRIMARY KEY,
+    key VARCHAR(100) NOT NULL UNIQUE,
+    salt VARCHAR(100) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL
 );
 
 -- +goose Down
