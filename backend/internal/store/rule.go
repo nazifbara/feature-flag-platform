@@ -281,9 +281,6 @@ func (s *Store) UpdateRule(ctx context.Context, args database.UpdateRuleParams) 
 		return q.CreateChangeLogsForRuleUpdate(ctx, r.ID)
 	})
 	if err != nil {
-		if _, ok := errors.AsType[*connect.Error](err); ok {
-			return database.Rule{}, err
-		}
 		return database.Rule{}, ffserrors.FromDBErr(err, "can't update the rule")
 	}
 	return rule, nil
