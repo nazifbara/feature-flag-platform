@@ -181,7 +181,7 @@ func (s *Store) ListRulesBySetting(ctx context.Context, settingID uuid.UUID) ([]
 
 // DeleteRule deletes the rule with the given id and returns it as it was. Rules
 // after it get a position one lower, which fills the gap. It bumps the version of
-// the rule's environment.
+// the rule's environment and logs the deletion there.
 func (s *Store) DeleteRule(ctx context.Context, id uuid.UUID) (database.Rule, error) {
 	var deletedRule database.Rule
 	err := s.ExecTx(ctx, func(q *database.Queries) error {
@@ -214,7 +214,13 @@ func (s *Store) DeleteRule(ctx context.Context, id uuid.UUID) (database.Rule, er
 		if err != nil {
 			return err
 		}
-		return q.IncrementEnvVersion(ctx, setting.EnvironmentID)
+		if err := q.IncrementEnvVersion(ctx, setting.EnvironmentID); err != nil {
+			return err
+		}
+		return q.CreateChangeLogsForRuleDelete(ctx, database.CreateChangeLogsForRuleDeleteParams{
+			FlagSettingID: deletedRule.FlagSettingID,
+			Position:      deletedRule.Position,
+		})
 	})
 	if err != nil {
 		return database.Rule{}, ffserrors.FromDBErr(err, "can't delete the rule")

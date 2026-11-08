@@ -1602,6 +1602,236 @@ func TestDeleteRuleBumpCounts(t *testing.T) {
 	})
 }
 
+// A deleted rule is logged in its setting's environment, so SDKs can drop it.
+func TestDeleteRuleLogsChange(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	// The entry carries the flag's key, the position the rule had and the
+	// version the environment moved to, and nothing else. Other rules, flags
+	// and environments are around, so an entry for any of them would show.
+	t.Run("one entry for the rule", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		mustCreateFlag(t, store, "dark-mode")
+		mustCreateEnv(t, store, "staging")
+		rules := mustCreateNamedRules(t, store, setting.ID, "a", "b", "c")
+		before := changeLogCount(t, store)
+		if _, err := store.DeleteRule(ctx, rules[1].ID); err != nil {
+			t.Fatalf("DeleteRule(): %v", err)
+		}
+		want := []database.ChangeLog{{
+			TargetVersion:   mustGetEnv(t, store, setting.EnvironmentID).Version,
+			EnvironmentID:   setting.EnvironmentID,
+			FlagNewKey:      sql.NullString{String: "new-checkout", Valid: true},
+			RuleNewPosition: sql.NullInt32{Int32: 1, Valid: true},
+			Action:          "rule-deleted",
+		}}
+		ignore := cmpopts.IgnoreFields(database.ChangeLog{}, "ID", "CreatedAt")
+		if diff := cmp.Diff(want, storedChangeLogsFor(t, store, "rule-deleted"), ignore); diff != "" {
+			t.Fatalf("change logs mismatch (-want +got):\n%s", diff)
+		}
+		if got, want := changeLogCount(t, store), before+1; got != want {
+			t.Fatalf("%d entries, want %d", got, want)
+		}
+	})
+
+	// An SDK replaying the entries in version order, inserting each created
+	// rule at its position and removing each deleted one, the rest moving to
+	// close the gap, ends up with the stored rules in the stored order.
+	t.Run("replaying the entries gives the stored rules", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rules := make([]database.Rule, 5)
+		for i := range rules {
+			rules[i] = mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: setting.ID, Position: int32(i), Serve: float32(i+1) / 10, Clauses: json.RawMessage(validClauses)})
+		}
+		for _, i := range []int{3, 0, 4} {
+			if _, err := store.DeleteRule(ctx, rules[i].ID); err != nil {
+				t.Fatalf("DeleteRule(): %v", err)
+			}
+		}
+		var got []float32
+		for _, l := range queryChangeLogs(t, store, "action IN ('rule-created', 'rule-deleted')") {
+			p := int(l.RuleNewPosition.Int32)
+			if l.Action == "rule-created" {
+				got = slices.Insert(got, p, float32(l.RuleServe.Float64))
+				continue
+			}
+			if p >= len(got) {
+				t.Fatalf("entry at version %d deletes position %d of %d rules", l.TargetVersion, p, len(got))
+			}
+			got = slices.Delete(got, p, p+1)
+		}
+		stored, err := store.ListRulesBySetting(ctx, setting.ID)
+		if err != nil {
+			t.Fatalf("ListRulesBySetting(): %v", err)
+		}
+		var want []float32
+		for _, r := range stored {
+			want = append(want, r.Serve)
+		}
+		if diff := cmp.Diff(want, got); diff != "" {
+			t.Fatalf("replayed rules mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	// The key and position are read when the rule goes, so a renamed flag and
+	// a moved rule are logged as they were then.
+	t.Run("logs the current key and position", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rules := mustCreateNamedRules(t, store, setting.ID, "a", "b")
+		if _, err := store.UpdateFlag(ctx, setting.FlagID, "checkout-v2"); err != nil {
+			t.Fatalf("UpdateFlag(): %v", err)
+		}
+		if _, err := store.ChangeRulePosition(ctx, database.ChangeRulePositionParams{ID: rules[1].ID, Position: 0}); err != nil {
+			t.Fatalf("ChangeRulePosition(): %v", err)
+		}
+		if _, err := store.DeleteRule(ctx, rules[1].ID); err != nil {
+			t.Fatalf("DeleteRule(): %v", err)
+		}
+		logs := storedChangeLogsFor(t, store, "rule-deleted")
+		if len(logs) != 1 {
+			t.Fatalf("%d entries, want 1", len(logs))
+		}
+		if got := logs[0].FlagNewKey.String; got != "checkout-v2" {
+			t.Errorf("logged key %q, want %q", got, "checkout-v2")
+		}
+		if got := logs[0].RuleNewPosition.Int32; got != 0 {
+			t.Errorf("logged position %d, want 0", got)
+		}
+	})
+
+	// Each delete gets its own entry with its own version. Deleting from the
+	// top each time, every rule is first when it goes.
+	t.Run("each delete counts", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rules := mustCreateNamedRules(t, store, setting.ID, "a", "b", "c")
+		env := mustGetEnv(t, store, setting.EnvironmentID)
+		for _, r := range rules {
+			if _, err := store.DeleteRule(ctx, r.ID); err != nil {
+				t.Fatalf("DeleteRule(): %v", err)
+			}
+		}
+		logs := storedChangeLogsFor(t, store, "rule-deleted")
+		if len(logs) != len(rules) {
+			t.Fatalf("%d entries, want %d", len(logs), len(rules))
+		}
+		for i, l := range logs {
+			if want := env.Version + int64(i) + 1; l.TargetVersion != want {
+				t.Errorf("entry %d logged version %d, want %d", i, l.TargetVersion, want)
+			}
+			if l.RuleNewPosition.Int32 != 0 {
+				t.Errorf("entry %d logged position %d, want 0", i, l.RuleNewPosition.Int32)
+			}
+		}
+	})
+
+	// Deletes of different rules racing each other each log the version they
+	// moved to and the position the rule had by then, so replaying them leaves
+	// no rules.
+	t.Run("racing deletes log their own versions", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		const racers = 8
+		names := make([]string, racers)
+		for i := range names {
+			names[i] = fmt.Sprintf("rule-%d", i)
+		}
+		rules := mustCreateNamedRules(t, store, setting.ID, names...)
+		env := mustGetEnv(t, store, setting.EnvironmentID)
+		errs := make(chan error, racers)
+		for _, r := range rules {
+			go func() {
+				_, err := store.DeleteRule(ctx, r.ID)
+				errs <- err
+			}()
+		}
+		for range racers {
+			if err := <-errs; err != nil {
+				t.Errorf("DeleteRule(): %v", err)
+			}
+		}
+		logs := storedChangeLogsFor(t, store, "rule-deleted")
+		if len(logs) != racers {
+			t.Fatalf("%d entries, want %d", len(logs), racers)
+		}
+		left := racers
+		for i, l := range logs {
+			if want := env.Version + int64(i) + 1; l.TargetVersion != want {
+				t.Errorf("entry %d logged version %d, want %d", i, l.TargetVersion, want)
+			}
+			if p := int(l.RuleNewPosition.Int32); p >= left {
+				t.Errorf("entry %d deletes position %d of %d rules", i, p, left)
+			}
+			left--
+		}
+	})
+
+	// Only the first of several racing deletes of one rule finds it, so it is
+	// logged once.
+	t.Run("racing deletes of one rule log once", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rule := mustCreateNamedRules(t, store, setting.ID, "a")[0]
+		const racers = 8
+		errs := make(chan error, racers)
+		for range racers {
+			go func() {
+				_, err := store.DeleteRule(ctx, rule.ID)
+				errs <- err
+			}()
+		}
+		for range racers {
+			<-errs
+		}
+		if n := len(storedChangeLogsFor(t, store, "rule-deleted")); n != 1 {
+			t.Fatalf("%d entries, want 1", n)
+		}
+	})
+
+	// Nothing changed, so there is nothing to log.
+	t.Run("not found logs nothing", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rule := mustCreateNamedRules(t, store, setting.ID, "a")[0]
+		if _, err := store.DeleteRule(ctx, rule.ID); err != nil {
+			t.Fatalf("DeleteRule(): %v", err)
+		}
+		before := changeLogCount(t, store)
+		for _, id := range []uuid.UUID{rule.ID, uuid.New(), uuid.Nil()} {
+			_, err := store.DeleteRule(ctx, id)
+			wantConnectErr(t, err, connect.NewError(connect.CodeNotFound, "can't delete the rule"))
+			if got := changeLogCount(t, store); got != before {
+				t.Fatalf("%d entries after deleting %v, want %d", got, id, before)
+			}
+		}
+	})
+
+	t.Run("failed bump logs nothing", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rule := mustCreateNamedRules(t, store, setting.ID, "a")[0]
+		rejectEnvBumps(t, store)
+		if _, err := store.DeleteRule(ctx, rule.ID); err == nil {
+			t.Fatal("DeleteRule() = nil error, want it to fail")
+		}
+		if n := len(storedChangeLogsFor(t, store, "rule-deleted")); n != 0 {
+			t.Fatalf("%d entries, want 0", n)
+		}
+	})
+
+	// The delete, its shift, the bump and the log land together or not at
+	// all, so SDKs never keep serving a rule that's gone.
+	t.Run("failed log undoes the delete", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rules := mustCreateNamedRules(t, store, setting.ID, "a", "b")
+		env := mustGetEnv(t, store, setting.EnvironmentID)
+		rejectNewChangeLogs(t, store)
+		got, err := store.DeleteRule(ctx, rules[0].ID)
+		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, "can't delete the rule"))
+		wantZeroRule(t, got)
+		wantRuleNames(t, store, setting.ID, "a", "b")
+		if diff := cmp.Diff(env, mustGetEnv(t, store, env.ID)); diff != "" {
+			t.Errorf("environment changed after a failed log (-want +got):\n%s", diff)
+		}
+	})
+}
+
 func TestUpdateRuleBumpCounts(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
