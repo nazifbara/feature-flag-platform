@@ -155,9 +155,6 @@ func (s *Store) CreateRule(ctx context.Context, args database.CreateRuleParams) 
 		return q.CreateChangeLogsForRuleCreate(ctx, rule.ID)
 	})
 	if err != nil {
-		if _, ok := errors.AsType[*connect.Error](err); ok {
-			return database.Rule{}, err
-		}
 		return database.Rule{}, ffserrors.FromDBErr(err, "can't create the rule")
 	}
 	return rule, nil
@@ -350,9 +347,6 @@ func (s *Store) ChangeRulePosition(ctx context.Context, args database.ChangeRule
 		return q.IncrementEnvVersion(ctx, setting.EnvironmentID)
 	})
 	if err != nil {
-		if _, ok := errors.AsType[*connect.Error](err); ok {
-			return database.Rule{}, err
-		}
 		return database.Rule{}, ffserrors.FromDBErr(err, "can't update the rule")
 	}
 	return updatedRule, nil
