@@ -31,7 +31,7 @@ jobs:
     env:
       TEST_DB_URL: postgres://testuser:testpassword@localhost:5432/feature-flag-test?sslmode=disable
       # Every Go module in the repository, which the Go steps run in one by one.
-      GO_MODULES: . evaluator gen/go
+      GO_MODULES: . evaluator gen/go sdk
 
     steps:
       - name: Check out code
@@ -112,7 +112,7 @@ jobs:
 
     env:
       # Every Go module in the repository, which the Go steps run in one by one.
-      GO_MODULES: . evaluator gen/go
+      GO_MODULES: . evaluator gen/go sdk
 
     steps:
       - name: Check out code
