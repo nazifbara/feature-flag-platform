@@ -470,7 +470,7 @@ func queryChangeLogs(t *testing.T, store *Store, where string, args ...any) []da
 	rows, err := store.db.Query(`
 		SELECT id, target_version, environment_id, flag_old_key, flag_new_key, enabled,
 		  fallthrough, rule_serve, rule_clauses, rule_old_position, rule_new_position,
-		  action, created_at
+		  action, created_at, flag_id, flag_salt, rule_id
 		FROM change_logs WHERE `+where+`
 		ORDER BY target_version, environment_id`, args...)
 	if err != nil {
@@ -482,7 +482,7 @@ func queryChangeLogs(t *testing.T, store *Store, where string, args ...any) []da
 		var l database.ChangeLog
 		err := rows.Scan(&l.ID, &l.TargetVersion, &l.EnvironmentID, &l.FlagOldKey, &l.FlagNewKey, &l.Enabled,
 			&l.Fallthrough, &l.RuleServe, &l.RuleClauses, &l.RuleOldPosition, &l.RuleNewPosition,
-			&l.Action, &l.CreatedAt)
+			&l.Action, &l.CreatedAt, &l.FlagID, &l.FlagSalt, &l.RuleID)
 		if err != nil {
 			t.Fatalf("reading change log: %v", err)
 		}
@@ -512,8 +512,8 @@ func TestCreateFlagLogsChange(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
 
-	// Each entry carries the flag's normalized key, the setting it starts with
-	// and the version its environment moved to, and nothing else.
+	// Each entry carries the flag's normalized key, its id and salt, the setting
+	// it starts with and the version its environment moved to, and nothing else.
 	t.Run("one entry per environment", func(t *testing.T) {
 		resetDB(t, store.db)
 		older := mustCreateEnv(t, store, "staging")
@@ -528,6 +528,8 @@ func TestCreateFlagLogsChange(t *testing.T) {
 			want = append(want, database.ChangeLog{
 				TargetVersion: mustGetEnv(t, store, env.ID).Version,
 				EnvironmentID: env.ID,
+				FlagID:        &f.ID,
+				FlagSalt:      sql.NullString{String: f.Salt, Valid: true},
 				FlagNewKey:    sql.NullString{String: "new-checkout", Valid: true},
 				Enabled:       sql.NullBool{Bool: false, Valid: true},
 				Fallthrough:   sql.NullFloat64{Float64: 0, Valid: true},

@@ -1009,7 +1009,7 @@ func TestCreateRuleLogsChange(t *testing.T) {
 		mustCreateFlag(t, store, "dark-mode")
 		mustCreateEnv(t, store, "staging")
 		before := changeLogCount(t, store)
-		mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: setting.ID, Name: "benin", Serve: 0.25, Clauses: json.RawMessage(validClauses)})
+		rule := mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: setting.ID, Name: "benin", Serve: 0.25, Clauses: json.RawMessage(validClauses)})
 		logs := storedChangeLogsFor(t, store, "rule-created")
 		if len(logs) != 1 {
 			t.Fatalf("%d entries, want 1", len(logs))
@@ -1019,6 +1019,7 @@ func TestCreateRuleLogsChange(t *testing.T) {
 			TargetVersion:   mustGetEnv(t, store, setting.EnvironmentID).Version,
 			EnvironmentID:   setting.EnvironmentID,
 			FlagNewKey:      sql.NullString{String: "new-checkout", Valid: true},
+			RuleID:          &rule.ID,
 			RuleServe:       sql.NullFloat64{Float64: 0.25, Valid: true},
 			RuleNewPosition: sql.NullInt32{Int32: 0, Valid: true},
 			Action:          "rule-created",
