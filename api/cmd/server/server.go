@@ -9,10 +9,10 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/nazifbara/flagsvc/backend/internal/authservice"
-	"github.com/nazifbara/flagsvc/backend/internal/interceptor"
-	"github.com/nazifbara/flagsvc/backend/internal/pingservice"
-	"github.com/nazifbara/flagsvc/backend/internal/store"
+	"github.com/nazifbara/flagsvc/api/internal/authservice"
+	"github.com/nazifbara/flagsvc/api/internal/interceptor"
+	"github.com/nazifbara/flagsvc/api/internal/pingservice"
+	"github.com/nazifbara/flagsvc/api/internal/store"
 	"github.com/nazifbara/flagsvc/gen/go/flagsvc/auth/v1/authconnect"
 	"github.com/nazifbara/flagsvc/gen/go/flagsvc/ping/v1/pingconnect"
 

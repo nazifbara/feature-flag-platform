@@ -13,7 +13,7 @@ import (
 	"connectrpc.com/connect/v2"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	"github.com/nazifbara/flagsvc/backend/internal/database"
+	"github.com/nazifbara/flagsvc/api/internal/database"
 )
 
 // flagCount gives the number of committed flags.

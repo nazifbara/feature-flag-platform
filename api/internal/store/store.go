@@ -6,7 +6,7 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/nazifbara/flagsvc/backend/internal/database"
+	"github.com/nazifbara/flagsvc/api/internal/database"
 )
 
 type Store struct {

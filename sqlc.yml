@@ -1,11 +1,11 @@
 version: "2"
 sql:
-  - schema: "./backend/sql/schema"
-    queries: "./backend/sql/queries"
+  - schema: "./api/sql/schema"
+    queries: "./api/sql/queries"
     engine: "postgresql"
     gen:
       go:
-        out: "./backend/internal/database"
+        out: "./api/internal/database"
         overrides:
           - db_type: "uuid"
             go_type:

@@ -7,7 +7,7 @@ import (
 	"uuid"
 
 	"connectrpc.com/connect/v2"
-	"github.com/nazifbara/flagsvc/backend/internal/ffserrors"
+	"github.com/nazifbara/flagsvc/api/internal/ffserrors"
 )
 
 // EnvSnapshot is an environment as an SDK syncs it from scratch: its version,

@@ -1,4 +1,4 @@
-module github.com/nazifbara/flagsvc/backend
+module github.com/nazifbara/flagsvc/api
 
 go 1.27.2
 
