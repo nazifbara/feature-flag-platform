@@ -31,7 +31,7 @@ jobs:
     env:
       TEST_DB_URL: postgres://testuser:testpassword@localhost:5432/feature-flag-test?sslmode=disable
       # Every Go module in the repository, which the Go steps run in one by one.
-      GO_MODULES: . evaluator
+      GO_MODULES: . evaluator gen/go
 
     steps:
       - name: Check out code
@@ -71,6 +71,16 @@ jobs:
       - name: Generate proto code
         run: buf generate
 
+      # The Go code is committed for the SDK's users, so it must be what the
+      # protos generate.
+      - name: Check generated Go code is committed
+        run: |
+          if [ -n "$(git status --porcelain gen/go)" ]; then
+            git status --short gen/go
+            echo "gen/go differs from buf generate: run make proto-gen and commit it"
+            exit 1
+          fi
+
       - name: Run sqlc generate
         run: sqlc generate
 
@@ -99,6 +109,10 @@ jobs:
   style:
     name: Style
     runs-on: ubuntu-latest
+
+    env:
+      # Every Go module in the repository, which the Go steps run in one by one.
+      GO_MODULES: . evaluator gen/go
 
     steps:
       - name: Check out code
@@ -145,7 +159,7 @@ jobs:
         run: go install honnef.co/go/tools/cmd/staticcheck@latest
 
       - name: Check format
-        run: test -z $(go fmt ./...)
+        run: for m in $GO_MODULES; do (cd "$m" && test -z "$(go fmt ./...)") || exit 1; done
 
       - name: Check linting
-        run: staticcheck ./...
+        run: for m in $GO_MODULES; do (cd "$m" && staticcheck ./...) || exit 1; done

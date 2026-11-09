@@ -26,7 +26,6 @@ vite.config.ts.timestamp-*
 # JWKS Keys
 .keys/
 
-gen/go/**/*.go
 gen/ts/**/*.ts
 backend/internal/database
 *.log
