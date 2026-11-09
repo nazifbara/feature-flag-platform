@@ -12,7 +12,7 @@ import (
 	"connectrpc.com/connect/v2"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	"github.com/nazifbara/flagsvc/backend/internal/database"
+	"github.com/nazifbara/flagsvc/api/internal/database"
 )
 
 // snapshotRule and snapshotSetting mirror a snapshot's settings in named types,

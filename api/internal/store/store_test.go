@@ -8,7 +8,7 @@ import (
 	"time"
 	"uuid"
 
-	"github.com/nazifbara/flagsvc/backend/internal/database"
+	"github.com/nazifbara/flagsvc/api/internal/database"
 )
 
 // envCount gives the number of committed environments.
