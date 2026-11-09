@@ -23,17 +23,19 @@ INSERT INTO change_logs (
 );
 
 -- name: CreateChangeLogsForFlag :exec
--- Logs a new flag in every environment, with the setting it starts with there
--- and the environment's version. It reads both, so it runs after the settings
--- are created and the versions bumped. Nothing is renamed, so the old key is
--- left empty. The clock is read once so all the entries for one flag
--- share a created_at.
+-- Logs a new flag in every environment, with the flag's id and salt, which
+-- evaluating it takes, the setting it starts with there and the environment's
+-- version. It reads them all, so it runs after the settings are created and
+-- the versions bumped. Nothing is renamed, so the old key is left empty. The
+-- clock is read once so all the entries for one flag share a created_at.
 WITH now AS (SELECT clock_timestamp() AS ts)
 
 INSERT INTO change_logs (
     id,
     target_version,
     environment_id,
+    flag_id,
+    flag_salt,
     flag_new_key,
     enabled,
     fallthrough,
@@ -44,6 +46,8 @@ SELECT
     gen_random_uuid(),
     e.version,
     e.id,
+    f.id,
+    f.salt,
     f.key,
     fs.enabled,
     fs.fallthrough,
@@ -145,8 +149,9 @@ WHERE
 
 -- name: CreateChangeLogsForRuleCreate :exec
 -- Logs a new rule in its setting's environment, with the flag's key, the rule's
--- serve, clauses and position, and the environment's version. It reads them
--- all, so it runs after the rule is created and the version bumped.
+-- id, which evaluating it takes, its serve, clauses and position, and the
+-- environment's version. It reads them all, so it runs after the rule is
+-- created and the version bumped.
 WITH now AS (SELECT clock_timestamp() AS ts)
 
 INSERT INTO change_logs (
@@ -154,6 +159,7 @@ INSERT INTO change_logs (
     target_version,
     environment_id,
     flag_new_key,
+    rule_id,
     rule_serve,
     rule_clauses,
     rule_new_position,
@@ -165,6 +171,7 @@ SELECT
     e.version,
     e.id,
     f.key,
+    r.id,
     r.serve,
     r.clauses,
     r.position,

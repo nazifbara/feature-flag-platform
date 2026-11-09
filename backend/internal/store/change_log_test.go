@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"testing"
 	"time"
@@ -263,5 +264,63 @@ func TestWriteLoggingATakenVersionFails(t *testing.T) {
 	}
 	if got := matrixState(t, store); got != want {
 		t.Fatalf("state = %s, want %s", got, want)
+	}
+}
+
+// Evaluating a flag takes its id and salt, and a rule its id, so the entries
+// creating them must carry them, and only those: the others identify flags by
+// key and rules by position.
+func TestChangeLogsTableIdentityFields(t *testing.T) {
+	store := newTestStore(t)
+	const checkViolation = "23514"
+	const flagFields, ruleFields = "flag_identity_fields", "rule_identity_fields"
+	flagID, ruleID := uuid.New(), uuid.New()
+
+	// Each entry has what its action otherwise requires, so only the
+	// identity fields decide.
+	tests := map[string]struct {
+		action                   string
+		flagID, ruleID           *uuid.UUID
+		salt                     sql.NullString
+		enabled, fall, serve     any
+		clauses                  any
+		oldPosition, newPosition any
+		want                     string // "" when the entry is taken
+	}{
+		"flag-created with id and salt":    {action: "flag-created", flagID: &flagID, salt: sql.NullString{String: "s", Valid: true}, enabled: true, fall: 0},
+		"flag-created without id":          {action: "flag-created", salt: sql.NullString{String: "s", Valid: true}, enabled: true, fall: 0, want: flagFields},
+		"flag-created without salt":        {action: "flag-created", flagID: &flagID, enabled: true, fall: 0, want: flagFields},
+		"setting-updated with a flag id":   {action: "setting-updated", flagID: &flagID, enabled: true, fall: 0, want: flagFields},
+		"setting-updated with a salt":      {action: "setting-updated", salt: sql.NullString{String: "s", Valid: true}, enabled: true, fall: 0, want: flagFields},
+		"rule-created with an id":          {action: "rule-created", ruleID: &ruleID, serve: 1, clauses: validClauses, newPosition: 0},
+		"rule-created without an id":       {action: "rule-created", serve: 1, clauses: validClauses, newPosition: 0, want: ruleFields},
+		"rule-updated with a rule id":      {action: "rule-updated", ruleID: &ruleID, serve: 1, clauses: validClauses, newPosition: 0, want: ruleFields},
+		"rule-position-changed with an id": {action: "rule-position-changed", ruleID: &ruleID, oldPosition: 0, newPosition: 1, want: ruleFields},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			resetDB(t, store.db)
+			_, err := store.db.Exec(`
+				INSERT INTO change_logs (id, target_version, environment_id, flag_new_key, action, created_at,
+				  flag_id, flag_salt, rule_id, enabled, fallthrough, rule_serve, rule_clauses,
+				  rule_old_position, rule_new_position)
+				VALUES (gen_random_uuid(), 2, gen_random_uuid(), 'new-checkout', $1, now(),
+				  $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+				test.action, test.flagID, test.salt, test.ruleID, test.enabled, test.fall,
+				test.serve, test.clauses, test.oldPosition, test.newPosition)
+			if test.want == "" {
+				if err != nil {
+					t.Fatalf("inserting the entry: %v", err)
+				}
+				return
+			}
+			var pqErr *pq.Error
+			if !errors.As(err, &pqErr) || string(pqErr.Code) != checkViolation || pqErr.Constraint != test.want {
+				t.Fatalf("inserting the entry: error = %v, want %s to reject it", err, test.want)
+			}
+			if n := changeLogCount(t, store); n != 0 {
+				t.Fatalf("%d change logs after a rejected insert, want 0", n)
+			}
+		})
 	}
 }
