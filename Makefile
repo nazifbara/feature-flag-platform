@@ -10,7 +10,7 @@ proto-lint:
 
 # Every Go module in the repository. ./... stops at module boundaries, so each
 # is run on its own.
-GO_MODULES := . evaluator
+GO_MODULES := . evaluator gen/go
 
 go-test:
 	for m in $(GO_MODULES); do (cd $$m && go test ./...) || exit 1; done
