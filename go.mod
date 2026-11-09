@@ -9,6 +9,7 @@ require (
 	github.com/alexedwards/argon2id v1.0.0
 	github.com/google/go-cmp v0.7.0
 	github.com/lib/pq v1.12.3
+	github.com/nazifbara/flagsvc/evaluator v0.0.0
 	google.golang.org/protobuf v1.36.12
 )
 
@@ -26,3 +27,5 @@ require (
 	google.golang.org/genproto/googleapis/api v0.0.0-20261012220534-4341edf3f941 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20261012220534-4341edf3f941 // indirect
 )
+
+replace github.com/nazifbara/flagsvc/evaluator => ./evaluator

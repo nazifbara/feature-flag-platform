@@ -30,6 +30,8 @@ jobs:
 
     env:
       TEST_DB_URL: postgres://testuser:testpassword@localhost:5432/feature-flag-test?sslmode=disable
+      # Every Go module in the repository, which the Go steps run in one by one.
+      GO_MODULES: . evaluator
 
     steps:
       - name: Check out code
@@ -78,8 +80,9 @@ jobs:
       - name: Install gosec
         run: go install github.com/securego/gosec/v2/cmd/gosec@14ef84f6feccf40be7f5092fd2db119bf3f5f836
 
+      # ./... stops at module boundaries, so each Go module is run on its own.
       - name: Run go vet
-        run: go vet ./...
+        run: for m in $GO_MODULES; do (cd "$m" && go vet ./...) || exit 1; done
 
       - name: Install goose
         run: go install github.com/pressly/goose/v3/cmd/goose@v3.27.1
@@ -88,10 +91,10 @@ jobs:
         run: goose -dir ./backend/sql/schema postgres "$TEST_DB_URL" up
 
       - name: Run go tests
-        run: go test ./... -cover -race
+        run: for m in $GO_MODULES; do (cd "$m" && go test ./... -cover -race) || exit 1; done
 
       - name: Check security
-        run: gosec -exclude-generated -exclude-dir=node_modules ./...
+        run: for m in $GO_MODULES; do (cd "$m" && gosec -exclude-generated -exclude-dir=node_modules ./...) || exit 1; done
 
   style:
     name: Style
