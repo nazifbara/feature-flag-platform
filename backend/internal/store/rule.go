@@ -14,8 +14,8 @@ import (
 
 	"connectrpc.com/connect/v2"
 	"github.com/nazifbara/flagsvc/backend/internal/database"
-	"github.com/nazifbara/flagsvc/backend/internal/evaluator"
 	"github.com/nazifbara/flagsvc/backend/internal/ffserrors"
+	"github.com/nazifbara/flagsvc/evaluator"
 )
 
 // storedClause is how a clause is kept in the rules.clauses column.
