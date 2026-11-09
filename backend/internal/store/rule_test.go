@@ -712,7 +712,8 @@ func TestCreateRuleShiftsRules(t *testing.T) {
 
 // CreateRule expects positions without gaps. These go through the query to make
 // one: the shift then runs into the next rule, which the deferred unique check
-// reports at commit. That error has to reach the caller converted too.
+// reports at commit. That error has to reach the caller converted too, as an
+// internal one: under the lock only broken positions collide, never a request.
 func TestCreateRuleRejectsCollision(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
@@ -728,7 +729,7 @@ func TestCreateRuleRejectsCollision(t *testing.T) {
 	}
 
 	got, err := store.CreateRule(ctx, database.CreateRuleParams{FlagSettingID: setting.ID, Position: 0, Clauses: json.RawMessage(validClauses)})
-	wantConnectErr(t, err, connect.NewError(connect.CodeAlreadyExists, "can't create the rule"))
+	wantConnectErr(t, err, connect.NewError(connect.CodeInternal, "can't create the rule"))
 	wantZeroRule(t, got)
 	rules, err := store.ListRulesBySetting(ctx, setting.ID)
 	if err != nil {

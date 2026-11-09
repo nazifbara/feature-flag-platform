@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
 	"testing"
 
 	connect "connectrpc.com/connect/v2"
@@ -22,9 +23,18 @@ func TestFromDBErr(t *testing.T) {
 		"wrapped deadline":         {fmt.Errorf("query: %w", context.DeadlineExceeded), connect.CodeDeadlineExceeded},
 		"no rows":                  {sql.ErrNoRows, connect.CodeNotFound},
 		"wrapped no rows":          {fmt.Errorf("get: %w", sql.ErrNoRows), connect.CodeNotFound},
-		"unique violation":         {&pq.Error{Code: "23505"}, connect.CodeAlreadyExists},
-		"wrapped unique violation": {fmt.Errorf("insert: %w", &pq.Error{Code: "23505"}), connect.CodeAlreadyExists},
-		"foreign key violation":    {&pq.Error{Code: "23503"}, connect.CodeNotFound},
+		"taken flag key":           {&pq.Error{Code: "23505", Constraint: "flags_key_unique"}, connect.CodeAlreadyExists},
+		"wrapped taken flag key":   {fmt.Errorf("insert: %w", &pq.Error{Code: "23505", Constraint: "flags_key_unique"}), connect.CodeAlreadyExists},
+		"taken environment name":   {&pq.Error{Code: "23505", Constraint: "environments_name_unique"}, connect.CodeAlreadyExists},
+		"taken email":              {&pq.Error{Code: "23505", Constraint: "identities_email_unique"}, connect.CodeAlreadyExists},
+		// Only a bug breaks these, so the client isn't told it asked for
+		// something taken.
+		"version logged twice":     {&pq.Error{Code: "23505", Constraint: "change_logs_env_version_unique"}, connect.CodeInternal},
+		"rule position collision":  {&pq.Error{Code: "23505", Constraint: "rules_setting_position_unique"}, connect.CodeInternal},
+		"unnamed unique violation": {&pq.Error{Code: "23505"}, connect.CodeInternal},
+		// Writes look parent rows up first, so only a bug reaches a foreign key.
+		"rule without its setting": {&pq.Error{Code: "23503", Constraint: "rules_setting_fk"}, connect.CodeInternal},
+		"unnamed foreign key":      {&pq.Error{Code: "23503"}, connect.CodeInternal},
 		"query canceled":           {&pq.Error{Code: "57014"}, connect.CodeCanceled},
 		"invalid text":             {&pq.Error{Code: "22021"}, connect.CodeInvalidArgument},
 		"NUL in JSON":              {&pq.Error{Code: "22P05"}, connect.CodeInvalidArgument},
@@ -54,6 +64,60 @@ func TestFromDBErr(t *testing.T) {
 			// The original error is kept as the cause for logging.
 			if !errors.Is(got, test.err) {
 				t.Errorf("FromDBErr(%v) = %v, want it to wrap the original error", test.err, got)
+			}
+		})
+	}
+}
+
+// userFacingUniques names constraints, and a name that no longer exists would
+// quietly turn a client's mistake into an internal error, so each must be in
+// the schema as a unique constraint.
+func TestUserFacingConstraintsExist(t *testing.T) {
+	dbURL := os.Getenv("TEST_DB_URL")
+	if dbURL == "" {
+		t.Fatal("TEST_DB_URL not set")
+	}
+	db, err := sql.Open("postgres", dbURL)
+	if err != nil {
+		t.Fatalf("opening the database: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	// The list can only be kept right when every constraint it could need is
+	// named in the schema, not left for Postgres to name.
+	t.Run("no generated names", func(t *testing.T) {
+		rows, err := db.Query(`
+			SELECT conname FROM pg_constraint
+			WHERE connamespace = 'public'::regnamespace AND contype IN ('u', 'f')
+			  AND (conname LIKE '%\_key' OR conname LIKE '%\_fkey')`)
+		if err != nil {
+			t.Fatalf("listing constraints: %v", err)
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var name string
+			if err := rows.Scan(&name); err != nil {
+				t.Fatalf("reading a constraint: %v", err)
+			}
+			t.Errorf("%s has the name Postgres made up, want one the schema gives", name)
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatalf("listing constraints: %v", err)
+		}
+	})
+
+	for name := range userFacingUniques {
+		t.Run(name, func(t *testing.T) {
+			var kind string
+			err := db.QueryRow("SELECT contype FROM pg_constraint WHERE conname = $1", name).Scan(&kind)
+			if errors.Is(err, sql.ErrNoRows) {
+				t.Fatalf("no constraint named %s in the schema", name)
+			}
+			if err != nil {
+				t.Fatalf("looking up %s: %v", name, err)
+			}
+			if kind != "u" {
+				t.Fatalf("%s is a constraint of type %q, want a unique one (\"u\")", name, kind)
 			}
 		})
 	}

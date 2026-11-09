@@ -243,6 +243,8 @@ func TestChangeLogsTableRejectsSameVersionTwice(t *testing.T) {
 
 // A write whose entry would take a version already logged fails and changes
 // nothing, so an environment never ends up with two entries for one version.
+// Only a bug gets there, so the client is told it's internal, not that what it
+// asked for exists.
 func TestWriteLoggingATakenVersionFails(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
@@ -255,8 +257,9 @@ func TestWriteLoggingATakenVersionFails(t *testing.T) {
 	want := matrixState(t, store)
 
 	got, err := store.UpdateFlagSetting(ctx, database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: 1})
-	if err == nil {
-		t.Fatalf("UpdateFlagSetting() = %+v, want an error", got)
+	wantConnectErr(t, err, connect.NewError(connect.CodeInternal, "can't update the flag setting"))
+	if got != (database.FlagSetting{}) {
+		t.Fatalf("UpdateFlagSetting() = %+v on error, want the zero FlagSetting", got)
 	}
 	if got := matrixState(t, store); got != want {
 		t.Fatalf("state = %s, want %s", got, want)
