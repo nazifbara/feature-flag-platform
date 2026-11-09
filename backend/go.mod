@@ -1,4 +1,4 @@
-module github.com/nazifbara/flagsvc
+module github.com/nazifbara/flagsvc/backend
 
 go 1.27.2
 
@@ -29,6 +29,6 @@ require (
 	google.golang.org/protobuf v1.36.12 // indirect
 )
 
-replace github.com/nazifbara/flagsvc/evaluator => ./evaluator
+replace github.com/nazifbara/flagsvc/evaluator => ../evaluator
 
-replace github.com/nazifbara/flagsvc/gen/go => ./gen/go
+replace github.com/nazifbara/flagsvc/gen/go => ../gen/go

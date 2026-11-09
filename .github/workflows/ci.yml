@@ -31,7 +31,7 @@ jobs:
     env:
       TEST_DB_URL: postgres://testuser:testpassword@localhost:5432/feature-flag-test?sslmode=disable
       # Every Go module in the repository, which the Go steps run in one by one.
-      GO_MODULES: . evaluator gen/go sdk
+      GO_MODULES: backend evaluator gen/go sdk
 
     steps:
       - name: Check out code
@@ -57,6 +57,8 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version: '1.27.2'
+          # Each Go module has its own go.sum.
+          cache-dependency-path: '**/go.sum'
 
       - name: Install Go protobuf plugins
         run: |
@@ -112,7 +114,7 @@ jobs:
 
     env:
       # Every Go module in the repository, which the Go steps run in one by one.
-      GO_MODULES: . evaluator gen/go sdk
+      GO_MODULES: backend evaluator gen/go sdk
 
     steps:
       - name: Check out code
@@ -138,6 +140,8 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version: '1.27.2'
+          # Each Go module has its own go.sum.
+          cache-dependency-path: '**/go.sum'
 
       - name: Install Go protobuf plugins
         run: |
