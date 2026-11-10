@@ -3,7 +3,9 @@ package flagservice
 
 import (
 	"context"
+	"uuid"
 
+	"connectrpc.com/connect/v2"
 	"github.com/nazifbara/flagsvc/api/internal/database"
 	"github.com/nazifbara/flagsvc/api/internal/store"
 	flag "github.com/nazifbara/flagsvc/gen/go/flagsvc/flag/v1"
@@ -32,6 +34,23 @@ func (s *Service) Create(ctx context.Context, req *flag.CreateRequest) (*flag.Cr
 		return nil, err
 	}
 	return &flag.CreateResponse{Flag: flagToProto(storedFlag)}, nil
+}
+
+// Update gives the flag with the requested id the requested key, normalized and
+// checked by the store, which also logs the rename in every environment. It
+// returns the flag as stored. The proto's rules reject an id that isn't a UUID;
+// parsing it again here only guards against a caller without them. An id no
+// flag has gives NotFound.
+func (s *Service) Update(ctx context.Context, req *flag.UpdateRequest) (*flag.UpdateResponse, error) {
+	flagID, err := uuid.Parse(req.Id)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, "invalid flag id").WithCause(err)
+	}
+	updatedFlag, err := s.store.UpdateFlag(ctx, flagID, req.Key)
+	if err != nil {
+		return nil, err
+	}
+	return &flag.UpdateResponse{Flag: flagToProto(updatedFlag)}, nil
 }
 
 // flagToProto converts a stored flag into the API's Flag, which every RPC

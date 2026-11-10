@@ -187,6 +187,102 @@ func (x *CreateResponse) GetFlag() *Flag {
 	return nil
 }
 
+type UpdateRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Key           string                 `protobuf:"bytes,2,opt,name=key,proto3" json:"key,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateRequest) Reset() {
+	*x = UpdateRequest{}
+	mi := &file_flagsvc_flag_v1_flag_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateRequest) ProtoMessage() {}
+
+func (x *UpdateRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_flagsvc_flag_v1_flag_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateRequest.ProtoReflect.Descriptor instead.
+func (*UpdateRequest) Descriptor() ([]byte, []int) {
+	return file_flagsvc_flag_v1_flag_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *UpdateRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *UpdateRequest) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
+type UpdateResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Flag          *Flag                  `protobuf:"bytes,1,opt,name=flag,proto3" json:"flag,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateResponse) Reset() {
+	*x = UpdateResponse{}
+	mi := &file_flagsvc_flag_v1_flag_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateResponse) ProtoMessage() {}
+
+func (x *UpdateResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_flagsvc_flag_v1_flag_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateResponse.ProtoReflect.Descriptor instead.
+func (*UpdateResponse) Descriptor() ([]byte, []int) {
+	return file_flagsvc_flag_v1_flag_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *UpdateResponse) GetFlag() *Flag {
+	if x != nil {
+		return x.Flag
+	}
+	return nil
+}
+
 var File_flagsvc_flag_v1_flag_proto protoreflect.FileDescriptor
 
 const file_flagsvc_flag_v1_flag_proto_rawDesc = "" +
@@ -203,9 +299,15 @@ const file_flagsvc_flag_v1_flag_proto_rawDesc = "" +
 	"\rCreateRequest\x12\x1b\n" +
 	"\x03key\x18\x01 \x01(\tB\t\xbaH\x06r\x04\x10\x01\x18dR\x03key\";\n" +
 	"\x0eCreateResponse\x12)\n" +
-	"\x04flag\x18\x01 \x01(\v2\x15.flagsvc.flag.v1.FlagR\x04flag2Z\n" +
+	"\x04flag\x18\x01 \x01(\v2\x15.flagsvc.flag.v1.FlagR\x04flag\"F\n" +
+	"\rUpdateRequest\x12\x18\n" +
+	"\x02id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x02id\x12\x1b\n" +
+	"\x03key\x18\x02 \x01(\tB\t\xbaH\x06r\x04\x10\x01\x18dR\x03key\";\n" +
+	"\x0eUpdateResponse\x12)\n" +
+	"\x04flag\x18\x01 \x01(\v2\x15.flagsvc.flag.v1.FlagR\x04flag2\xa7\x01\n" +
 	"\vFlagService\x12K\n" +
-	"\x06Create\x12\x1e.flagsvc.flag.v1.CreateRequest\x1a\x1f.flagsvc.flag.v1.CreateResponse\"\x00B:Z8github.com/nazifbara/flagsvc/gen/go/flagsvc/flag/v1;flagb\x06proto3"
+	"\x06Create\x12\x1e.flagsvc.flag.v1.CreateRequest\x1a\x1f.flagsvc.flag.v1.CreateResponse\"\x00\x12K\n" +
+	"\x06Update\x12\x1e.flagsvc.flag.v1.UpdateRequest\x1a\x1f.flagsvc.flag.v1.UpdateResponse\"\x00B:Z8github.com/nazifbara/flagsvc/gen/go/flagsvc/flag/v1;flagb\x06proto3"
 
 var (
 	file_flagsvc_flag_v1_flag_proto_rawDescOnce sync.Once
@@ -219,24 +321,29 @@ func file_flagsvc_flag_v1_flag_proto_rawDescGZIP() []byte {
 	return file_flagsvc_flag_v1_flag_proto_rawDescData
 }
 
-var file_flagsvc_flag_v1_flag_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_flagsvc_flag_v1_flag_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
 var file_flagsvc_flag_v1_flag_proto_goTypes = []any{
 	(*Flag)(nil),                  // 0: flagsvc.flag.v1.Flag
 	(*CreateRequest)(nil),         // 1: flagsvc.flag.v1.CreateRequest
 	(*CreateResponse)(nil),        // 2: flagsvc.flag.v1.CreateResponse
-	(*timestamppb.Timestamp)(nil), // 3: google.protobuf.Timestamp
+	(*UpdateRequest)(nil),         // 3: flagsvc.flag.v1.UpdateRequest
+	(*UpdateResponse)(nil),        // 4: flagsvc.flag.v1.UpdateResponse
+	(*timestamppb.Timestamp)(nil), // 5: google.protobuf.Timestamp
 }
 var file_flagsvc_flag_v1_flag_proto_depIdxs = []int32{
-	3, // 0: flagsvc.flag.v1.Flag.created_at:type_name -> google.protobuf.Timestamp
-	3, // 1: flagsvc.flag.v1.Flag.updated_at:type_name -> google.protobuf.Timestamp
+	5, // 0: flagsvc.flag.v1.Flag.created_at:type_name -> google.protobuf.Timestamp
+	5, // 1: flagsvc.flag.v1.Flag.updated_at:type_name -> google.protobuf.Timestamp
 	0, // 2: flagsvc.flag.v1.CreateResponse.flag:type_name -> flagsvc.flag.v1.Flag
-	1, // 3: flagsvc.flag.v1.FlagService.Create:input_type -> flagsvc.flag.v1.CreateRequest
-	2, // 4: flagsvc.flag.v1.FlagService.Create:output_type -> flagsvc.flag.v1.CreateResponse
-	4, // [4:5] is the sub-list for method output_type
-	3, // [3:4] is the sub-list for method input_type
-	3, // [3:3] is the sub-list for extension type_name
-	3, // [3:3] is the sub-list for extension extendee
-	0, // [0:3] is the sub-list for field type_name
+	0, // 3: flagsvc.flag.v1.UpdateResponse.flag:type_name -> flagsvc.flag.v1.Flag
+	1, // 4: flagsvc.flag.v1.FlagService.Create:input_type -> flagsvc.flag.v1.CreateRequest
+	3, // 5: flagsvc.flag.v1.FlagService.Update:input_type -> flagsvc.flag.v1.UpdateRequest
+	2, // 6: flagsvc.flag.v1.FlagService.Create:output_type -> flagsvc.flag.v1.CreateResponse
+	4, // 7: flagsvc.flag.v1.FlagService.Update:output_type -> flagsvc.flag.v1.UpdateResponse
+	6, // [6:8] is the sub-list for method output_type
+	4, // [4:6] is the sub-list for method input_type
+	4, // [4:4] is the sub-list for extension type_name
+	4, // [4:4] is the sub-list for extension extendee
+	0, // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_flagsvc_flag_v1_flag_proto_init() }
@@ -250,7 +357,7 @@ func file_flagsvc_flag_v1_flag_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_flagsvc_flag_v1_flag_proto_rawDesc), len(file_flagsvc_flag_v1_flag_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   3,
+			NumMessages:   5,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

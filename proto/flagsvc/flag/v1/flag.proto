@@ -9,6 +9,7 @@ option go_package = "github.com/nazifbara/flagsvc/gen/go/flagsvc/flag/v1;flag";
 
 service FlagService {
   rpc Create(CreateRequest) returns (CreateResponse) {}
+  rpc Update(UpdateRequest) returns (UpdateResponse) {}
 }
 
 message Flag {
@@ -27,5 +28,17 @@ message CreateRequest {
 }
 
 message CreateResponse {
+  Flag flag = 1;
+}
+
+message UpdateRequest {
+  string id = 1 [(buf.validate.field).string.uuid = true];
+  string key = 2 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 100
+  }];
+}
+
+message UpdateResponse {
   Flag flag = 1;
 }
