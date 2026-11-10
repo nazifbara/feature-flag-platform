@@ -31,3 +31,8 @@ RETURNING *;
 DELETE FROM flags
 WHERE id = $1
 RETURNING *;
+
+-- name: ListFlags :many
+-- Ordered by key in the database's collation.
+SELECT * FROM flags
+ORDER BY key;

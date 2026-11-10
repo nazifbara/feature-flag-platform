@@ -2094,3 +2094,125 @@ func TestDeleteFlagReportsErrors(t *testing.T) {
 		}
 	})
 }
+
+func TestListFlags(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	list := func(t *testing.T) []database.Flag {
+		t.Helper()
+		got, err := store.ListFlags(ctx)
+		if err != nil {
+			t.Fatalf("ListFlags(): %v", err)
+		}
+		return got
+	}
+	keysOf := func(flags []database.Flag) []string {
+		keys := make([]string, len(flags))
+		for i, f := range flags {
+			keys[i] = f.Key
+		}
+		return keys
+	}
+
+	t.Run("no flags", func(t *testing.T) {
+		resetDB(t, store.db)
+		if got := list(t); len(got) != 0 {
+			t.Fatalf("ListFlags() = %+v, want no flags", got)
+		}
+	})
+
+	t.Run("returns every flag as stored", func(t *testing.T) {
+		resetDB(t, store.db)
+		a := mustCreateFlag(t, store, "a")
+		b := mustCreateFlag(t, store, "b")
+		want := []database.Flag{storedFlag(t, store, a.ID), storedFlag(t, store, b.ID)}
+		if diff := cmp.Diff(want, list(t)); diff != "" {
+			t.Fatalf("ListFlags() mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	// Keys only hold a-z, 0-9 and -, where the test database's collation
+	// sorts as bytes do: - before digits before letters, and a key before the
+	// longer keys it starts.
+	t.Run("orders by key", func(t *testing.T) {
+		resetDB(t, store.db)
+		for _, key := range []string{"b", "a-c", "10", "a", "9", "a1", "ab", "a-b"} {
+			mustCreateFlag(t, store, key)
+		}
+		want := []string{"10", "9", "a", "a-b", "a-c", "a1", "ab", "b"}
+		if diff := cmp.Diff(want, keysOf(list(t))); diff != "" {
+			t.Fatalf("ListFlags() keys mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("a renamed flag moves to its new key", func(t *testing.T) {
+		resetDB(t, store.db)
+		a := mustCreateFlag(t, store, "a")
+		mustCreateFlag(t, store, "b")
+		if _, err := store.UpdateFlag(ctx, a.ID, "c"); err != nil {
+			t.Fatalf("UpdateFlag(): %v", err)
+		}
+		if diff := cmp.Diff([]string{"b", "c"}, keysOf(list(t))); diff != "" {
+			t.Fatalf("ListFlags() keys mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("leaves out deleted flags", func(t *testing.T) {
+		resetDB(t, store.db)
+		mustCreateFlag(t, store, "a")
+		b := mustCreateFlag(t, store, "b")
+		mustCreateFlag(t, store, "c")
+		if _, err := store.DeleteFlag(ctx, b.ID); err != nil {
+			t.Fatalf("DeleteFlag(): %v", err)
+		}
+		if diff := cmp.Diff([]string{"a", "c"}, keysOf(list(t))); diff != "" {
+			t.Fatalf("ListFlags() keys mismatch (-want +got):\n%s", diff)
+		}
+	})
+}
+
+func TestListFlagsReportsErrors(t *testing.T) {
+	store := newTestStore(t)
+	mustCreateFlag(t, store, "new-checkout")
+
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	expired, cancelExpired := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancelExpired()
+
+	tests := map[string]struct {
+		ctx  context.Context
+		want *connect.Error
+	}{
+		"canceled context": {
+			ctx:  canceled,
+			want: connect.NewError(connect.CodeCanceled, "can't list flags"),
+		},
+		"expired deadline": {
+			ctx:  expired,
+			want: connect.NewError(connect.CodeDeadlineExceeded, "can't list flags"),
+		},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			got, err := store.ListFlags(test.ctx)
+			wantConnectErr(t, err, test.want)
+			if got != nil {
+				t.Fatalf("ListFlags() = %+v on error, want nil", got)
+			}
+		})
+	}
+
+	// Run last: it closes the connection pool the other cases use.
+	t.Run("closed database is internal", func(t *testing.T) {
+		if err := store.db.Close(); err != nil {
+			t.Fatalf("closing the database: %v", err)
+		}
+		got, err := store.ListFlags(context.Background())
+		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, "can't list flags"))
+		if got != nil {
+			t.Fatalf("ListFlags() = %+v on error, want nil", got)
+		}
+	})
+}
