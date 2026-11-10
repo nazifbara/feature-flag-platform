@@ -115,6 +115,17 @@ func flagCount(t *testing.T, db *sql.DB) int {
 	return n
 }
 
+// dbNow reads the database's clock, which stamps created_at and updated_at.
+// The test's own clock can be off from it, as with Postgres in a Docker VM.
+func dbNow(t *testing.T, db *sql.DB) time.Time {
+	t.Helper()
+	var now time.Time
+	if err := db.QueryRow("SELECT clock_timestamp()").Scan(&now); err != nil {
+		t.Fatalf("reading the database's clock: %v", err)
+	}
+	return now
+}
+
 // wantCode fails the test unless err is a *connect.Error with code and, when
 // message isn't empty, that message.
 func wantCode(t *testing.T, err error, code connect.Code, message string) {
@@ -155,9 +166,9 @@ func TestCreate(t *testing.T) {
 
 	t.Run("returns the stored flag", func(t *testing.T) {
 		resetDB(t, db)
-		before := time.Now()
+		before := dbNow(t, db)
 		got := mustCreate(t, client, "new-checkout")
-		after := time.Now()
+		after := dbNow(t, db)
 
 		id, err := uuid.Parse(got.Id)
 		if err != nil {
@@ -170,8 +181,7 @@ func TestCreate(t *testing.T) {
 			t.Errorf("salt = %q, want 32 hex characters", got.Salt)
 		}
 		created, updated := got.GetCreatedAt().AsTime(), got.GetUpdatedAt().AsTime()
-		// Postgres keeps microseconds, so the bounds are a microsecond wide.
-		if created.Before(before.Truncate(time.Microsecond)) || created.After(after) {
+		if created.Before(before) || created.After(after) {
 			t.Errorf("created_at = %v, want between %v and %v", created, before, after)
 		}
 		if !updated.Equal(created) {
