@@ -294,3 +294,244 @@ func TestCreate(t *testing.T) {
 		wantCode(t, err, connect.CodeInternal, "can't create the flag")
 	})
 }
+
+// flagRow is a flag as the flags table holds it.
+type flagRow struct {
+	key, salt        string
+	created, updated time.Time
+}
+
+// readFlag reads the flag with id from db.
+func readFlag(t *testing.T, db *sql.DB, id string) flagRow {
+	t.Helper()
+	var r flagRow
+	err := db.QueryRow("SELECT key, salt, created_at, updated_at FROM flags WHERE id = $1", id).
+		Scan(&r.key, &r.salt, &r.created, &r.updated)
+	if err != nil {
+		t.Fatalf("reading flag %s: %v", id, err)
+	}
+	return r
+}
+
+// mustUpdate gives the flag with id the key and returns the response's flag,
+// failing the test if the call fails or the response carries no flag.
+func mustUpdate(t *testing.T, client flagconnect.FlagServiceClient, id, key string) *flag.Flag {
+	t.Helper()
+	res, err := client.Update(context.Background(), &flag.UpdateRequest{Id: id, Key: key})
+	if err != nil {
+		t.Fatalf("Update(%s, %q): %v", id, key, err)
+	}
+	if res.GetFlag() == nil {
+		t.Fatalf("Update(%s, %q) returned no flag", id, key)
+	}
+	return res.GetFlag()
+}
+
+func TestUpdate(t *testing.T) {
+	db := testDB(t)
+	client := newClient(t, os.Getenv("TEST_DB_URL"))
+	ctx := context.Background()
+
+	t.Run("returns the renamed flag", func(t *testing.T) {
+		resetDB(t, db)
+		created := mustCreate(t, client, "old-checkout")
+		got := mustUpdate(t, client, created.Id, "new-checkout")
+
+		if got.Id != created.Id || got.Salt != created.Salt {
+			t.Errorf("id, salt = %s, %q, want the flag's %s, %q", got.Id, got.Salt, created.Id, created.Salt)
+		}
+		if got.Key != "new-checkout" {
+			t.Errorf("key = %q, want %q", got.Key, "new-checkout")
+		}
+		if !got.GetCreatedAt().AsTime().Equal(created.GetCreatedAt().AsTime()) {
+			t.Errorf("created_at = %v, want %v unchanged", got.GetCreatedAt().AsTime(), created.GetCreatedAt().AsTime())
+		}
+		if !got.GetUpdatedAt().AsTime().After(created.GetUpdatedAt().AsTime()) {
+			t.Errorf("updated_at = %v, want after %v", got.GetUpdatedAt().AsTime(), created.GetUpdatedAt().AsTime())
+		}
+
+		row := readFlag(t, db, created.Id)
+		if row.key != got.Key || row.salt != got.Salt || !row.created.Equal(got.GetCreatedAt().AsTime()) || !row.updated.Equal(got.GetUpdatedAt().AsTime()) {
+			t.Errorf("stored flag = %+v, want the response's %q, %q, %v, %v",
+				row, got.Key, got.Salt, got.GetCreatedAt().AsTime(), got.GetUpdatedAt().AsTime())
+		}
+	})
+
+	// The response carries the key as stored, not as sent.
+	t.Run("returns the normalized key", func(t *testing.T) {
+		resetDB(t, db)
+		created := mustCreate(t, client, "old-checkout")
+		got := mustUpdate(t, client, created.Id, "  New-Checkout  ")
+		if got.Key != "new-checkout" {
+			t.Fatalf("key = %q, want %q", got.Key, "new-checkout")
+		}
+	})
+
+	// A key that normalizes to the current one changes nothing, not even
+	// updated_at.
+	t.Run("leaves the flag alone when the key is the same", func(t *testing.T) {
+		resetDB(t, db)
+		created := mustCreate(t, client, "new-checkout")
+		got := mustUpdate(t, client, created.Id, "New-Checkout")
+		if got.Key != "new-checkout" {
+			t.Errorf("key = %q, want %q", got.Key, "new-checkout")
+		}
+		if !got.GetUpdatedAt().AsTime().Equal(created.GetUpdatedAt().AsTime()) {
+			t.Errorf("updated_at = %v, want %v unchanged", got.GetUpdatedAt().AsTime(), created.GetUpdatedAt().AsTime())
+		}
+	})
+
+	t.Run("accepts the id in upper case", func(t *testing.T) {
+		resetDB(t, db)
+		created := mustCreate(t, client, "old-checkout")
+		got := mustUpdate(t, client, strings.ToUpper(created.Id), "new-checkout")
+		if got.Id != created.Id {
+			t.Fatalf("id = %s, want %s", got.Id, created.Id)
+		}
+	})
+
+	// Rejected ids and keys leave the flag as it was, whether the proto
+	// rules or the store catch them.
+	const invalidID = "validation error: id: must be a valid UUID"
+	rejected := map[string]struct {
+		// id replaces the flag's id when it isn't empty.
+		id      string
+		emptyID bool
+		key     string
+		code    connect.Code
+		message string
+	}{
+		// The proto's uuid rule takes only the dashed form, unlike uuid.Parse.
+		"an empty id": {
+			emptyID: true,
+			key:     "new-checkout",
+			code:    connect.CodeInvalidArgument,
+			message: "validation error: id: value is empty, which is not a valid UUID",
+		},
+		"an id that isn't a UUID": {
+			id:      "not-a-uuid",
+			key:     "new-checkout",
+			code:    connect.CodeInvalidArgument,
+			message: invalidID,
+		},
+		"an id with surrounding spaces": {
+			id:      " 6ba7b810-9dad-11d1-80b4-00c04fd430c8 ",
+			key:     "new-checkout",
+			code:    connect.CodeInvalidArgument,
+			message: invalidID,
+		},
+		"an id in braces": {
+			id:      "{6ba7b810-9dad-11d1-80b4-00c04fd430c8}",
+			key:     "new-checkout",
+			code:    connect.CodeInvalidArgument,
+			message: invalidID,
+		},
+		"an id as a URN": {
+			id:      "urn:uuid:6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+			key:     "new-checkout",
+			code:    connect.CodeInvalidArgument,
+			message: invalidID,
+		},
+		"an id without dashes": {
+			id:      "6ba7b8109dad11d180b400c04fd430c8",
+			key:     "new-checkout",
+			code:    connect.CodeInvalidArgument,
+			message: invalidID,
+		},
+		"an id no flag has": {
+			id:      "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+			key:     "new-checkout",
+			code:    connect.CodeNotFound,
+			message: "can't update the flag",
+		},
+		// The proto's min_len.
+		"an empty key": {
+			key:  "",
+			code: connect.CodeInvalidArgument,
+		},
+		// The proto's max_len.
+		"a key over 100 characters": {
+			key:  strings.Repeat("a", 101),
+			code: connect.CodeInvalidArgument,
+		},
+		// Passes min_len, so the store's check catches it.
+		"a key of only spaces": {
+			key:     "   ",
+			code:    connect.CodeInvalidArgument,
+			message: "can't update a flag with an empty key",
+		},
+		"a key with a space inside": {
+			key:     "new checkout",
+			code:    connect.CodeInvalidArgument,
+			message: "can't update a flag with whitespace in its key",
+		},
+		"a key with a character outside the allowed set": {
+			key:     "new_checkout",
+			code:    connect.CodeInvalidArgument,
+			message: "can't update a flag with '_' (U+005F) in its key: only letters, digits and - are allowed",
+		},
+	}
+	for name, tc := range rejected {
+		t.Run("rejects "+name, func(t *testing.T) {
+			resetDB(t, db)
+			created := mustCreate(t, client, "old-checkout")
+			before := readFlag(t, db, created.Id)
+			id := created.Id
+			if tc.emptyID {
+				id = ""
+			} else if tc.id != "" {
+				id = tc.id
+			}
+			_, err := client.Update(ctx, &flag.UpdateRequest{Id: id, Key: tc.key})
+			wantCode(t, err, tc.code, tc.message)
+			if after := readFlag(t, db, created.Id); after != before {
+				t.Fatalf("flag = %+v after a rejected update, want %+v unchanged", after, before)
+			}
+		})
+	}
+
+	t.Run("accepts a key of exactly 100 characters", func(t *testing.T) {
+		resetDB(t, db)
+		created := mustCreate(t, client, "old-checkout")
+		key := strings.Repeat("a", 100)
+		if got := mustUpdate(t, client, created.Id, key); got.Key != key {
+			t.Fatalf("key = %q, want %q", got.Key, key)
+		}
+	})
+
+	// Keys are compared after normalizing, so case doesn't dodge a taken key.
+	t.Run("rejects a key another flag has", func(t *testing.T) {
+		resetDB(t, db)
+		mustCreate(t, client, "new-checkout")
+		other := mustCreate(t, client, "old-checkout")
+		before := readFlag(t, db, other.Id)
+		_, err := client.Update(ctx, &flag.UpdateRequest{Id: other.Id, Key: "New-Checkout"})
+		wantCode(t, err, connect.CodeAlreadyExists, "can't update the flag")
+		if after := readFlag(t, db, other.Id); after != before {
+			t.Fatalf("flag = %+v after a rejected update, want %+v unchanged", after, before)
+		}
+	})
+
+	// The client gets the store's message, never the database's error.
+	t.Run("hides database failures", func(t *testing.T) {
+		unreachable := newClient(t, "postgres://nobody@127.0.0.1:1/none?sslmode=disable&connect_timeout=2")
+		_, err := unreachable.Update(ctx, &flag.UpdateRequest{Id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8", Key: "new-checkout"})
+		wantCode(t, err, connect.CodeInternal, "can't update the flag")
+	})
+}
+
+// Without the validation interceptor, as for a direct caller, the handler's
+// own parsing still rejects an id that isn't a UUID, before reaching the
+// store: the store here can't reach a database, and would answer Internal.
+func TestUpdateWithoutValidationRejectsBadID(t *testing.T) {
+	st, err := store.New("postgres://nobody@127.0.0.1:1/none?sslmode=disable&connect_timeout=2")
+	if err != nil {
+		t.Fatalf("store.New(): %v", err)
+	}
+	for _, id := range []string{"", "not-a-uuid", " 6ba7b810-9dad-11d1-80b4-00c04fd430c8 "} {
+		t.Run(fmt.Sprintf("%q", id), func(t *testing.T) {
+			_, err := New(st).Update(context.Background(), &flag.UpdateRequest{Id: id, Key: "new-checkout"})
+			wantCode(t, err, connect.CodeInvalidArgument, "invalid flag id")
+		})
+	}
+}
