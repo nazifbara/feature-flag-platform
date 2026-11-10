@@ -10,10 +10,12 @@ import (
 	"time"
 
 	"github.com/nazifbara/flagsvc/api/internal/authservice"
+	"github.com/nazifbara/flagsvc/api/internal/flagservice"
 	"github.com/nazifbara/flagsvc/api/internal/interceptor"
 	"github.com/nazifbara/flagsvc/api/internal/pingservice"
 	"github.com/nazifbara/flagsvc/api/internal/store"
 	"github.com/nazifbara/flagsvc/gen/go/flagsvc/auth/v1/authconnect"
+	"github.com/nazifbara/flagsvc/gen/go/flagsvc/flag/v1/flagconnect"
 	"github.com/nazifbara/flagsvc/gen/go/flagsvc/ping/v1/pingconnect"
 
 	connect "connectrpc.com/connect/v2"
@@ -47,8 +49,8 @@ func (s *server) shutdown(ctx context.Context) error {
 	return s.httpServer.Shutdown(ctx)
 }
 
-// newServer builds a server with the auth and ping services registered, without
-// starting it.
+// newServer builds a server with the auth, ping and flag services registered,
+// without starting it.
 func newServer(port int, store *store.Store, cancel context.CancelFunc) *server {
 	connectServer := connect.NewServer(
 		interceptor.NewLoggingInterceptor(),
@@ -62,6 +64,8 @@ func newServer(port int, store *store.Store, cancel context.CancelFunc) *server 
 		connectServer,
 		pingservice.PingService{},
 	)
+	flagconnect.RegisterFlagServiceHandler(connectServer, flagservice.New(store))
+
 	mux := http.NewServeMux()
 	connecthttp.Mount(mux, connectServer)
 	p := new(http.Protocols)
