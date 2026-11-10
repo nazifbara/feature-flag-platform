@@ -53,6 +53,21 @@ func (s *Service) Update(ctx context.Context, req *flag.UpdateRequest) (*flag.Up
 	return &flag.UpdateResponse{Flag: flagToProto(updatedFlag)}, nil
 }
 
+// Get returns the flag with the requested id. As in Update, the proto's rules
+// reject an id that isn't a UUID, and parsing it again guards against a caller
+// without them. An id no flag has gives NotFound.
+func (s *Service) Get(ctx context.Context, req *flag.GetRequest) (*flag.GetResponse, error) {
+	flagID, err := uuid.Parse(req.Id)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, "invalid flag id").WithCause(err)
+	}
+	storedFlag, err := s.store.GetFlag(ctx, flagID)
+	if err != nil {
+		return nil, err
+	}
+	return &flag.GetResponse{Flag: flagToProto(storedFlag)}, nil
+}
+
 // flagToProto converts a stored flag into the API's Flag, which every RPC
 // returning flags wraps in its own response.
 func flagToProto(f database.Flag) *flag.Flag {
