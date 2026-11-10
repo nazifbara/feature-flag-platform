@@ -727,6 +727,74 @@ func TestDelete(t *testing.T) {
 	})
 }
 
+// mustList lists the flags, failing the test if the call fails.
+func mustList(t *testing.T, client flagconnect.FlagServiceClient) []*flag.Flag {
+	t.Helper()
+	res, err := client.List(context.Background(), &flag.ListRequest{})
+	if err != nil {
+		t.Fatalf("List(): %v", err)
+	}
+	return res.GetFlags()
+}
+
+// wantFlags fails the test unless got holds want's flags in want's order.
+func wantFlags(t *testing.T, got, want []*flag.Flag) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("List() = %d flags %v, want %d %v", len(got), got, len(want), want)
+	}
+	for i := range want {
+		if !proto.Equal(got[i], want[i]) {
+			t.Fatalf("List()[%d] = %v, want %v", i, got[i], want[i])
+		}
+	}
+}
+
+func TestList(t *testing.T) {
+	db := testDB(t)
+	client := newClient(t, os.Getenv("TEST_DB_URL"))
+	ctx := context.Background()
+
+	t.Run("no flags", func(t *testing.T) {
+		resetDB(t, db)
+		wantFlags(t, mustList(t, client), nil)
+	})
+
+	// Each flag is the one Create returned, in key order rather than the
+	// order they were made.
+	t.Run("returns every flag ordered by key", func(t *testing.T) {
+		resetDB(t, db)
+		c := mustCreate(t, client, "c")
+		a := mustCreate(t, client, "a")
+		b := mustCreate(t, client, "b")
+		wantFlags(t, mustList(t, client), []*flag.Flag{a, b, c})
+	})
+
+	t.Run("returns flags as last updated", func(t *testing.T) {
+		resetDB(t, db)
+		a := mustCreate(t, client, "a")
+		b := mustCreate(t, client, "b")
+		renamed := mustUpdate(t, client, a.Id, "c")
+		wantFlags(t, mustList(t, client), []*flag.Flag{b, renamed})
+	})
+
+	t.Run("leaves out deleted flags", func(t *testing.T) {
+		resetDB(t, db)
+		a := mustCreate(t, client, "a")
+		b := mustCreate(t, client, "b")
+		c := mustCreate(t, client, "c")
+		mustDelete(t, client, b.Id)
+		wantFlags(t, mustList(t, client), []*flag.Flag{a, c})
+	})
+
+	// The client gets the store's message, never the database's error.
+	t.Run("hides database failures", func(t *testing.T) {
+		unreachable := newClient(t, unreachableDB)
+		_, err := unreachable.List(ctx, &flag.ListRequest{})
+		wantCode(t, err, connect.CodeInternal, "can't list flags")
+	})
+}
+
 // Without the validation interceptor, as for a direct caller, each handler's
 // own parsing still rejects an id that isn't a UUID, before reaching the
 // store: the store here can't reach a database, and would answer Internal.

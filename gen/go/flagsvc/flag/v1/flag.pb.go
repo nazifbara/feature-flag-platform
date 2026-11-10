@@ -459,6 +459,86 @@ func (x *DeleteResponse) GetFlag() *Flag {
 	return nil
 }
 
+type ListRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListRequest) Reset() {
+	*x = ListRequest{}
+	mi := &file_flagsvc_flag_v1_flag_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListRequest) ProtoMessage() {}
+
+func (x *ListRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_flagsvc_flag_v1_flag_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListRequest.ProtoReflect.Descriptor instead.
+func (*ListRequest) Descriptor() ([]byte, []int) {
+	return file_flagsvc_flag_v1_flag_proto_rawDescGZIP(), []int{9}
+}
+
+type ListResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Flags         []*Flag                `protobuf:"bytes,1,rep,name=flags,proto3" json:"flags,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListResponse) Reset() {
+	*x = ListResponse{}
+	mi := &file_flagsvc_flag_v1_flag_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListResponse) ProtoMessage() {}
+
+func (x *ListResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_flagsvc_flag_v1_flag_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListResponse.ProtoReflect.Descriptor instead.
+func (*ListResponse) Descriptor() ([]byte, []int) {
+	return file_flagsvc_flag_v1_flag_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *ListResponse) GetFlags() []*Flag {
+	if x != nil {
+		return x.Flags
+	}
+	return nil
+}
+
 var File_flagsvc_flag_v1_flag_proto protoreflect.FileDescriptor
 
 const file_flagsvc_flag_v1_flag_proto_rawDesc = "" +
@@ -489,12 +569,16 @@ const file_flagsvc_flag_v1_flag_proto_rawDesc = "" +
 	"\rDeleteRequest\x12\x18\n" +
 	"\x02id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x02id\";\n" +
 	"\x0eDeleteResponse\x12)\n" +
-	"\x04flag\x18\x01 \x01(\v2\x15.flagsvc.flag.v1.FlagR\x04flag2\xb8\x02\n" +
+	"\x04flag\x18\x01 \x01(\v2\x15.flagsvc.flag.v1.FlagR\x04flag\"\r\n" +
+	"\vListRequest\";\n" +
+	"\fListResponse\x12+\n" +
+	"\x05flags\x18\x01 \x03(\v2\x15.flagsvc.flag.v1.FlagR\x05flags2\xff\x02\n" +
 	"\vFlagService\x12K\n" +
 	"\x06Create\x12\x1e.flagsvc.flag.v1.CreateRequest\x1a\x1f.flagsvc.flag.v1.CreateResponse\"\x00\x12K\n" +
 	"\x06Update\x12\x1e.flagsvc.flag.v1.UpdateRequest\x1a\x1f.flagsvc.flag.v1.UpdateResponse\"\x00\x12B\n" +
 	"\x03Get\x12\x1b.flagsvc.flag.v1.GetRequest\x1a\x1c.flagsvc.flag.v1.GetResponse\"\x00\x12K\n" +
-	"\x06Delete\x12\x1e.flagsvc.flag.v1.DeleteRequest\x1a\x1f.flagsvc.flag.v1.DeleteResponse\"\x00B:Z8github.com/nazifbara/flagsvc/gen/go/flagsvc/flag/v1;flagb\x06proto3"
+	"\x06Delete\x12\x1e.flagsvc.flag.v1.DeleteRequest\x1a\x1f.flagsvc.flag.v1.DeleteResponse\"\x00\x12E\n" +
+	"\x04List\x12\x1c.flagsvc.flag.v1.ListRequest\x1a\x1d.flagsvc.flag.v1.ListResponse\"\x00B:Z8github.com/nazifbara/flagsvc/gen/go/flagsvc/flag/v1;flagb\x06proto3"
 
 var (
 	file_flagsvc_flag_v1_flag_proto_rawDescOnce sync.Once
@@ -508,7 +592,7 @@ func file_flagsvc_flag_v1_flag_proto_rawDescGZIP() []byte {
 	return file_flagsvc_flag_v1_flag_proto_rawDescData
 }
 
-var file_flagsvc_flag_v1_flag_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_flagsvc_flag_v1_flag_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
 var file_flagsvc_flag_v1_flag_proto_goTypes = []any{
 	(*Flag)(nil),                  // 0: flagsvc.flag.v1.Flag
 	(*CreateRequest)(nil),         // 1: flagsvc.flag.v1.CreateRequest
@@ -519,28 +603,33 @@ var file_flagsvc_flag_v1_flag_proto_goTypes = []any{
 	(*GetResponse)(nil),           // 6: flagsvc.flag.v1.GetResponse
 	(*DeleteRequest)(nil),         // 7: flagsvc.flag.v1.DeleteRequest
 	(*DeleteResponse)(nil),        // 8: flagsvc.flag.v1.DeleteResponse
-	(*timestamppb.Timestamp)(nil), // 9: google.protobuf.Timestamp
+	(*ListRequest)(nil),           // 9: flagsvc.flag.v1.ListRequest
+	(*ListResponse)(nil),          // 10: flagsvc.flag.v1.ListResponse
+	(*timestamppb.Timestamp)(nil), // 11: google.protobuf.Timestamp
 }
 var file_flagsvc_flag_v1_flag_proto_depIdxs = []int32{
-	9,  // 0: flagsvc.flag.v1.Flag.created_at:type_name -> google.protobuf.Timestamp
-	9,  // 1: flagsvc.flag.v1.Flag.updated_at:type_name -> google.protobuf.Timestamp
+	11, // 0: flagsvc.flag.v1.Flag.created_at:type_name -> google.protobuf.Timestamp
+	11, // 1: flagsvc.flag.v1.Flag.updated_at:type_name -> google.protobuf.Timestamp
 	0,  // 2: flagsvc.flag.v1.CreateResponse.flag:type_name -> flagsvc.flag.v1.Flag
 	0,  // 3: flagsvc.flag.v1.UpdateResponse.flag:type_name -> flagsvc.flag.v1.Flag
 	0,  // 4: flagsvc.flag.v1.GetResponse.flag:type_name -> flagsvc.flag.v1.Flag
 	0,  // 5: flagsvc.flag.v1.DeleteResponse.flag:type_name -> flagsvc.flag.v1.Flag
-	1,  // 6: flagsvc.flag.v1.FlagService.Create:input_type -> flagsvc.flag.v1.CreateRequest
-	3,  // 7: flagsvc.flag.v1.FlagService.Update:input_type -> flagsvc.flag.v1.UpdateRequest
-	5,  // 8: flagsvc.flag.v1.FlagService.Get:input_type -> flagsvc.flag.v1.GetRequest
-	7,  // 9: flagsvc.flag.v1.FlagService.Delete:input_type -> flagsvc.flag.v1.DeleteRequest
-	2,  // 10: flagsvc.flag.v1.FlagService.Create:output_type -> flagsvc.flag.v1.CreateResponse
-	4,  // 11: flagsvc.flag.v1.FlagService.Update:output_type -> flagsvc.flag.v1.UpdateResponse
-	6,  // 12: flagsvc.flag.v1.FlagService.Get:output_type -> flagsvc.flag.v1.GetResponse
-	8,  // 13: flagsvc.flag.v1.FlagService.Delete:output_type -> flagsvc.flag.v1.DeleteResponse
-	10, // [10:14] is the sub-list for method output_type
-	6,  // [6:10] is the sub-list for method input_type
-	6,  // [6:6] is the sub-list for extension type_name
-	6,  // [6:6] is the sub-list for extension extendee
-	0,  // [0:6] is the sub-list for field type_name
+	0,  // 6: flagsvc.flag.v1.ListResponse.flags:type_name -> flagsvc.flag.v1.Flag
+	1,  // 7: flagsvc.flag.v1.FlagService.Create:input_type -> flagsvc.flag.v1.CreateRequest
+	3,  // 8: flagsvc.flag.v1.FlagService.Update:input_type -> flagsvc.flag.v1.UpdateRequest
+	5,  // 9: flagsvc.flag.v1.FlagService.Get:input_type -> flagsvc.flag.v1.GetRequest
+	7,  // 10: flagsvc.flag.v1.FlagService.Delete:input_type -> flagsvc.flag.v1.DeleteRequest
+	9,  // 11: flagsvc.flag.v1.FlagService.List:input_type -> flagsvc.flag.v1.ListRequest
+	2,  // 12: flagsvc.flag.v1.FlagService.Create:output_type -> flagsvc.flag.v1.CreateResponse
+	4,  // 13: flagsvc.flag.v1.FlagService.Update:output_type -> flagsvc.flag.v1.UpdateResponse
+	6,  // 14: flagsvc.flag.v1.FlagService.Get:output_type -> flagsvc.flag.v1.GetResponse
+	8,  // 15: flagsvc.flag.v1.FlagService.Delete:output_type -> flagsvc.flag.v1.DeleteResponse
+	10, // 16: flagsvc.flag.v1.FlagService.List:output_type -> flagsvc.flag.v1.ListResponse
+	12, // [12:17] is the sub-list for method output_type
+	7,  // [7:12] is the sub-list for method input_type
+	7,  // [7:7] is the sub-list for extension type_name
+	7,  // [7:7] is the sub-list for extension extendee
+	0,  // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_flagsvc_flag_v1_flag_proto_init() }
@@ -554,7 +643,7 @@ func file_flagsvc_flag_v1_flag_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_flagsvc_flag_v1_flag_proto_rawDesc), len(file_flagsvc_flag_v1_flag_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   9,
+			NumMessages:   11,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
