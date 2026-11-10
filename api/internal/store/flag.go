@@ -148,3 +148,12 @@ func (s *Store) DeleteFlag(ctx context.Context, id uuid.UUID) (database.Flag, er
 	}
 	return flag, nil
 }
+
+// ListFlags gives every flag, ordered by key.
+func (s *Store) ListFlags(ctx context.Context) ([]database.Flag, error) {
+	flags, err := s.Queries.ListFlags(ctx)
+	if err != nil {
+		return nil, ffserrors.FromDBErr(err, "can't list flags")
+	}
+	return flags, nil
+}
