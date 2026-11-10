@@ -11,6 +11,7 @@ service FlagService {
   rpc Create(CreateRequest) returns (CreateResponse) {}
   rpc Update(UpdateRequest) returns (UpdateResponse) {}
   rpc Get(GetRequest) returns (GetResponse) {}
+  rpc Delete(DeleteRequest) returns (DeleteResponse) {}
 }
 
 message Flag {
@@ -49,5 +50,13 @@ message GetRequest {
 }
 
 message GetResponse {
+  Flag flag = 1;
+}
+
+message DeleteRequest {
+  string id = 1 [(buf.validate.field).string.uuid = true];
+}
+
+message DeleteResponse {
   Flag flag = 1;
 }

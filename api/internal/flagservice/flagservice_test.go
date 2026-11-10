@@ -606,6 +606,127 @@ func TestGet(t *testing.T) {
 	})
 }
 
+// mustDelete deletes the flag with id and returns the response's flag, failing
+// the test if the call fails or the response carries no flag.
+func mustDelete(t *testing.T, client flagconnect.FlagServiceClient, id string) *flag.Flag {
+	t.Helper()
+	res, err := client.Delete(context.Background(), &flag.DeleteRequest{Id: id})
+	if err != nil {
+		t.Fatalf("Delete(%s): %v", id, err)
+	}
+	if res.GetFlag() == nil {
+		t.Fatalf("Delete(%s) returned no flag", id)
+	}
+	return res.GetFlag()
+}
+
+// flagExists reports whether db holds a flag with id.
+func flagExists(t *testing.T, db *sql.DB, id string) bool {
+	t.Helper()
+	var exists bool
+	if err := db.QueryRow("SELECT EXISTS (SELECT 1 FROM flags WHERE id = $1)", id).Scan(&exists); err != nil {
+		t.Fatalf("looking for flag %s: %v", id, err)
+	}
+	return exists
+}
+
+func TestDelete(t *testing.T) {
+	db := testDB(t)
+	client := newClient(t, os.Getenv("TEST_DB_URL"))
+	ctx := context.Background()
+
+	t.Run("returns the flag as it was", func(t *testing.T) {
+		resetDB(t, db)
+		created := mustCreate(t, client, "old-checkout")
+		updated := mustUpdate(t, client, created.Id, "new-checkout")
+		if got := mustDelete(t, client, created.Id); !proto.Equal(got, updated) {
+			t.Fatalf("Delete() = %v, want the flag as last updated %v", got, updated)
+		}
+	})
+
+	t.Run("removes the flag", func(t *testing.T) {
+		resetDB(t, db)
+		created := mustCreate(t, client, "new-checkout")
+		mustDelete(t, client, created.Id)
+		if flagExists(t, db, created.Id) {
+			t.Fatal("the flag is still stored after Delete()")
+		}
+		_, err := client.Get(ctx, &flag.GetRequest{Id: created.Id})
+		wantCode(t, err, connect.CodeNotFound, "can't get the flag")
+	})
+
+	t.Run("removes only the flag asked for", func(t *testing.T) {
+		resetDB(t, db)
+		first := mustCreate(t, client, "first")
+		second := mustCreate(t, client, "second")
+		third := mustCreate(t, client, "third")
+		mustDelete(t, client, second.Id)
+		for _, f := range []*flag.Flag{first, third} {
+			if got := mustGet(t, client, f.Id); !proto.Equal(got, f) {
+				t.Errorf("Get(%s) = %v, want %v unchanged", f.Key, got, f)
+			}
+		}
+	})
+
+	t.Run("rejects deleting the same flag twice", func(t *testing.T) {
+		resetDB(t, db)
+		created := mustCreate(t, client, "new-checkout")
+		mustDelete(t, client, created.Id)
+		_, err := client.Delete(ctx, &flag.DeleteRequest{Id: created.Id})
+		wantCode(t, err, connect.CodeNotFound, "can't delete the flag")
+	})
+
+	// A new flag can take a deleted flag's key, and is a flag of its own.
+	t.Run("frees the key", func(t *testing.T) {
+		resetDB(t, db)
+		deleted := mustCreate(t, client, "new-checkout")
+		mustDelete(t, client, deleted.Id)
+		reused := mustCreate(t, client, "new-checkout")
+		if reused.Id == deleted.Id || reused.Salt == deleted.Salt {
+			t.Fatalf("new flag id, salt = %s, %q, want neither of the deleted flag's %s, %q",
+				reused.Id, reused.Salt, deleted.Id, deleted.Salt)
+		}
+	})
+
+	t.Run("accepts the id in upper case", func(t *testing.T) {
+		resetDB(t, db)
+		created := mustCreate(t, client, "new-checkout")
+		if got := mustDelete(t, client, strings.ToUpper(created.Id)); got.Id != created.Id {
+			t.Fatalf("id = %s, want %s", got.Id, created.Id)
+		}
+	})
+
+	// Rejected ids delete nothing.
+	for name, tc := range badIDs {
+		t.Run("rejects "+name, func(t *testing.T) {
+			resetDB(t, db)
+			created := mustCreate(t, client, "new-checkout")
+			_, err := client.Delete(ctx, &flag.DeleteRequest{Id: tc.id})
+			wantCode(t, err, connect.CodeInvalidArgument, tc.message)
+			if !flagExists(t, db, created.Id) {
+				t.Fatal("the flag is gone after a rejected delete")
+			}
+		})
+	}
+
+	t.Run("rejects an id no flag has", func(t *testing.T) {
+		resetDB(t, db)
+		created := mustCreate(t, client, "new-checkout")
+		_, err := client.Delete(ctx, &flag.DeleteRequest{Id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"})
+		wantCode(t, err, connect.CodeNotFound, "can't delete the flag")
+		if !flagExists(t, db, created.Id) {
+			t.Fatal("another flag is gone after deleting an id no flag has")
+		}
+	})
+
+	// The client gets the store's message, never the database's error.
+	t.Run("hides database failures", func(t *testing.T) {
+		unreachable := newClient(t, unreachableDB)
+		_, err := unreachable.Delete(ctx, &flag.DeleteRequest{Id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"})
+		wantCode(t, err, connect.CodeInternal, "can't delete the flag")
+	})
+}
+
 // Without the validation interceptor, as for a direct caller, each handler's
 // own parsing still rejects an id that isn't a UUID, before reaching the
 // store: the store here can't reach a database, and would answer Internal.
@@ -623,6 +744,10 @@ func TestHandlersWithoutValidationRejectBadIDs(t *testing.T) {
 		},
 		"Get": func(id string) error {
 			_, err := svc.Get(ctx, &flag.GetRequest{Id: id})
+			return err
+		},
+		"Delete": func(id string) error {
+			_, err := svc.Delete(ctx, &flag.DeleteRequest{Id: id})
 			return err
 		},
 	}

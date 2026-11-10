@@ -30,6 +30,8 @@ const (
 	FlagServiceUpdateProcedure = "/flagsvc.flag.v1.FlagService/Update"
 	// FlagServiceGetProcedure is the procedure name of the FlagService's Get RPC.
 	FlagServiceGetProcedure = "/flagsvc.flag.v1.FlagService/Get"
+	// FlagServiceDeleteProcedure is the procedure name of the FlagService's Delete RPC.
+	FlagServiceDeleteProcedure = "/flagsvc.flag.v1.FlagService/Delete"
 )
 
 var (
@@ -54,6 +56,13 @@ var (
 			Procedure:  FlagServiceGetProcedure,
 		}
 	})
+	flagServiceDeleteSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_flagsvc_flag_v1_flag_proto.Services().ByName("FlagService").Methods().ByName("Delete"),
+			Procedure:  FlagServiceDeleteProcedure,
+		}
+	})
 )
 
 // FlagServiceClient is a client for the flagsvc.flag.v1.FlagService service.
@@ -61,6 +70,7 @@ type FlagServiceClient interface {
 	Create(context.Context, *v1.CreateRequest) (*v1.CreateResponse, error)
 	Update(context.Context, *v1.UpdateRequest) (*v1.UpdateResponse, error)
 	Get(context.Context, *v1.GetRequest) (*v1.GetResponse, error)
+	Delete(context.Context, *v1.DeleteRequest) (*v1.DeleteResponse, error)
 }
 
 // NewFlagServiceClient constructs a client for the flagsvc.flag.v1.FlagService service. Multiple
@@ -74,6 +84,7 @@ type FlagServiceHandler interface {
 	Create(context.Context, *v1.CreateRequest) (*v1.CreateResponse, error)
 	Update(context.Context, *v1.UpdateRequest) (*v1.UpdateResponse, error)
 	Get(context.Context, *v1.GetRequest) (*v1.GetResponse, error)
+	Delete(context.Context, *v1.DeleteRequest) (*v1.DeleteResponse, error)
 }
 
 // RegisterFlagServiceHandler registers svc as the flagsvc.flag.v1.FlagService implementation on
@@ -84,6 +95,7 @@ func RegisterFlagServiceHandler(server *connect.Server, svc FlagServiceHandler) 
 		connect.Method{Spec: flagServiceCreateSpec(), Handler: adapter.create},
 		connect.Method{Spec: flagServiceUpdateSpec(), Handler: adapter.update},
 		connect.Method{Spec: flagServiceGetSpec(), Handler: adapter.get},
+		connect.Method{Spec: flagServiceDeleteSpec(), Handler: adapter.delete},
 	)
 }
 
@@ -100,6 +112,10 @@ func (UnimplementedFlagServiceHandler) Update(context.Context, *v1.UpdateRequest
 
 func (UnimplementedFlagServiceHandler) Get(context.Context, *v1.GetRequest) (*v1.GetResponse, error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, "flagsvc.flag.v1.FlagService.Get is not implemented")
+}
+
+func (UnimplementedFlagServiceHandler) Delete(context.Context, *v1.DeleteRequest) (*v1.DeleteResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "flagsvc.flag.v1.FlagService.Delete is not implemented")
 }
 
 type flagServiceClient struct {
@@ -125,6 +141,14 @@ func (c *flagServiceClient) Update(ctx context.Context, req *v1.UpdateRequest) (
 func (c *flagServiceClient) Get(ctx context.Context, req *v1.GetRequest) (*v1.GetResponse, error) {
 	var res v1.GetResponse
 	if err := c.client.CallUnary(ctx, flagServiceGetSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *flagServiceClient) Delete(ctx context.Context, req *v1.DeleteRequest) (*v1.DeleteResponse, error) {
+	var res v1.DeleteResponse
+	if err := c.client.CallUnary(ctx, flagServiceDeleteSpec(), req, &res); err != nil {
 		return nil, err
 	}
 	return &res, nil
@@ -162,6 +186,18 @@ func (h flagServiceHandler) get(ctx context.Context, _ connect.Spec, stream conn
 		return err
 	}
 	res, err := h.svc.Get(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h flagServiceHandler) delete(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.DeleteRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.Delete(ctx, &req)
 	if err != nil {
 		return err
 	}

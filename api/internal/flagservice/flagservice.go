@@ -68,6 +68,23 @@ func (s *Service) Get(ctx context.Context, req *flag.GetRequest) (*flag.GetRespo
 	return &flag.GetResponse{Flag: flagToProto(storedFlag)}, nil
 }
 
+// Delete removes the flag with the requested id, which the store does with its
+// settings in every environment, logging the deletion there, and returns the
+// flag as it was. As in Update, the proto's rules reject an id that isn't a
+// UUID, and parsing it again guards against a caller without them. An id no
+// flag has gives NotFound.
+func (s *Service) Delete(ctx context.Context, req *flag.DeleteRequest) (*flag.DeleteResponse, error) {
+	flagID, err := uuid.Parse(req.Id)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, "invalid flag id").WithCause(err)
+	}
+	deletedFlag, err := s.store.DeleteFlag(ctx, flagID)
+	if err != nil {
+		return nil, err
+	}
+	return &flag.DeleteResponse{Flag: flagToProto(deletedFlag)}, nil
+}
+
 // flagToProto converts a stored flag into the API's Flag, which every RPC
 // returning flags wraps in its own response.
 func flagToProto(f database.Flag) *flag.Flag {
