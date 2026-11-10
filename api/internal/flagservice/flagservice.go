@@ -85,6 +85,19 @@ func (s *Service) Delete(ctx context.Context, req *flag.DeleteRequest) (*flag.De
 	return &flag.DeleteResponse{Flag: flagToProto(deletedFlag)}, nil
 }
 
+// List returns every flag, ordered by key.
+func (s *Service) List(ctx context.Context, req *flag.ListRequest) (*flag.ListResponse, error) {
+	flags, err := s.store.ListFlags(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var flagMessages []*flag.Flag
+	for _, f := range flags {
+		flagMessages = append(flagMessages, flagToProto(f))
+	}
+	return &flag.ListResponse{Flags: flagMessages}, nil
+}
+
 // flagToProto converts a stored flag into the API's Flag, which every RPC
 // returning flags wraps in its own response.
 func flagToProto(f database.Flag) *flag.Flag {
