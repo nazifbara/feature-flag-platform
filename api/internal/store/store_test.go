@@ -4,12 +4,42 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
+	"os"
 	"testing"
 	"time"
 	"uuid"
 
 	"github.com/nazifbara/flagsvc/api/internal/database"
 )
+
+// testDBLock is the session advisory lock every package testing against
+// TEST_DB_URL holds for its whole run. go test runs packages in parallel, and
+// these tests empty the tables and count rows, so they'd break each other.
+const testDBLock = 7236402
+
+// TestMain runs the tests while holding testDBLock.
+func TestMain(m *testing.M) {
+	db, err := sql.Open("postgres", os.Getenv("TEST_DB_URL"))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "opening the test database: %v\n", err)
+		os.Exit(1)
+	}
+	conn, err := db.Conn(context.Background())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "connecting to the test database: %v\n", err)
+		os.Exit(1)
+	}
+	if _, err := conn.ExecContext(context.Background(), "SELECT pg_advisory_lock($1)", testDBLock); err != nil {
+		fmt.Fprintf(os.Stderr, "locking the test database: %v\n", err)
+		os.Exit(1)
+	}
+	code := m.Run()
+	// Closing the database ends the session, which releases the lock.
+	_ = conn.Close()
+	_ = db.Close()
+	os.Exit(code)
+}
 
 // envCount gives the number of committed environments.
 func envCount(t *testing.T, store *Store) int {
