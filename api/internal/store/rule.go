@@ -128,6 +128,13 @@ func (s *Store) CreateRule(ctx context.Context, args database.CreateRuleParams) 
 		if err != nil {
 			return err
 		}
+		flag, err := q.GetFlag(ctx, setting.FlagID)
+		if err != nil {
+			return err
+		}
+		if flag.Archived {
+			return connect.NewError(connect.CodeFailedPrecondition, "can't create rules for archived flag")
+		}
 		ruleCount, err := q.CountRulesBySetting(ctx, setting.ID)
 		if err != nil {
 			return err
@@ -214,6 +221,13 @@ func (s *Store) DeleteRule(ctx context.Context, id uuid.UUID) (database.Rule, er
 		if err != nil {
 			return err
 		}
+		flag, err := q.GetFlag(ctx, setting.FlagID)
+		if err != nil {
+			return err
+		}
+		if flag.Archived {
+			return connect.NewError(connect.CodeFailedPrecondition, "can't delete rules of archived flag")
+		}
 		if err := q.IncrementEnvVersion(ctx, setting.EnvironmentID); err != nil {
 			return err
 		}
@@ -277,6 +291,13 @@ func (s *Store) UpdateRule(ctx context.Context, args database.UpdateRuleParams) 
 		setting, err := q.GetFlagSettingByID(ctx, rule.FlagSettingID)
 		if err != nil {
 			return err
+		}
+		flag, err := q.GetFlag(ctx, setting.FlagID)
+		if err != nil {
+			return err
+		}
+		if flag.Archived {
+			return connect.NewError(connect.CodeFailedPrecondition, "can't update rules of archived flag")
 		}
 		if err := q.IncrementEnvVersion(ctx, setting.EnvironmentID); err != nil {
 			return err
@@ -350,6 +371,13 @@ func (s *Store) ChangeRulePosition(ctx context.Context, args database.ChangeRule
 		setting, err := q.GetFlagSettingByID(ctx, rule.FlagSettingID)
 		if err != nil {
 			return err
+		}
+		flag, err := q.GetFlag(ctx, setting.FlagID)
+		if err != nil {
+			return err
+		}
+		if flag.Archived {
+			return connect.NewError(connect.CodeFailedPrecondition, "can't update rules of archived flag")
 		}
 		if err := q.IncrementEnvVersion(ctx, setting.EnvironmentID); err != nil {
 			return err

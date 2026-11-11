@@ -4549,3 +4549,80 @@ func TestChangeRulePositionReportsErrors(t *testing.T) {
 		wantZeroRule(t, got)
 	})
 }
+
+// An archived flag's rules are frozen until it's unarchived: none is created,
+// changed, moved or deleted, so there's nothing to bump or log.
+func TestRulesOfArchivedFlag(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	ops := map[string]struct {
+		call    func(setting database.FlagSetting, rule database.Rule) (database.Rule, error)
+		message string
+	}{
+		"CreateRule": {
+			call: func(s database.FlagSetting, _ database.Rule) (database.Rule, error) {
+				return store.CreateRule(ctx, database.CreateRuleParams{FlagSettingID: s.ID, Position: 0, Name: "new", Serve: 1, Clauses: json.RawMessage(validClauses)})
+			},
+			message: "can't create rules for archived flag",
+		},
+		"UpdateRule": {
+			call: func(_ database.FlagSetting, r database.Rule) (database.Rule, error) {
+				return store.UpdateRule(ctx, database.UpdateRuleParams{ID: r.ID, Name: "renamed", Serve: 0.5, Clauses: json.RawMessage(otherClauses)})
+			},
+			message: "can't update rules of archived flag",
+		},
+		"ChangeRulePosition": {
+			call: func(_ database.FlagSetting, r database.Rule) (database.Rule, error) {
+				return store.ChangeRulePosition(ctx, database.ChangeRulePositionParams{ID: r.ID, Position: 1})
+			},
+			message: "can't update rules of archived flag",
+		},
+		"DeleteRule": {
+			call: func(_ database.FlagSetting, r database.Rule) (database.Rule, error) {
+				return store.DeleteRule(ctx, r.ID)
+			},
+			message: "can't delete rules of archived flag",
+		},
+	}
+
+	for name, op := range ops {
+		t.Run(name+" is rejected", func(t *testing.T) {
+			setting := mustCreateRuleSetting(t, store)
+			rules := mustCreateNamedRules(t, store, setting.ID, "first", "second")
+			mustArchiveFlag(t, store, setting.FlagID)
+			envBefore := mustGetEnv(t, store, setting.EnvironmentID)
+			logsBefore := changeLogCount(t, store)
+
+			got, err := op.call(setting, rules[0])
+			wantConnectErr(t, err, connect.NewError(connect.CodeFailedPrecondition, op.message))
+			wantZeroRule(t, got)
+			for _, r := range rules {
+				if diff := cmp.Diff(r, storedRule(t, store, r.ID)); diff != "" {
+					t.Errorf("rule %s changed (-want +got):\n%s", r.Name, diff)
+				}
+			}
+			if n := len(storedServes(t, store, setting.ID)); n != len(rules) {
+				t.Errorf("%d rules, want %d", n, len(rules))
+			}
+			if diff := cmp.Diff(envBefore, mustGetEnv(t, store, setting.EnvironmentID)); diff != "" {
+				t.Errorf("environment changed (-want +got):\n%s", diff)
+			}
+			if got := changeLogCount(t, store); got != logsBefore {
+				t.Errorf("%d entries, want %d", got, logsBefore)
+			}
+		})
+
+		t.Run(name+" works again once unarchived", func(t *testing.T) {
+			setting := mustCreateRuleSetting(t, store)
+			rules := mustCreateNamedRules(t, store, setting.ID, "first", "second")
+			mustArchiveFlag(t, store, setting.FlagID)
+			if err := store.UnarchiveFlag(ctx, setting.FlagID); err != nil {
+				t.Fatalf("UnarchiveFlag(): %v", err)
+			}
+			if _, err := op.call(setting, rules[0]); err != nil {
+				t.Fatalf("%s(): %v", name, err)
+			}
+		})
+	}
+}
