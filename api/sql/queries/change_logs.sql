@@ -113,6 +113,60 @@ SELECT
 FROM environments AS e
 CROSS JOIN now;
 
+-- name: CreateChangeLogsForFlagArchive :exec
+-- Logs a flag's archiving in every environment, with the flag's key and the
+-- environment's version. It reads the versions, so it runs after they're
+-- bumped. The clock is read once so all the entries for one archiving share a
+-- created_at.
+WITH now AS (SELECT clock_timestamp() AS ts)
+
+INSERT INTO change_logs (
+    id,
+    target_version,
+    environment_id,
+    flag_new_key,
+    action,
+    created_at
+)
+SELECT
+    gen_random_uuid(),
+    e.version,
+    e.id,
+    f.key,
+    'flag-archived',
+    now.ts
+FROM environments AS e
+CROSS JOIN flags AS f
+CROSS JOIN now
+WHERE f.id = sqlc.arg('flag_id');
+
+-- name: CreateChangeLogsForFlagUnarchive :exec
+-- Logs a flag's unarchiving in every environment, with the flag's key and the
+-- environment's version. It reads the versions, so it runs after they're
+-- bumped. The clock is read once so all the entries for one unarchiving share
+-- a created_at.
+WITH now AS (SELECT clock_timestamp() AS ts)
+
+INSERT INTO change_logs (
+    id,
+    target_version,
+    environment_id,
+    flag_new_key,
+    action,
+    created_at
+)
+SELECT
+    gen_random_uuid(),
+    e.version,
+    e.id,
+    f.key,
+    'flag-unarchived',
+    now.ts
+FROM environments AS e
+CROSS JOIN flags AS f
+CROSS JOIN now
+WHERE f.id = sqlc.arg('flag_id');
+
 -- name: CreateChangeLogsForSettingUpdate :exec
 -- Logs a flag's new setting in one environment, with the flag's key and the
 -- environment's version. It reads both, so it runs after the setting is

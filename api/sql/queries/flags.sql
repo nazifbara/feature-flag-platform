@@ -41,3 +41,14 @@ WHERE
     OR key > sqlc.narg('key')::varchar
 ORDER BY key ASC
 LIMIT sqlc.arg('limit');
+
+
+-- name: ArchiveFlag :exec
+-- Freezes the flag's settings and rules; it keeps them for unarchiving.
+UPDATE flags SET archived = TRUE
+WHERE id = $1;
+
+-- name: UnarchiveFlag :exec
+-- Lets the flag's settings and rules change again.
+UPDATE flags SET archived = FALSE
+WHERE id = $1;

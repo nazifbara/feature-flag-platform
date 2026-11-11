@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -31,8 +32,8 @@ func flagCount(t *testing.T, store *Store) int {
 func storedFlag(t *testing.T, store *Store, id uuid.UUID) database.Flag {
 	t.Helper()
 	var f database.Flag
-	err := store.db.QueryRow("SELECT id, key, salt, created_at, updated_at FROM flags WHERE id = $1", id).
-		Scan(&f.ID, &f.Key, &f.Salt, &f.CreatedAt, &f.UpdatedAt)
+	err := store.db.QueryRow("SELECT id, key, salt, created_at, updated_at, archived FROM flags WHERE id = $1", id).
+		Scan(&f.ID, &f.Key, &f.Salt, &f.CreatedAt, &f.UpdatedAt, &f.Archived)
 	if err != nil {
 		t.Fatalf("reading flag %v: %v", id, err)
 	}
@@ -2365,6 +2366,385 @@ func TestListFlagsReportsErrors(t *testing.T) {
 		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, "can't list flags"))
 		if got != nil || next != nil {
 			t.Fatalf("ListFlags() = %+v, %v on error, want nil, nil", got, next)
+		}
+	})
+}
+
+// mustArchiveFlag archives the flag with id, failing the test if it fails.
+func mustArchiveFlag(t *testing.T, store *Store, id uuid.UUID) {
+	t.Helper()
+	if err := store.ArchiveFlag(context.Background(), id); err != nil {
+		t.Fatalf("ArchiveFlag(%v): %v", id, err)
+	}
+}
+
+// archiveOps are ArchiveFlag and UnarchiveFlag, each with whether the flag it
+// changes starts out archived, the action it logs and its error message.
+var archiveOps = map[string]struct {
+	call     func(*Store, context.Context, uuid.UUID) error
+	archived bool
+	action   string
+	message  string
+}{
+	"ArchiveFlag":   {(*Store).ArchiveFlag, false, "flag-archived", "can't archive flag"},
+	"UnarchiveFlag": {(*Store).UnarchiveFlag, true, "flag-unarchived", "can't unarchive flag"},
+}
+
+// mustCreateFlagFor creates a flag keyed key, archived when op starts from an
+// archived flag.
+func mustCreateFlagFor(t *testing.T, store *Store, archived bool, key string) database.Flag {
+	t.Helper()
+	f := mustCreateFlag(t, store, key)
+	if archived {
+		mustArchiveFlag(t, store, f.ID)
+	}
+	return storedFlag(t, store, f.ID)
+}
+
+// rejectArchivedChange makes moving a flag off archived = from fail until the
+// test ends, leaving the rows already there alone.
+func rejectArchivedChange(t *testing.T, store *Store, from bool) {
+	t.Helper()
+	if _, err := store.db.Exec(fmt.Sprintf("ALTER TABLE flags ADD CONSTRAINT reject_archive CHECK (archived = %t) NOT VALID", from)); err != nil {
+		t.Fatalf("adding the constraint: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := store.db.Exec("ALTER TABLE flags DROP CONSTRAINT reject_archive"); err != nil {
+			t.Errorf("dropping the constraint: %v", err)
+		}
+	})
+}
+
+func TestArchiveFlag(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	for name, op := range archiveOps {
+		// Only archived moves: the key and salt evaluation hangs on stay.
+		t.Run(name+" sets archived", func(t *testing.T) {
+			resetDB(t, store.db)
+			f := mustCreateFlagFor(t, store, op.archived, "new-checkout")
+			if err := op.call(store, ctx, f.ID); err != nil {
+				t.Fatalf("%s(): %v", name, err)
+			}
+			want := f
+			want.Archived = !op.archived
+			ignore := cmpopts.IgnoreFields(database.Flag{}, "UpdatedAt")
+			if diff := cmp.Diff(want, storedFlag(t, store, f.ID), ignore); diff != "" {
+				t.Fatalf("flag mismatch (-want +got):\n%s", diff)
+			}
+		})
+
+		t.Run(name+" leaves other flags alone", func(t *testing.T) {
+			resetDB(t, store.db)
+			other := mustCreateFlagFor(t, store, op.archived, "dark-mode")
+			f := mustCreateFlagFor(t, store, op.archived, "new-checkout")
+			if err := op.call(store, ctx, f.ID); err != nil {
+				t.Fatalf("%s(): %v", name, err)
+			}
+			if diff := cmp.Diff(other, storedFlag(t, store, other.ID)); diff != "" {
+				t.Fatalf("other flag changed (-want +got):\n%s", diff)
+			}
+		})
+
+		// The flag's settings and rules are kept for when it's unarchived.
+		t.Run(name+" leaves settings and rules alone", func(t *testing.T) {
+			resetDB(t, store.db)
+			env := mustCreateEnv(t, store, "production")
+			f := mustCreateFlag(t, store, "new-checkout")
+			s := mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: f.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: 0.5})
+			r := mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: s.ID, Name: "benin", Serve: 1, Clauses: json.RawMessage(validClauses)})
+			if op.archived {
+				mustArchiveFlag(t, store, f.ID)
+			}
+			if err := op.call(store, ctx, f.ID); err != nil {
+				t.Fatalf("%s(): %v", name, err)
+			}
+			if diff := cmp.Diff(s, storedFlagSetting(t, store, s.ID)); diff != "" {
+				t.Errorf("setting changed (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(r, storedRule(t, store, r.ID)); diff != "" {
+				t.Errorf("rule changed (-want +got):\n%s", diff)
+			}
+		})
+
+		t.Run(name+" not found", func(t *testing.T) {
+			resetDB(t, store.db)
+			gone := mustCreateFlag(t, store, "new-checkout")
+			if _, err := store.DeleteFlag(ctx, gone.ID); err != nil {
+				t.Fatalf("DeleteFlag(): %v", err)
+			}
+			for _, id := range []uuid.UUID{gone.ID, uuid.New(), uuid.Nil()} {
+				err := op.call(store, ctx, id)
+				wantConnectErr(t, err, connect.NewError(connect.CodeNotFound, op.message))
+			}
+		})
+	}
+
+	for name, op := range archiveOps {
+		// A flag already in the state asked for has nothing to change, so
+		// readers have nothing to pick up.
+		t.Run(name+" twice changes nothing the second time", func(t *testing.T) {
+			resetDB(t, store.db)
+			env := mustCreateEnv(t, store, "production")
+			f := mustCreateFlagFor(t, store, !op.archived, "new-checkout")
+			envBefore := mustGetEnv(t, store, env.ID)
+			logsBefore := changeLogCount(t, store)
+			if err := op.call(store, ctx, f.ID); err != nil {
+				t.Fatalf("%s(): %v", name, err)
+			}
+			if diff := cmp.Diff(f, storedFlag(t, store, f.ID)); diff != "" {
+				t.Errorf("flag changed (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(envBefore, mustGetEnv(t, store, env.ID)); diff != "" {
+				t.Errorf("environment changed (-want +got):\n%s", diff)
+			}
+			if got := changeLogCount(t, store); got != logsBefore {
+				t.Errorf("%d entries, want %d", got, logsBefore)
+			}
+		})
+
+		// The flag, the bump and the log land together or not at all.
+		t.Run(name+" failed update bumps and logs nothing", func(t *testing.T) {
+			resetDB(t, store.db)
+			env := mustCreateEnv(t, store, "production")
+			f := mustCreateFlagFor(t, store, op.archived, "new-checkout")
+			envBefore := mustGetEnv(t, store, env.ID)
+			logsBefore := changeLogCount(t, store)
+			rejectArchivedChange(t, store, op.archived)
+			err := op.call(store, ctx, f.ID)
+			wantConnectErr(t, err, connect.NewError(connect.CodeInternal, op.message))
+			if diff := cmp.Diff(f, storedFlag(t, store, f.ID)); diff != "" {
+				t.Errorf("flag changed (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(envBefore, mustGetEnv(t, store, env.ID)); diff != "" {
+				t.Errorf("environment changed (-want +got):\n%s", diff)
+			}
+			if got := changeLogCount(t, store); got != logsBefore {
+				t.Errorf("%d entries, want %d", got, logsBefore)
+			}
+		})
+	}
+
+	// Archiving is undone by unarchiving, any number of times.
+	t.Run("archive then unarchive", func(t *testing.T) {
+		resetDB(t, store.db)
+		f := mustCreateFlag(t, store, "new-checkout")
+		for range 2 {
+			mustArchiveFlag(t, store, f.ID)
+			if !storedFlag(t, store, f.ID).Archived {
+				t.Fatal("flag not archived after ArchiveFlag()")
+			}
+			if err := store.UnarchiveFlag(ctx, f.ID); err != nil {
+				t.Fatalf("UnarchiveFlag(): %v", err)
+			}
+			if storedFlag(t, store, f.ID).Archived {
+				t.Fatal("flag still archived after UnarchiveFlag()")
+			}
+		}
+	})
+
+	t.Run("a new flag isn't archived", func(t *testing.T) {
+		resetDB(t, store.db)
+		if f := mustCreateFlag(t, store, "new-checkout"); f.Archived {
+			t.Fatalf("CreateFlag() = %+v, want it not archived", f)
+		}
+	})
+}
+
+// Archiving changes what every environment serves for the flag, so all of
+// them move, as for any other change to the flag.
+func TestArchiveFlagBumpsEnvVersions(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	for name, op := range archiveOps {
+		t.Run(name+" moves every environment up by one", func(t *testing.T) {
+			resetDB(t, store.db)
+			older := mustCreateEnv(t, store, "staging")
+			mustCreateFlag(t, store, "dark-mode")
+			newer := mustCreateEnv(t, store, "production")
+			f := mustCreateFlagFor(t, store, op.archived, "new-checkout")
+			before := []database.Environment{mustGetEnv(t, store, older.ID), mustGetEnv(t, store, newer.ID)}
+			if err := op.call(store, ctx, f.ID); err != nil {
+				t.Fatalf("%s(): %v", name, err)
+			}
+			for _, env := range before {
+				got := mustGetEnv(t, store, env.ID)
+				want := env
+				want.Version++
+				want.UpdatedAt = got.UpdatedAt
+				if diff := cmp.Diff(want, got); diff != "" {
+					t.Errorf("%s mismatch (-want +got):\n%s", env.Name, diff)
+				}
+			}
+		})
+
+		t.Run(name+" not found leaves versions alone", func(t *testing.T) {
+			resetDB(t, store.db)
+			env := mustCreateEnv(t, store, "production")
+			want := mustGetEnv(t, store, env.ID)
+			if err := op.call(store, ctx, uuid.New()); err == nil {
+				t.Fatalf("%s() = nil error for a missing flag", name)
+			}
+			if diff := cmp.Diff(want, mustGetEnv(t, store, env.ID)); diff != "" {
+				t.Fatalf("environment changed (-want +got):\n%s", diff)
+			}
+		})
+
+		t.Run(name+" failed bump keeps the flag as it was", func(t *testing.T) {
+			resetDB(t, store.db)
+			mustCreateEnv(t, store, "production")
+			f := mustCreateFlagFor(t, store, op.archived, "new-checkout")
+			rejectEnvBumps(t, store)
+			err := op.call(store, ctx, f.ID)
+			wantConnectErr(t, err, connect.NewError(connect.CodeInternal, op.message))
+			if diff := cmp.Diff(f, storedFlag(t, store, f.ID)); diff != "" {
+				t.Fatalf("flag changed after a failed bump (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// Archiving and unarchiving are logged in every environment, so SDKs can stop
+// or start serving the flag.
+func TestArchiveFlagLogsChange(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	for name, op := range archiveOps {
+		// Each entry carries the flag's key and the version its environment
+		// moved to, and nothing else.
+		t.Run(name+" one entry per environment", func(t *testing.T) {
+			resetDB(t, store.db)
+			older := mustCreateEnv(t, store, "staging")
+			mustCreateFlag(t, store, "dark-mode")
+			newer := mustCreateEnv(t, store, "production")
+			f := mustCreateFlagFor(t, store, op.archived, "new-checkout")
+			if err := op.call(store, ctx, f.ID); err != nil {
+				t.Fatalf("%s(): %v", name, err)
+			}
+			var want []database.ChangeLog
+			for _, env := range []database.Environment{older, newer} {
+				want = append(want, database.ChangeLog{
+					TargetVersion: mustGetEnv(t, store, env.ID).Version,
+					EnvironmentID: env.ID,
+					FlagNewKey:    sql.NullString{String: "new-checkout", Valid: true},
+					Action:        op.action,
+				})
+			}
+			if want[0].TargetVersion > want[1].TargetVersion {
+				want[0], want[1] = want[1], want[0]
+			}
+			got := storedChangeLogsFor(t, store, op.action)
+			ignore := cmpopts.IgnoreFields(database.ChangeLog{}, "ID", "CreatedAt")
+			if diff := cmp.Diff(want, got, ignore); diff != "" {
+				t.Fatalf("change logs mismatch (-want +got):\n%s", diff)
+			}
+			if len(got) == 2 && got[0].ID == got[1].ID {
+				t.Errorf("both entries have ID %v, want them to differ", got[0].ID)
+			}
+		})
+
+		t.Run(name+" entries share a created_at", func(t *testing.T) {
+			resetDB(t, store.db)
+			for _, env := range []string{"staging", "production", "development"} {
+				mustCreateEnv(t, store, env)
+			}
+			f := mustCreateFlagFor(t, store, op.archived, "new-checkout")
+			if err := op.call(store, ctx, f.ID); err != nil {
+				t.Fatalf("%s(): %v", name, err)
+			}
+			logs := storedChangeLogsFor(t, store, op.action)
+			if len(logs) != 3 {
+				t.Fatalf("%d entries, want 3", len(logs))
+			}
+			for _, l := range logs[1:] {
+				if !l.CreatedAt.Equal(logs[0].CreatedAt) {
+					t.Errorf("created_at %v, want %v", l.CreatedAt, logs[0].CreatedAt)
+				}
+			}
+		})
+
+		t.Run(name+" no environments to log", func(t *testing.T) {
+			resetDB(t, store.db)
+			f := mustCreateFlagFor(t, store, op.archived, "new-checkout")
+			if err := op.call(store, ctx, f.ID); err != nil {
+				t.Fatalf("%s(): %v", name, err)
+			}
+			if n := len(storedChangeLogsFor(t, store, op.action)); n != 0 {
+				t.Fatalf("%d entries, want 0", n)
+			}
+		})
+
+		t.Run(name+" not found logs nothing", func(t *testing.T) {
+			resetDB(t, store.db)
+			mustCreateEnv(t, store, "production")
+			before := changeLogCount(t, store)
+			if err := op.call(store, ctx, uuid.New()); err == nil {
+				t.Fatalf("%s() = nil error for a missing flag", name)
+			}
+			if got := changeLogCount(t, store); got != before {
+				t.Fatalf("%d entries, want %d", got, before)
+			}
+		})
+
+		// The change, the bump and the log land together or not at all, so
+		// SDKs never miss an archived flag.
+		t.Run(name+" failed log keeps the flag and versions", func(t *testing.T) {
+			resetDB(t, store.db)
+			env := mustCreateEnv(t, store, "production")
+			f := mustCreateFlagFor(t, store, op.archived, "new-checkout")
+			before := mustGetEnv(t, store, env.ID)
+			rejectNewChangeLogs(t, store)
+			err := op.call(store, ctx, f.ID)
+			wantConnectErr(t, err, connect.NewError(connect.CodeInternal, op.message))
+			if diff := cmp.Diff(f, storedFlag(t, store, f.ID)); diff != "" {
+				t.Errorf("flag changed after a failed log (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(before, mustGetEnv(t, store, env.ID)); diff != "" {
+				t.Errorf("environment changed after a failed log (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestArchiveFlagReportsErrors(t *testing.T) {
+	store := newTestStore(t)
+	f := mustCreateFlag(t, store, "new-checkout")
+
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	expired, cancelExpired := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancelExpired()
+
+	for name, op := range archiveOps {
+		for ctxName, test := range map[string]struct {
+			ctx  context.Context
+			code connect.Code
+		}{
+			"canceled context": {canceled, connect.CodeCanceled},
+			"expired deadline": {expired, connect.CodeDeadlineExceeded},
+		} {
+			t.Run(name+" "+ctxName, func(t *testing.T) {
+				before := storedFlag(t, store, f.ID)
+				err := op.call(store, test.ctx, f.ID)
+				wantConnectErr(t, err, connect.NewError(test.code, op.message))
+				if diff := cmp.Diff(before, storedFlag(t, store, f.ID)); diff != "" {
+					t.Fatalf("flag changed (-want +got):\n%s", diff)
+				}
+			})
+		}
+	}
+
+	// Run last: it closes the connection pool the other cases use.
+	t.Run("closed database is internal", func(t *testing.T) {
+		if err := store.db.Close(); err != nil {
+			t.Fatalf("closing the database: %v", err)
+		}
+		for _, op := range archiveOps {
+			err := op.call(store, context.Background(), f.ID)
+			wantConnectErr(t, err, connect.NewError(connect.CodeInternal, op.message))
 		}
 	})
 }
