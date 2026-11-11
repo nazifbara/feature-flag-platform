@@ -461,6 +461,7 @@ func (x *DeleteResponse) GetFlag() *Flag {
 
 type ListRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
+	PageToken     *string                `protobuf:"bytes,1,opt,name=page_token,json=pageToken,proto3,oneof" json:"page_token,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -495,9 +496,17 @@ func (*ListRequest) Descriptor() ([]byte, []int) {
 	return file_flagsvc_flag_v1_flag_proto_rawDescGZIP(), []int{9}
 }
 
+func (x *ListRequest) GetPageToken() string {
+	if x != nil && x.PageToken != nil {
+		return *x.PageToken
+	}
+	return ""
+}
+
 type ListResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Flags         []*Flag                `protobuf:"bytes,1,rep,name=flags,proto3" json:"flags,omitempty"`
+	NextPageToken *string                `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3,oneof" json:"next_page_token,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -539,6 +548,13 @@ func (x *ListResponse) GetFlags() []*Flag {
 	return nil
 }
 
+func (x *ListResponse) GetNextPageToken() string {
+	if x != nil && x.NextPageToken != nil {
+		return *x.NextPageToken
+	}
+	return ""
+}
+
 var File_flagsvc_flag_v1_flag_proto protoreflect.FileDescriptor
 
 const file_flagsvc_flag_v1_flag_proto_rawDesc = "" +
@@ -569,10 +585,15 @@ const file_flagsvc_flag_v1_flag_proto_rawDesc = "" +
 	"\rDeleteRequest\x12\x18\n" +
 	"\x02id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x02id\";\n" +
 	"\x0eDeleteResponse\x12)\n" +
-	"\x04flag\x18\x01 \x01(\v2\x15.flagsvc.flag.v1.FlagR\x04flag\"\r\n" +
-	"\vListRequest\";\n" +
+	"\x04flag\x18\x01 \x01(\v2\x15.flagsvc.flag.v1.FlagR\x04flag\"I\n" +
+	"\vListRequest\x12+\n" +
+	"\n" +
+	"page_token\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01H\x00R\tpageToken\x88\x01\x01B\r\n" +
+	"\v_page_token\"|\n" +
 	"\fListResponse\x12+\n" +
-	"\x05flags\x18\x01 \x03(\v2\x15.flagsvc.flag.v1.FlagR\x05flags2\xff\x02\n" +
+	"\x05flags\x18\x01 \x03(\v2\x15.flagsvc.flag.v1.FlagR\x05flags\x12+\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tH\x00R\rnextPageToken\x88\x01\x01B\x12\n" +
+	"\x10_next_page_token2\xff\x02\n" +
 	"\vFlagService\x12K\n" +
 	"\x06Create\x12\x1e.flagsvc.flag.v1.CreateRequest\x1a\x1f.flagsvc.flag.v1.CreateResponse\"\x00\x12K\n" +
 	"\x06Update\x12\x1e.flagsvc.flag.v1.UpdateRequest\x1a\x1f.flagsvc.flag.v1.UpdateResponse\"\x00\x12B\n" +
@@ -637,6 +658,8 @@ func file_flagsvc_flag_v1_flag_proto_init() {
 	if File_flagsvc_flag_v1_flag_proto != nil {
 		return
 	}
+	file_flagsvc_flag_v1_flag_proto_msgTypes[9].OneofWrappers = []any{}
+	file_flagsvc_flag_v1_flag_proto_msgTypes[10].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

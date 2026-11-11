@@ -62,8 +62,11 @@ message DeleteResponse {
   Flag flag = 1;
 }
 
-message ListRequest {}
+message ListRequest {
+  optional string page_token = 1 [(buf.validate.field).string.min_len = 1];
+}
 
 message ListResponse {
   repeated Flag flags = 1;
+  optional string next_page_token = 2;
 }
