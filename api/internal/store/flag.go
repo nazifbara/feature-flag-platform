@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"strings"
 	"unicode"
@@ -12,6 +13,15 @@ import (
 	"github.com/nazifbara/flagsvc/api/internal/ffserrors"
 	"github.com/nazifbara/flagsvc/api/internal/utils"
 )
+
+// FlagsCursor marks where a page of ListFlags ended: the next page starts at
+// the first key after Key. The zero cursor starts at the first flag.
+type FlagsCursor struct {
+	Key string `json:"key"`
+}
+
+// MaxFlagsPerPage is the most flags a page of ListFlags holds.
+const MaxFlagsPerPage = 50
 
 // normalizeFlagKey trims and lowercases key and checks it only holds ASCII
 // letters, digits and "-". action ("create", "update") goes into the error
@@ -149,11 +159,29 @@ func (s *Store) DeleteFlag(ctx context.Context, id uuid.UUID) (database.Flag, er
 	return flag, nil
 }
 
-// ListFlags gives every flag, ordered by key.
-func (s *Store) ListFlags(ctx context.Context) ([]database.Flag, error) {
-	flags, err := s.Queries.ListFlags(ctx)
-	if err != nil {
-		return nil, ffserrors.FromDBErr(err, "can't list flags")
+// ListFlags gives a page of flags ordered by key, starting after cursor's key,
+// and the cursor for the next page, or nil when this page is the last.
+func (s *Store) ListFlags(ctx context.Context, cursor *FlagsCursor) ([]database.Flag, *FlagsCursor, error) {
+	params := database.ListFlagsParams{
+		Limit: MaxFlagsPerPage + 1,
 	}
-	return flags, nil
+	if cursor != nil {
+		params.Key = sql.NullString{
+			String: cursor.Key,
+			Valid:  cursor.Key != "",
+		}
+	}
+	flags, err := s.Queries.ListFlags(ctx, params)
+	if err != nil {
+		return nil, nil, ffserrors.FromDBErr(err, "can't list flags")
+	}
+	var nexCursor *FlagsCursor
+	if len(flags) > MaxFlagsPerPage {
+		nexCursor = &FlagsCursor{
+			Key: flags[len(flags)-2].Key,
+		}
+		flags = flags[:len(flags)-1]
+	}
+
+	return flags, nexCursor, nil
 }

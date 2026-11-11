@@ -3,6 +3,7 @@ package flagservice
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/http"
@@ -727,21 +728,43 @@ func TestDelete(t *testing.T) {
 	})
 }
 
-// mustList lists the flags, failing the test if the call fails.
+// mustList lists the first page, failing the test if the call fails or there's
+// a next page: callers have fewer flags than fill one.
 func mustList(t *testing.T, client flagconnect.FlagServiceClient) []*flag.Flag {
 	t.Helper()
-	res, err := client.List(context.Background(), &flag.ListRequest{})
-	if err != nil {
-		t.Fatalf("List(): %v", err)
+	res := listPage(t, client, nil)
+	if res.NextPageToken != nil {
+		t.Fatalf("List() next_page_token = %q with %d flags, want none", *res.NextPageToken, len(res.GetFlags()))
 	}
 	return res.GetFlags()
+}
+
+// listPage lists the page token points to, or the first page for a nil token,
+// failing the test if the call fails.
+func listPage(t *testing.T, client flagconnect.FlagServiceClient, token *string) *flag.ListResponse {
+	t.Helper()
+	req := &flag.ListRequest{PageToken: token}
+	res, err := client.List(context.Background(), req)
+	if err != nil {
+		t.Fatalf("List(%q): %v", req.GetPageToken(), err)
+	}
+	return res
+}
+
+// keys gives the keys of flags, in order, to report a list compactly.
+func keys(flags []*flag.Flag) []string {
+	keys := make([]string, len(flags))
+	for i, f := range flags {
+		keys[i] = f.GetKey()
+	}
+	return keys
 }
 
 // wantFlags fails the test unless got holds want's flags in want's order.
 func wantFlags(t *testing.T, got, want []*flag.Flag) {
 	t.Helper()
 	if len(got) != len(want) {
-		t.Fatalf("List() = %d flags %v, want %d %v", len(got), got, len(want), want)
+		t.Fatalf("List() = %d flags %v, want %d %v", len(got), keys(got), len(want), keys(want))
 	}
 	for i := range want {
 		if !proto.Equal(got[i], want[i]) {
@@ -793,6 +816,125 @@ func TestList(t *testing.T) {
 		_, err := unreachable.List(ctx, &flag.ListRequest{})
 		wantCode(t, err, connect.CodeInternal, "can't list flags")
 	})
+}
+
+// mustCreateMany creates n flags keyed flag-000, flag-001 and so on, which sort
+// as they're numbered, and returns them in that order.
+func mustCreateMany(t *testing.T, client flagconnect.FlagServiceClient, n int) []*flag.Flag {
+	t.Helper()
+	flags := make([]*flag.Flag, n)
+	for i := range flags {
+		flags[i] = mustCreate(t, client, fmt.Sprintf("flag-%03d", i))
+	}
+	return flags
+}
+
+func TestListPages(t *testing.T) {
+	db := testDB(t)
+	client := newClient(t, os.Getenv("TEST_DB_URL"))
+	ctx := context.Background()
+
+	t.Run("a full page has no next page token", func(t *testing.T) {
+		resetDB(t, db)
+		flags := mustCreateMany(t, client, store.MaxFlagsPerPage)
+		wantFlags(t, mustList(t, client), flags)
+	})
+
+	t.Run("one flag past a page gives a second page", func(t *testing.T) {
+		resetDB(t, db)
+		flags := mustCreateMany(t, client, store.MaxFlagsPerPage+1)
+		first := listPage(t, client, nil)
+		wantFlags(t, first.GetFlags(), flags[:store.MaxFlagsPerPage])
+		if first.NextPageToken == nil || *first.NextPageToken == "" {
+			t.Fatalf("first page next_page_token = %v, want a token", first.NextPageToken)
+		}
+		second := listPage(t, client, first.NextPageToken)
+		wantFlags(t, second.GetFlags(), flags[store.MaxFlagsPerPage:])
+		if second.NextPageToken != nil {
+			t.Fatalf("second page next_page_token = %q, want none", *second.NextPageToken)
+		}
+	})
+
+	t.Run("following tokens lists every flag once", func(t *testing.T) {
+		resetDB(t, db)
+		flags := mustCreateMany(t, client, 2*store.MaxFlagsPerPage+7)
+		var got []*flag.Flag
+		var token *string
+		for pages := 1; ; pages++ {
+			if pages > 4 {
+				t.Fatalf("still listing after %d pages", pages-1)
+			}
+			res := listPage(t, client, token)
+			if len(res.GetFlags()) > store.MaxFlagsPerPage {
+				t.Fatalf("page %d has %d flags, want at most %d", pages, len(res.GetFlags()), store.MaxFlagsPerPage)
+			}
+			got = append(got, res.GetFlags()...)
+			if token = res.NextPageToken; token == nil {
+				break
+			}
+		}
+		wantFlags(t, got, flags)
+	})
+
+	// The token's flag can be deleted between pages; the next page still
+	// starts at the first key after it.
+	t.Run("a token whose flag is gone still works", func(t *testing.T) {
+		resetDB(t, db)
+		flags := mustCreateMany(t, client, store.MaxFlagsPerPage+2)
+		first := listPage(t, client, nil)
+		if first.NextPageToken == nil {
+			t.Fatal("first page has no next_page_token")
+		}
+		last := first.GetFlags()[len(first.GetFlags())-1]
+		mustDelete(t, client, last.Id)
+		wantFlags(t, listPage(t, client, first.NextPageToken).GetFlags(), flags[store.MaxFlagsPerPage:])
+	})
+
+	t.Run("rejects an empty page token", func(t *testing.T) {
+		empty := ""
+		_, err := client.List(ctx, &flag.ListRequest{PageToken: &empty})
+		wantCode(t, err, connect.CodeInvalidArgument, "validation error: page_token: must be at least 1 characters")
+	})
+
+	for name, token := range map[string]string{
+		"not base64":              "!!!",
+		"base64 of non-JSON":      base64.RawURLEncoding.EncodeToString([]byte("not json")),
+		"a key of the wrong type": base64.RawURLEncoding.EncodeToString([]byte(`{"key":1}`)),
+	} {
+		t.Run("rejects a page token that's "+name, func(t *testing.T) {
+			_, err := client.List(ctx, &flag.ListRequest{PageToken: &token})
+			wantCode(t, err, connect.CodeInvalidArgument, "invalid page cursor")
+		})
+	}
+
+	// The token is checked before the store is reached, which would answer
+	// Internal here.
+	t.Run("rejects a bad token before reaching the database", func(t *testing.T) {
+		unreachable := newClient(t, unreachableDB)
+		token := "!!!"
+		_, err := unreachable.List(ctx, &flag.ListRequest{PageToken: &token})
+		wantCode(t, err, connect.CodeInvalidArgument, "invalid page cursor")
+	})
+
+	t.Run("hides database failures on a later page", func(t *testing.T) {
+		unreachable := newClient(t, unreachableDB)
+		token := base64.RawURLEncoding.EncodeToString([]byte(`{"key":"a"}`))
+		_, err := unreachable.List(ctx, &flag.ListRequest{PageToken: &token})
+		wantCode(t, err, connect.CodeInternal, "can't list flags")
+	})
+}
+
+// Without the validation interceptor, as for a direct caller, an empty page
+// token is still rejected rather than read as the first page, before reaching
+// the store: it can't reach a database, and would answer Internal.
+func TestListWithoutValidationRejectsEmptyToken(t *testing.T) {
+	st, err := store.New(unreachableDB)
+	if err != nil {
+		t.Fatalf("store.New(): %v", err)
+	}
+	empty := ""
+	_, err = New(st).List(context.Background(), &flag.ListRequest{PageToken: &empty})
+	wantCode(t, err, connect.CodeInvalidArgument, "invalid page cursor")
 }
 
 // Without the validation interceptor, as for a direct caller, each handler's

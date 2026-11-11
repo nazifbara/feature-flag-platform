@@ -2099,20 +2099,18 @@ func TestListFlags(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
 
+	// list gives the first page, which is every flag in these cases, so
+	// there must be no next page.
 	list := func(t *testing.T) []database.Flag {
 		t.Helper()
-		got, err := store.ListFlags(ctx)
+		got, next, err := store.ListFlags(ctx, nil)
 		if err != nil {
 			t.Fatalf("ListFlags(): %v", err)
 		}
-		return got
-	}
-	keysOf := func(flags []database.Flag) []string {
-		keys := make([]string, len(flags))
-		for i, f := range flags {
-			keys[i] = f.Key
+		if next != nil {
+			t.Fatalf("ListFlags() next cursor = %+v with %d flags, want nil", *next, len(got))
 		}
-		return keys
+		return got
 	}
 
 	t.Run("no flags", func(t *testing.T) {
@@ -2172,6 +2170,160 @@ func TestListFlags(t *testing.T) {
 	})
 }
 
+// keysOf gives the keys of flags, in order.
+func keysOf(flags []database.Flag) []string {
+	keys := make([]string, len(flags))
+	for i, f := range flags {
+		keys[i] = f.Key
+	}
+	return keys
+}
+
+// mustCreateFlags creates n flags keyed flag-000, flag-001 and so on, which
+// sort as they're numbered, and returns their keys in that order.
+func mustCreateFlags(t *testing.T, store *Store, n int) []string {
+	t.Helper()
+	keys := make([]string, n)
+	for i := range keys {
+		keys[i] = fmt.Sprintf("flag-%03d", i)
+		mustCreateFlag(t, store, keys[i])
+	}
+	return keys
+}
+
+// listPage lists the page after cursor, or the first page for a nil cursor,
+// failing the test if the call fails.
+func listPage(t *testing.T, store *Store, cursor *FlagsCursor) ([]database.Flag, *FlagsCursor) {
+	t.Helper()
+	flags, next, err := store.ListFlags(context.Background(), cursor)
+	if err != nil {
+		t.Fatalf("ListFlags(%+v): %v", cursor, err)
+	}
+	return flags, next
+}
+
+func TestListFlagsPages(t *testing.T) {
+	store := newTestStore(t)
+
+	t.Run("a full page is the last when nothing follows it", func(t *testing.T) {
+		resetDB(t, store.db)
+		keys := mustCreateFlags(t, store, MaxFlagsPerPage)
+		got, next := listPage(t, store, nil)
+		if diff := cmp.Diff(keys, keysOf(got)); diff != "" {
+			t.Fatalf("ListFlags() keys mismatch (-want +got):\n%s", diff)
+		}
+		if next != nil {
+			t.Fatalf("ListFlags() next cursor = %+v, want nil", *next)
+		}
+	})
+
+	// The first page stops at MaxFlagsPerPage flags, and its cursor is the
+	// last key on it, so the next page starts with the flag after.
+	t.Run("one flag past a page gives a second page", func(t *testing.T) {
+		resetDB(t, store.db)
+		keys := mustCreateFlags(t, store, MaxFlagsPerPage+1)
+
+		first, next := listPage(t, store, nil)
+		if diff := cmp.Diff(keys[:MaxFlagsPerPage], keysOf(first)); diff != "" {
+			t.Fatalf("first page keys mismatch (-want +got):\n%s", diff)
+		}
+		want := FlagsCursor{Key: keys[MaxFlagsPerPage-1]}
+		if next == nil || *next != want {
+			t.Fatalf("first page next cursor = %v, want %+v", next, want)
+		}
+
+		second, next := listPage(t, store, next)
+		if diff := cmp.Diff(keys[MaxFlagsPerPage:], keysOf(second)); diff != "" {
+			t.Fatalf("second page keys mismatch (-want +got):\n%s", diff)
+		}
+		if next != nil {
+			t.Fatalf("second page next cursor = %+v, want nil", *next)
+		}
+	})
+
+	// Following the cursors lists every flag once, in key order.
+	t.Run("following cursors lists every flag once", func(t *testing.T) {
+		resetDB(t, store.db)
+		keys := mustCreateFlags(t, store, 2*MaxFlagsPerPage+7)
+		var got []string
+		var cursor *FlagsCursor
+		for pages := 1; ; pages++ {
+			if pages > 4 {
+				t.Fatalf("still listing after %d pages, at %+v", pages-1, cursor)
+			}
+			page, next := listPage(t, store, cursor)
+			if len(page) > MaxFlagsPerPage {
+				t.Fatalf("page %d has %d flags, want at most %d", pages, len(page), MaxFlagsPerPage)
+			}
+			got = append(got, keysOf(page)...)
+			if next == nil {
+				break
+			}
+			cursor = next
+		}
+		if diff := cmp.Diff(keys, got); diff != "" {
+			t.Fatalf("listed keys mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	// A zero cursor, as a decoded token can hold, has no key to start after.
+	t.Run("a zero cursor starts at the first flag", func(t *testing.T) {
+		resetDB(t, store.db)
+		for _, key := range []string{"a", "b"} {
+			mustCreateFlag(t, store, key)
+		}
+		got, next := listPage(t, store, &FlagsCursor{})
+		if diff := cmp.Diff([]string{"a", "b"}, keysOf(got)); diff != "" {
+			t.Fatalf("ListFlags() keys mismatch (-want +got):\n%s", diff)
+		}
+		if next != nil {
+			t.Fatalf("ListFlags() next cursor = %+v, want nil", *next)
+		}
+	})
+
+	t.Run("starts after the cursor's key", func(t *testing.T) {
+		resetDB(t, store.db)
+		for _, key := range []string{"a", "b", "c"} {
+			mustCreateFlag(t, store, key)
+		}
+		got, next := listPage(t, store, &FlagsCursor{Key: "a"})
+		if diff := cmp.Diff([]string{"b", "c"}, keysOf(got)); diff != "" {
+			t.Fatalf("ListFlags() keys mismatch (-want +got):\n%s", diff)
+		}
+		if next != nil {
+			t.Fatalf("ListFlags() next cursor = %+v, want nil", *next)
+		}
+	})
+
+	// The cursor's flag can be renamed or deleted between pages; the next page
+	// still starts at the first key after the cursor's.
+	t.Run("a cursor whose flag is gone still works", func(t *testing.T) {
+		resetDB(t, store.db)
+		mustCreateFlag(t, store, "a")
+		b := mustCreateFlag(t, store, "b")
+		mustCreateFlag(t, store, "c")
+		if _, err := store.DeleteFlag(context.Background(), b.ID); err != nil {
+			t.Fatalf("DeleteFlag(): %v", err)
+		}
+		got, _ := listPage(t, store, &FlagsCursor{Key: "b"})
+		if diff := cmp.Diff([]string{"c"}, keysOf(got)); diff != "" {
+			t.Fatalf("ListFlags() keys mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("a cursor past the last key gives an empty last page", func(t *testing.T) {
+		resetDB(t, store.db)
+		mustCreateFlag(t, store, "a")
+		got, next := listPage(t, store, &FlagsCursor{Key: "z"})
+		if len(got) != 0 {
+			t.Fatalf("ListFlags() = %+v, want no flags", got)
+		}
+		if next != nil {
+			t.Fatalf("ListFlags() next cursor = %+v, want nil", *next)
+		}
+	})
+}
+
 func TestListFlagsReportsErrors(t *testing.T) {
 	store := newTestStore(t)
 	mustCreateFlag(t, store, "new-checkout")
@@ -2196,10 +2348,10 @@ func TestListFlagsReportsErrors(t *testing.T) {
 	}
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			got, err := store.ListFlags(test.ctx)
+			got, next, err := store.ListFlags(test.ctx, nil)
 			wantConnectErr(t, err, test.want)
-			if got != nil {
-				t.Fatalf("ListFlags() = %+v on error, want nil", got)
+			if got != nil || next != nil {
+				t.Fatalf("ListFlags() = %+v, %v on error, want nil, nil", got, next)
 			}
 		})
 	}
@@ -2209,10 +2361,10 @@ func TestListFlagsReportsErrors(t *testing.T) {
 		if err := store.db.Close(); err != nil {
 			t.Fatalf("closing the database: %v", err)
 		}
-		got, err := store.ListFlags(context.Background())
+		got, next, err := store.ListFlags(context.Background(), nil)
 		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, "can't list flags"))
-		if got != nil {
-			t.Fatalf("ListFlags() = %+v on error, want nil", got)
+		if got != nil || next != nil {
+			t.Fatalf("ListFlags() = %+v, %v on error, want nil, nil", got, next)
 		}
 	})
 }

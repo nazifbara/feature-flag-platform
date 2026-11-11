@@ -33,6 +33,11 @@ WHERE id = $1
 RETURNING *;
 
 -- name: ListFlags :many
--- Ordered by key in the database's collation.
+-- Ordered by key in the database's collation, starting after key, or at the
+-- first flag for a NULL key, and stopping at limit flags.
 SELECT * FROM flags
-ORDER BY key;
+WHERE
+    sqlc.narg('key')::varchar IS NULL
+    OR key > sqlc.narg('key')::varchar
+ORDER BY key ASC
+LIMIT sqlc.arg('limit');
