@@ -1973,3 +1973,65 @@ func TestUpdateFlagSettingWhileOwnerIsDeleted(t *testing.T) {
 		})
 	}
 }
+
+// An archived flag's settings are frozen until it's unarchived: nothing moves,
+// so there's nothing to bump or log.
+func TestUpdateFlagSettingOfArchivedFlag(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	update := func(f database.Flag, env database.Environment) database.UpdateFlagSettingParams {
+		return database.UpdateFlagSettingParams{FlagID: f.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: 0.5}
+	}
+
+	t.Run("is rejected", func(t *testing.T) {
+		resetDB(t, store.db)
+		env := mustCreateEnv(t, store, "production")
+		f := mustCreateFlag(t, store, "new-checkout")
+		before, err := store.GetFlagSetting(ctx, database.GetFlagSettingParams{FlagID: f.ID, EnvironmentID: env.ID})
+		if err != nil {
+			t.Fatalf("GetFlagSetting(): %v", err)
+		}
+		mustArchiveFlag(t, store, f.ID)
+		envBefore := mustGetEnv(t, store, env.ID)
+		logsBefore := changeLogCount(t, store)
+
+		got, err := store.UpdateFlagSetting(ctx, update(f, env))
+		wantConnectErr(t, err, connect.NewError(connect.CodeFailedPrecondition, "can't update archived flag"))
+		if got != (database.FlagSetting{}) {
+			t.Errorf("UpdateFlagSetting() = %+v on error, want the zero FlagSetting", got)
+		}
+		if diff := cmp.Diff(before, storedFlagSetting(t, store, before.ID)); diff != "" {
+			t.Errorf("setting changed (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff(envBefore, mustGetEnv(t, store, env.ID)); diff != "" {
+			t.Errorf("environment changed (-want +got):\n%s", diff)
+		}
+		if got := changeLogCount(t, store); got != logsBefore {
+			t.Errorf("%d entries, want %d", got, logsBefore)
+		}
+	})
+
+	t.Run("works again once unarchived", func(t *testing.T) {
+		resetDB(t, store.db)
+		env := mustCreateEnv(t, store, "production")
+		f := mustCreateFlag(t, store, "new-checkout")
+		mustArchiveFlag(t, store, f.ID)
+		if err := store.UnarchiveFlag(ctx, f.ID); err != nil {
+			t.Fatalf("UnarchiveFlag(): %v", err)
+		}
+		got := mustUpdateFlagSetting(t, store, update(f, env))
+		if !got.Enabled || got.Fallthrough != 0.5 {
+			t.Fatalf("UpdateFlagSetting() = %+v, want it enabled with fallthrough 0.5", got)
+		}
+	})
+
+	// Archiving one flag leaves the others' settings open.
+	t.Run("other flags still update", func(t *testing.T) {
+		resetDB(t, store.db)
+		env := mustCreateEnv(t, store, "production")
+		archived := mustCreateFlag(t, store, "dark-mode")
+		f := mustCreateFlag(t, store, "new-checkout")
+		mustArchiveFlag(t, store, archived.ID)
+		mustUpdateFlagSetting(t, store, update(f, env))
+	})
+}

@@ -39,6 +39,13 @@ func (s *Store) UpdateFlagSetting(ctx context.Context, arg database.UpdateFlagSe
 		if err := q.LockFlagEnvMatrix(ctx); err != nil {
 			return err
 		}
+		flag, err := q.GetFlag(ctx, arg.FlagID)
+		if err != nil {
+			return err
+		}
+		if flag.Archived {
+			return connect.NewError(connect.CodeFailedPrecondition, "can't update archived flag")
+		}
 		currentSetting, err := q.GetFlagSetting(ctx, database.GetFlagSettingParams{
 			EnvironmentID: arg.EnvironmentID,
 			FlagID:        arg.FlagID,
