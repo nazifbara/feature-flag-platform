@@ -185,3 +185,65 @@ func (s *Store) ListFlags(ctx context.Context, cursor *FlagsCursor) ([]database.
 
 	return flags, nexCursor, nil
 }
+
+// ArchiveFlag archives the flag with id, freezing its settings and rules until
+// it's unarchived, and logs it in every environment.
+func (s *Store) ArchiveFlag(ctx context.Context, id uuid.UUID) error {
+	err := s.ExecTx(ctx, func(q *database.Queries) error {
+		if err := q.LockFlagEnvMatrix(ctx); err != nil {
+			return err
+		}
+		flag, err := q.GetFlag(ctx, id)
+		if err != nil {
+			return err
+		}
+		if flag.Archived {
+			return nil
+		}
+		if err := q.ArchiveFlag(ctx, id); err != nil {
+			return err
+		}
+		if err := q.IncrementAllEnvVersions(ctx); err != nil {
+			return err
+		}
+		if err := q.CreateChangeLogsForFlagArchive(ctx, id); err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return ffserrors.FromDBErr(err, "can't archive flag")
+	}
+	return nil
+}
+
+// UnarchiveFlag unarchives the flag with id, so its settings and rules can
+// change again, and logs it in every environment.
+func (s *Store) UnarchiveFlag(ctx context.Context, id uuid.UUID) error {
+	err := s.ExecTx(ctx, func(q *database.Queries) error {
+		if err := q.LockFlagEnvMatrix(ctx); err != nil {
+			return err
+		}
+		flag, err := q.GetFlag(ctx, id)
+		if err != nil {
+			return err
+		}
+		if !flag.Archived {
+			return nil
+		}
+		if err := q.UnarchiveFlag(ctx, id); err != nil {
+			return err
+		}
+		if err := q.IncrementAllEnvVersions(ctx); err != nil {
+			return err
+		}
+		if err := q.CreateChangeLogsForFlagUnarchive(ctx, id); err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return ffserrors.FromDBErr(err, "can't unarchive flag")
+	}
+	return nil
+}
