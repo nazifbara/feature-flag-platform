@@ -8,6 +8,7 @@ import (
 	"connectrpc.com/connect/v2"
 	"github.com/nazifbara/flagsvc/api/internal/database"
 	"github.com/nazifbara/flagsvc/api/internal/store"
+	"github.com/nazifbara/flagsvc/api/internal/utils"
 	flag "github.com/nazifbara/flagsvc/gen/go/flagsvc/flag/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -85,9 +86,19 @@ func (s *Service) Delete(ctx context.Context, req *flag.DeleteRequest) (*flag.De
 	return &flag.DeleteResponse{Flag: flagToProto(deletedFlag)}, nil
 }
 
-// List returns every flag, ordered by key.
+// List returns a page of flags ordered by key: the first page without a page
+// token, or the page after the one that gave the token. Its next page token is
+// unset on the last page. A token that doesn't decode gives InvalidArgument.
 func (s *Service) List(ctx context.Context, req *flag.ListRequest) (*flag.ListResponse, error) {
-	flags, err := s.store.ListFlags(ctx)
+	var cursor *store.FlagsCursor
+	if req.PageToken != nil {
+		c, err := utils.DecodePageCursor[store.FlagsCursor](*req.PageToken)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument, "invalid page cursor").WithCause(err)
+		}
+		cursor = c
+	}
+	flags, nextCursor, err := s.store.ListFlags(ctx, cursor)
 	if err != nil {
 		return nil, err
 	}
@@ -95,7 +106,16 @@ func (s *Service) List(ctx context.Context, req *flag.ListRequest) (*flag.ListRe
 	for _, f := range flags {
 		flagMessages = append(flagMessages, flagToProto(f))
 	}
-	return &flag.ListResponse{Flags: flagMessages}, nil
+	var nextPageToken *string
+	if nextCursor != nil {
+		token, err := utils.EncodePageCursor(nextCursor)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal, "can't list flags").WithCause(err)
+		}
+		nextPageToken = &token
+	}
+
+	return &flag.ListResponse{Flags: flagMessages, NextPageToken: nextPageToken}, nil
 }
 
 // flagToProto converts a stored flag into the API's Flag, which every RPC
