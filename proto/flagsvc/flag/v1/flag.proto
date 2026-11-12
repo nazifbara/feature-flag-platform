@@ -5,8 +5,6 @@ package flagsvc.flag.v1;
 import "buf/validate/validate.proto";
 import "google/protobuf/timestamp.proto";
 
-option go_package = "github.com/nazifbara/feature-flag-platform/gen/go/flagsvc/flag/v1;flag";
-
 service FlagService {
   rpc Create(CreateRequest) returns (CreateResponse) {}
   rpc Update(UpdateRequest) returns (UpdateResponse) {}

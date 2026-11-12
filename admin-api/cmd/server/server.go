@@ -14,9 +14,9 @@ import (
 	"github.com/nazifbara/feature-flag-platform/admin-api/internal/interceptor"
 	"github.com/nazifbara/feature-flag-platform/admin-api/internal/pingservice"
 	"github.com/nazifbara/feature-flag-platform/admin-api/internal/store"
-	"github.com/nazifbara/feature-flag-platform/gen/go/flagsvc/auth/v1/authconnect"
-	"github.com/nazifbara/feature-flag-platform/gen/go/flagsvc/flag/v1/flagconnect"
-	"github.com/nazifbara/feature-flag-platform/gen/go/flagsvc/ping/v1/pingconnect"
+	"github.com/nazifbara/feature-flag-platform/gen/go/flagsvc/auth/v1/authv1connect"
+	"github.com/nazifbara/feature-flag-platform/gen/go/flagsvc/flag/v1/flagv1connect"
+	"github.com/nazifbara/feature-flag-platform/gen/go/flagsvc/ping/v1/pingv1connect"
 
 	connect "connectrpc.com/connect/v2"
 	"connectrpc.com/connect/v2/connecthttp"
@@ -56,15 +56,15 @@ func newServer(port int, store *store.Store, cancel context.CancelFunc) *server 
 		interceptor.NewLoggingInterceptor(),
 		validate.NewServerInterceptor(),
 	)
-	authconnect.RegisterAuthServiceHandler(
+	authv1connect.RegisterAuthServiceHandler(
 		connectServer,
 		authservice.New(store),
 	)
-	pingconnect.RegisterPingServiceHandler(
+	pingv1connect.RegisterPingServiceHandler(
 		connectServer,
 		pingservice.PingService{},
 	)
-	flagconnect.RegisterFlagServiceHandler(connectServer, flagservice.New(store))
+	flagv1connect.RegisterFlagServiceHandler(connectServer, flagservice.New(store))
 
 	mux := http.NewServeMux()
 	connecthttp.Mount(mux, connectServer)

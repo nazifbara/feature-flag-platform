@@ -2,7 +2,7 @@
 //
 // Source: flagsvc/auth/v1/auth.proto
 
-package authconnect
+package authv1connect
 
 import (
 	connect "connectrpc.com/connect/v2"

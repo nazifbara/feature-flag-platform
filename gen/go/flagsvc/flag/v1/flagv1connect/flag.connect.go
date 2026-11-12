@@ -2,7 +2,7 @@
 //
 // Source: flagsvc/flag/v1/flag.proto
 
-package flagconnect
+package flagv1connect
 
 import (
 	connect "connectrpc.com/connect/v2"

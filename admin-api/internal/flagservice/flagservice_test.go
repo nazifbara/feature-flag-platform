@@ -18,8 +18,8 @@ import (
 	"connectrpc.com/connect/v2/connecthttp"
 	"connectrpc.com/validate"
 	"github.com/nazifbara/feature-flag-platform/admin-api/internal/store"
-	flag "github.com/nazifbara/feature-flag-platform/gen/go/flagsvc/flag/v1"
-	"github.com/nazifbara/feature-flag-platform/gen/go/flagsvc/flag/v1/flagconnect"
+	flagv1 "github.com/nazifbara/feature-flag-platform/gen/go/flagsvc/flag/v1"
+	"github.com/nazifbara/feature-flag-platform/gen/go/flagsvc/flag/v1/flagv1connect"
 	"google.golang.org/protobuf/proto"
 
 	_ "github.com/lib/pq"
@@ -90,19 +90,19 @@ func resetDB(t *testing.T, db *sql.DB) {
 // newClient serves a Service backed by the store at dbURL through a real
 // connect server, with the validation interceptor the server runs, and returns
 // a client for it.
-func newClient(t *testing.T, dbURL string) flagconnect.FlagServiceClient {
+func newClient(t *testing.T, dbURL string) flagv1connect.FlagServiceClient {
 	t.Helper()
 	st, err := store.New(dbURL)
 	if err != nil {
 		t.Fatalf("store.New(): %v", err)
 	}
 	server := connect.NewServer(validate.NewServerInterceptor())
-	flagconnect.RegisterFlagServiceHandler(server, New(st))
+	flagv1connect.RegisterFlagServiceHandler(server, New(st))
 	mux := http.NewServeMux()
 	connecthttp.Mount(mux, server)
 	ts := httptest.NewServer(mux)
 	t.Cleanup(ts.Close)
-	return flagconnect.NewFlagServiceClient(
+	return flagv1connect.NewFlagServiceClient(
 		connect.NewClient(connecthttp.NewTransport(ts.Client(), ts.URL)),
 	)
 }
@@ -185,9 +185,9 @@ func wantCode(t *testing.T, err error, code connect.Code, message string) {
 
 // mustCreate creates a flag with key and returns the response's flag, failing
 // the test if the call fails or the response carries no flag.
-func mustCreate(t *testing.T, client flagconnect.FlagServiceClient, key string) *flag.Flag {
+func mustCreate(t *testing.T, client flagv1connect.FlagServiceClient, key string) *flagv1.Flag {
 	t.Helper()
-	res, err := client.Create(context.Background(), &flag.CreateRequest{Key: key})
+	res, err := client.Create(context.Background(), &flagv1.CreateRequest{Key: key})
 	if err != nil {
 		t.Fatalf("Create(%q): %v", key, err)
 	}
@@ -300,7 +300,7 @@ func TestCreate(t *testing.T) {
 	for name, tc := range rejected {
 		t.Run("rejects "+name, func(t *testing.T) {
 			resetDB(t, db)
-			_, err := client.Create(ctx, &flag.CreateRequest{Key: tc.key})
+			_, err := client.Create(ctx, &flagv1.CreateRequest{Key: tc.key})
 			wantCode(t, err, tc.code, tc.message)
 			if n := flagCount(t, db); n != 0 {
 				t.Fatalf("%d flags after a rejected create, want 0", n)
@@ -321,7 +321,7 @@ func TestCreate(t *testing.T) {
 	t.Run("rejects a key already taken", func(t *testing.T) {
 		resetDB(t, db)
 		mustCreate(t, client, "new-checkout")
-		_, err := client.Create(ctx, &flag.CreateRequest{Key: "New-Checkout"})
+		_, err := client.Create(ctx, &flagv1.CreateRequest{Key: "New-Checkout"})
 		wantCode(t, err, connect.CodeAlreadyExists, "can't create the flag")
 		if n := flagCount(t, db); n != 1 {
 			t.Fatalf("%d flags after the duplicate, want 1", n)
@@ -331,7 +331,7 @@ func TestCreate(t *testing.T) {
 	// The client gets the store's message, never the database's error.
 	t.Run("hides database failures", func(t *testing.T) {
 		unreachable := newClient(t, unreachableDB)
-		_, err := unreachable.Create(ctx, &flag.CreateRequest{Key: "new-checkout"})
+		_, err := unreachable.Create(ctx, &flagv1.CreateRequest{Key: "new-checkout"})
 		wantCode(t, err, connect.CodeInternal, "can't create the flag")
 	})
 }
@@ -356,9 +356,9 @@ func readFlag(t *testing.T, db *sql.DB, id string) flagRow {
 
 // mustUpdate gives the flag with id the key and returns the response's flag,
 // failing the test if the call fails or the response carries no flag.
-func mustUpdate(t *testing.T, client flagconnect.FlagServiceClient, id, key string) *flag.Flag {
+func mustUpdate(t *testing.T, client flagv1connect.FlagServiceClient, id, key string) *flagv1.Flag {
 	t.Helper()
-	res, err := client.Update(context.Background(), &flag.UpdateRequest{Id: id, Key: key})
+	res, err := client.Update(context.Background(), &flagv1.UpdateRequest{Id: id, Key: key})
 	if err != nil {
 		t.Fatalf("Update(%s, %q): %v", id, key, err)
 	}
@@ -438,7 +438,7 @@ func TestUpdate(t *testing.T) {
 			resetDB(t, db)
 			created := mustCreate(t, client, "old-checkout")
 			before := readFlag(t, db, created.Id)
-			_, err := client.Update(ctx, &flag.UpdateRequest{Id: tc.id, Key: "new-checkout"})
+			_, err := client.Update(ctx, &flagv1.UpdateRequest{Id: tc.id, Key: "new-checkout"})
 			wantCode(t, err, connect.CodeInvalidArgument, tc.message)
 			if after := readFlag(t, db, created.Id); after != before {
 				t.Fatalf("flag = %+v after a rejected update, want %+v unchanged", after, before)
@@ -494,7 +494,7 @@ func TestUpdate(t *testing.T) {
 			if tc.id != "" {
 				id = tc.id
 			}
-			_, err := client.Update(ctx, &flag.UpdateRequest{Id: id, Key: tc.key})
+			_, err := client.Update(ctx, &flagv1.UpdateRequest{Id: id, Key: tc.key})
 			wantCode(t, err, tc.code, tc.message)
 			if after := readFlag(t, db, created.Id); after != before {
 				t.Fatalf("flag = %+v after a rejected update, want %+v unchanged", after, before)
@@ -517,7 +517,7 @@ func TestUpdate(t *testing.T) {
 		mustCreate(t, client, "new-checkout")
 		other := mustCreate(t, client, "old-checkout")
 		before := readFlag(t, db, other.Id)
-		_, err := client.Update(ctx, &flag.UpdateRequest{Id: other.Id, Key: "New-Checkout"})
+		_, err := client.Update(ctx, &flagv1.UpdateRequest{Id: other.Id, Key: "New-Checkout"})
 		wantCode(t, err, connect.CodeAlreadyExists, "can't update the flag")
 		if after := readFlag(t, db, other.Id); after != before {
 			t.Fatalf("flag = %+v after a rejected update, want %+v unchanged", after, before)
@@ -527,16 +527,16 @@ func TestUpdate(t *testing.T) {
 	// The client gets the store's message, never the database's error.
 	t.Run("hides database failures", func(t *testing.T) {
 		unreachable := newClient(t, unreachableDB)
-		_, err := unreachable.Update(ctx, &flag.UpdateRequest{Id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8", Key: "new-checkout"})
+		_, err := unreachable.Update(ctx, &flagv1.UpdateRequest{Id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8", Key: "new-checkout"})
 		wantCode(t, err, connect.CodeInternal, "can't update the flag")
 	})
 }
 
 // mustGet gets the flag with id and returns the response's flag, failing the
 // test if the call fails or the response carries no flag.
-func mustGet(t *testing.T, client flagconnect.FlagServiceClient, id string) *flag.Flag {
+func mustGet(t *testing.T, client flagv1connect.FlagServiceClient, id string) *flagv1.Flag {
 	t.Helper()
-	res, err := client.Get(context.Background(), &flag.GetRequest{Id: id})
+	res, err := client.Get(context.Background(), &flagv1.GetRequest{Id: id})
 	if err != nil {
 		t.Fatalf("Get(%s): %v", id, err)
 	}
@@ -590,7 +590,7 @@ func TestGet(t *testing.T) {
 
 	for name, tc := range badIDs {
 		t.Run("rejects "+name, func(t *testing.T) {
-			_, err := client.Get(ctx, &flag.GetRequest{Id: tc.id})
+			_, err := client.Get(ctx, &flagv1.GetRequest{Id: tc.id})
 			wantCode(t, err, connect.CodeInvalidArgument, tc.message)
 		})
 	}
@@ -598,23 +598,23 @@ func TestGet(t *testing.T) {
 	t.Run("rejects an id no flag has", func(t *testing.T) {
 		resetDB(t, db)
 		mustCreate(t, client, "new-checkout")
-		_, err := client.Get(ctx, &flag.GetRequest{Id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"})
+		_, err := client.Get(ctx, &flagv1.GetRequest{Id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"})
 		wantCode(t, err, connect.CodeNotFound, "can't get the flag")
 	})
 
 	// The client gets the store's message, never the database's error.
 	t.Run("hides database failures", func(t *testing.T) {
 		unreachable := newClient(t, unreachableDB)
-		_, err := unreachable.Get(ctx, &flag.GetRequest{Id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"})
+		_, err := unreachable.Get(ctx, &flagv1.GetRequest{Id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"})
 		wantCode(t, err, connect.CodeInternal, "can't get the flag")
 	})
 }
 
 // mustDelete deletes the flag with id and returns the response's flag, failing
 // the test if the call fails or the response carries no flag.
-func mustDelete(t *testing.T, client flagconnect.FlagServiceClient, id string) *flag.Flag {
+func mustDelete(t *testing.T, client flagv1connect.FlagServiceClient, id string) *flagv1.Flag {
 	t.Helper()
-	res, err := client.Delete(context.Background(), &flag.DeleteRequest{Id: id})
+	res, err := client.Delete(context.Background(), &flagv1.DeleteRequest{Id: id})
 	if err != nil {
 		t.Fatalf("Delete(%s): %v", id, err)
 	}
@@ -655,7 +655,7 @@ func TestDelete(t *testing.T) {
 		if flagExists(t, db, created.Id) {
 			t.Fatal("the flag is still stored after Delete()")
 		}
-		_, err := client.Get(ctx, &flag.GetRequest{Id: created.Id})
+		_, err := client.Get(ctx, &flagv1.GetRequest{Id: created.Id})
 		wantCode(t, err, connect.CodeNotFound, "can't get the flag")
 	})
 
@@ -665,7 +665,7 @@ func TestDelete(t *testing.T) {
 		second := mustCreate(t, client, "second")
 		third := mustCreate(t, client, "third")
 		mustDelete(t, client, second.Id)
-		for _, f := range []*flag.Flag{first, third} {
+		for _, f := range []*flagv1.Flag{first, third} {
 			if got := mustGet(t, client, f.Id); !proto.Equal(got, f) {
 				t.Errorf("Get(%s) = %v, want %v unchanged", f.Key, got, f)
 			}
@@ -676,7 +676,7 @@ func TestDelete(t *testing.T) {
 		resetDB(t, db)
 		created := mustCreate(t, client, "new-checkout")
 		mustDelete(t, client, created.Id)
-		_, err := client.Delete(ctx, &flag.DeleteRequest{Id: created.Id})
+		_, err := client.Delete(ctx, &flagv1.DeleteRequest{Id: created.Id})
 		wantCode(t, err, connect.CodeNotFound, "can't delete the flag")
 	})
 
@@ -705,7 +705,7 @@ func TestDelete(t *testing.T) {
 		t.Run("rejects "+name, func(t *testing.T) {
 			resetDB(t, db)
 			created := mustCreate(t, client, "new-checkout")
-			_, err := client.Delete(ctx, &flag.DeleteRequest{Id: tc.id})
+			_, err := client.Delete(ctx, &flagv1.DeleteRequest{Id: tc.id})
 			wantCode(t, err, connect.CodeInvalidArgument, tc.message)
 			if !flagExists(t, db, created.Id) {
 				t.Fatal("the flag is gone after a rejected delete")
@@ -716,7 +716,7 @@ func TestDelete(t *testing.T) {
 	t.Run("rejects an id no flag has", func(t *testing.T) {
 		resetDB(t, db)
 		created := mustCreate(t, client, "new-checkout")
-		_, err := client.Delete(ctx, &flag.DeleteRequest{Id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"})
+		_, err := client.Delete(ctx, &flagv1.DeleteRequest{Id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"})
 		wantCode(t, err, connect.CodeNotFound, "can't delete the flag")
 		if !flagExists(t, db, created.Id) {
 			t.Fatal("another flag is gone after deleting an id no flag has")
@@ -726,14 +726,14 @@ func TestDelete(t *testing.T) {
 	// The client gets the store's message, never the database's error.
 	t.Run("hides database failures", func(t *testing.T) {
 		unreachable := newClient(t, unreachableDB)
-		_, err := unreachable.Delete(ctx, &flag.DeleteRequest{Id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"})
+		_, err := unreachable.Delete(ctx, &flagv1.DeleteRequest{Id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"})
 		wantCode(t, err, connect.CodeInternal, "can't delete the flag")
 	})
 }
 
 // mustList lists the first page, failing the test if the call fails or there's
 // a next page: callers have fewer flags than fill one.
-func mustList(t *testing.T, client flagconnect.FlagServiceClient) []*flag.Flag {
+func mustList(t *testing.T, client flagv1connect.FlagServiceClient) []*flagv1.Flag {
 	t.Helper()
 	res := listPage(t, client, nil)
 	if res.NextPageToken != nil {
@@ -744,9 +744,9 @@ func mustList(t *testing.T, client flagconnect.FlagServiceClient) []*flag.Flag {
 
 // listPage lists the page token points to, or the first page for a nil token,
 // failing the test if the call fails.
-func listPage(t *testing.T, client flagconnect.FlagServiceClient, token *string) *flag.ListResponse {
+func listPage(t *testing.T, client flagv1connect.FlagServiceClient, token *string) *flagv1.ListResponse {
 	t.Helper()
-	req := &flag.ListRequest{PageToken: token}
+	req := &flagv1.ListRequest{PageToken: token}
 	res, err := client.List(context.Background(), req)
 	if err != nil {
 		t.Fatalf("List(%q): %v", req.GetPageToken(), err)
@@ -755,7 +755,7 @@ func listPage(t *testing.T, client flagconnect.FlagServiceClient, token *string)
 }
 
 // keys gives the keys of flags, in order, to report a list compactly.
-func keys(flags []*flag.Flag) []string {
+func keys(flags []*flagv1.Flag) []string {
 	keys := make([]string, len(flags))
 	for i, f := range flags {
 		keys[i] = f.GetKey()
@@ -764,7 +764,7 @@ func keys(flags []*flag.Flag) []string {
 }
 
 // wantFlags fails the test unless got holds want's flags in want's order.
-func wantFlags(t *testing.T, got, want []*flag.Flag) {
+func wantFlags(t *testing.T, got, want []*flagv1.Flag) {
 	t.Helper()
 	if len(got) != len(want) {
 		t.Fatalf("List() = %d flags %v, want %d %v", len(got), keys(got), len(want), keys(want))
@@ -793,7 +793,7 @@ func TestList(t *testing.T) {
 		c := mustCreate(t, client, "c")
 		a := mustCreate(t, client, "a")
 		b := mustCreate(t, client, "b")
-		wantFlags(t, mustList(t, client), []*flag.Flag{a, b, c})
+		wantFlags(t, mustList(t, client), []*flagv1.Flag{a, b, c})
 	})
 
 	t.Run("returns flags as last updated", func(t *testing.T) {
@@ -801,7 +801,7 @@ func TestList(t *testing.T) {
 		a := mustCreate(t, client, "a")
 		b := mustCreate(t, client, "b")
 		renamed := mustUpdate(t, client, a.Id, "c")
-		wantFlags(t, mustList(t, client), []*flag.Flag{b, renamed})
+		wantFlags(t, mustList(t, client), []*flagv1.Flag{b, renamed})
 	})
 
 	t.Run("leaves out deleted flags", func(t *testing.T) {
@@ -810,22 +810,22 @@ func TestList(t *testing.T) {
 		b := mustCreate(t, client, "b")
 		c := mustCreate(t, client, "c")
 		mustDelete(t, client, b.Id)
-		wantFlags(t, mustList(t, client), []*flag.Flag{a, c})
+		wantFlags(t, mustList(t, client), []*flagv1.Flag{a, c})
 	})
 
 	// The client gets the store's message, never the database's error.
 	t.Run("hides database failures", func(t *testing.T) {
 		unreachable := newClient(t, unreachableDB)
-		_, err := unreachable.List(ctx, &flag.ListRequest{})
+		_, err := unreachable.List(ctx, &flagv1.ListRequest{})
 		wantCode(t, err, connect.CodeInternal, "can't list flags")
 	})
 }
 
 // mustCreateMany creates n flags keyed flag-000, flag-001 and so on, which sort
 // as they're numbered, and returns them in that order.
-func mustCreateMany(t *testing.T, client flagconnect.FlagServiceClient, n int) []*flag.Flag {
+func mustCreateMany(t *testing.T, client flagv1connect.FlagServiceClient, n int) []*flagv1.Flag {
 	t.Helper()
-	flags := make([]*flag.Flag, n)
+	flags := make([]*flagv1.Flag, n)
 	for i := range flags {
 		flags[i] = mustCreate(t, client, fmt.Sprintf("flag-%03d", i))
 	}
@@ -861,7 +861,7 @@ func TestListPages(t *testing.T) {
 	t.Run("following tokens lists every flag once", func(t *testing.T) {
 		resetDB(t, db)
 		flags := mustCreateMany(t, client, 2*store.MaxFlagsPerPage+7)
-		var got []*flag.Flag
+		var got []*flagv1.Flag
 		var token *string
 		for pages := 1; ; pages++ {
 			if pages > 4 {
@@ -895,7 +895,7 @@ func TestListPages(t *testing.T) {
 
 	t.Run("rejects an empty page token", func(t *testing.T) {
 		empty := ""
-		_, err := client.List(ctx, &flag.ListRequest{PageToken: &empty})
+		_, err := client.List(ctx, &flagv1.ListRequest{PageToken: &empty})
 		wantCode(t, err, connect.CodeInvalidArgument, "validation error: page_token: must be at least 1 characters")
 	})
 
@@ -905,7 +905,7 @@ func TestListPages(t *testing.T) {
 		"a key of the wrong type": base64.RawURLEncoding.EncodeToString([]byte(`{"key":1}`)),
 	} {
 		t.Run("rejects a page token that's "+name, func(t *testing.T) {
-			_, err := client.List(ctx, &flag.ListRequest{PageToken: &token})
+			_, err := client.List(ctx, &flagv1.ListRequest{PageToken: &token})
 			wantCode(t, err, connect.CodeInvalidArgument, "invalid page cursor")
 		})
 	}
@@ -915,14 +915,14 @@ func TestListPages(t *testing.T) {
 	t.Run("rejects a bad token before reaching the database", func(t *testing.T) {
 		unreachable := newClient(t, unreachableDB)
 		token := "!!!"
-		_, err := unreachable.List(ctx, &flag.ListRequest{PageToken: &token})
+		_, err := unreachable.List(ctx, &flagv1.ListRequest{PageToken: &token})
 		wantCode(t, err, connect.CodeInvalidArgument, "invalid page cursor")
 	})
 
 	t.Run("hides database failures on a later page", func(t *testing.T) {
 		unreachable := newClient(t, unreachableDB)
 		token := base64.RawURLEncoding.EncodeToString([]byte(`{"key":"a"}`))
-		_, err := unreachable.List(ctx, &flag.ListRequest{PageToken: &token})
+		_, err := unreachable.List(ctx, &flagv1.ListRequest{PageToken: &token})
 		wantCode(t, err, connect.CodeInternal, "can't list flags")
 	})
 }
@@ -936,7 +936,7 @@ func TestListWithoutValidationRejectsEmptyToken(t *testing.T) {
 		t.Fatalf("store.New(): %v", err)
 	}
 	empty := ""
-	_, err = New(st).List(context.Background(), &flag.ListRequest{PageToken: &empty})
+	_, err = New(st).List(context.Background(), &flagv1.ListRequest{PageToken: &empty})
 	wantCode(t, err, connect.CodeInvalidArgument, "invalid page cursor")
 }
 
@@ -952,23 +952,23 @@ func TestHandlersWithoutValidationRejectBadIDs(t *testing.T) {
 	ctx := context.Background()
 	calls := map[string]func(id string) error{
 		"Update": func(id string) error {
-			_, err := svc.Update(ctx, &flag.UpdateRequest{Id: id, Key: "new-checkout"})
+			_, err := svc.Update(ctx, &flagv1.UpdateRequest{Id: id, Key: "new-checkout"})
 			return err
 		},
 		"Get": func(id string) error {
-			_, err := svc.Get(ctx, &flag.GetRequest{Id: id})
+			_, err := svc.Get(ctx, &flagv1.GetRequest{Id: id})
 			return err
 		},
 		"Delete": func(id string) error {
-			_, err := svc.Delete(ctx, &flag.DeleteRequest{Id: id})
+			_, err := svc.Delete(ctx, &flagv1.DeleteRequest{Id: id})
 			return err
 		},
 		"Archive": func(id string) error {
-			_, err := svc.Archive(ctx, &flag.ArchiveRequest{Id: id})
+			_, err := svc.Archive(ctx, &flagv1.ArchiveRequest{Id: id})
 			return err
 		},
 		"Unarchive": func(id string) error {
-			_, err := svc.Unarchive(ctx, &flag.UnarchiveRequest{Id: id})
+			_, err := svc.Unarchive(ctx, &flagv1.UnarchiveRequest{Id: id})
 			return err
 		},
 	}
@@ -994,9 +994,9 @@ func isArchived(t *testing.T, db *sql.DB, id string) bool {
 
 // mustArchive archives the flag with id and returns the response's flag,
 // failing the test if the call fails or the response carries no flag.
-func mustArchive(t *testing.T, client flagconnect.FlagServiceClient, id string) *flag.Flag {
+func mustArchive(t *testing.T, client flagv1connect.FlagServiceClient, id string) *flagv1.Flag {
 	t.Helper()
-	res, err := client.Archive(context.Background(), &flag.ArchiveRequest{Id: id})
+	res, err := client.Archive(context.Background(), &flagv1.ArchiveRequest{Id: id})
 	if err != nil {
 		t.Fatalf("Archive(%s): %v", id, err)
 	}
@@ -1008,9 +1008,9 @@ func mustArchive(t *testing.T, client flagconnect.FlagServiceClient, id string) 
 
 // mustUnarchive unarchives the flag with id and returns the response's flag,
 // failing the test if the call fails or the response carries no flag.
-func mustUnarchive(t *testing.T, client flagconnect.FlagServiceClient, id string) *flag.Flag {
+func mustUnarchive(t *testing.T, client flagv1connect.FlagServiceClient, id string) *flagv1.Flag {
 	t.Helper()
-	res, err := client.Unarchive(context.Background(), &flag.UnarchiveRequest{Id: id})
+	res, err := client.Unarchive(context.Background(), &flagv1.UnarchiveRequest{Id: id})
 	if err != nil {
 		t.Fatalf("Unarchive(%s): %v", id, err)
 	}
@@ -1038,7 +1038,7 @@ func TestArchive(t *testing.T) {
 	t.Run("returns the archived flag", func(t *testing.T) {
 		resetDB(t, db)
 		created := mustCreate(t, client, "new-checkout")
-		want := proto.Clone(created).(*flag.Flag)
+		want := proto.Clone(created).(*flagv1.Flag)
 		want.Archived = true
 		if got := mustArchive(t, client, created.Id); !proto.Equal(got, want) {
 			t.Fatalf("Archive() = %v, want %v", got, want)
@@ -1062,7 +1062,7 @@ func TestArchive(t *testing.T) {
 		resetDB(t, db)
 		first := mustCreate(t, client, "first")
 		second := mustArchive(t, client, mustCreate(t, client, "second").Id)
-		wantFlags(t, mustList(t, client), []*flag.Flag{first, second})
+		wantFlags(t, mustList(t, client), []*flagv1.Flag{first, second})
 	})
 
 	t.Run("archives only the flag asked for", func(t *testing.T) {
@@ -1071,7 +1071,7 @@ func TestArchive(t *testing.T) {
 		second := mustCreate(t, client, "second")
 		third := mustCreate(t, client, "third")
 		mustArchive(t, client, second.Id)
-		for _, f := range []*flag.Flag{first, third} {
+		for _, f := range []*flagv1.Flag{first, third} {
 			if isArchived(t, db, f.Id) {
 				t.Errorf("%s is archived after archiving %s", f.Key, second.Key)
 			}
@@ -1102,7 +1102,7 @@ func TestArchive(t *testing.T) {
 		t.Run("rejects "+name, func(t *testing.T) {
 			resetDB(t, db)
 			created := mustCreate(t, client, "new-checkout")
-			_, err := client.Archive(ctx, &flag.ArchiveRequest{Id: tc.id})
+			_, err := client.Archive(ctx, &flagv1.ArchiveRequest{Id: tc.id})
 			wantCode(t, err, connect.CodeInvalidArgument, tc.message)
 			if isArchived(t, db, created.Id) {
 				t.Fatal("the flag is archived after a rejected archive")
@@ -1113,7 +1113,7 @@ func TestArchive(t *testing.T) {
 	t.Run("rejects an id no flag has", func(t *testing.T) {
 		resetDB(t, db)
 		created := mustCreate(t, client, "new-checkout")
-		_, err := client.Archive(ctx, &flag.ArchiveRequest{Id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"})
+		_, err := client.Archive(ctx, &flagv1.ArchiveRequest{Id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"})
 		wantCode(t, err, connect.CodeNotFound, "can't archive flag")
 		if isArchived(t, db, created.Id) {
 			t.Fatal("another flag is archived after archiving an id no flag has")
@@ -1123,7 +1123,7 @@ func TestArchive(t *testing.T) {
 	// The client gets the store's message, never the database's error.
 	t.Run("hides database failures", func(t *testing.T) {
 		unreachable := newClient(t, unreachableDB)
-		_, err := unreachable.Archive(ctx, &flag.ArchiveRequest{Id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"})
+		_, err := unreachable.Archive(ctx, &flagv1.ArchiveRequest{Id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"})
 		wantCode(t, err, connect.CodeInternal, "can't archive flag")
 	})
 }
@@ -1169,11 +1169,11 @@ func TestUnarchive(t *testing.T) {
 		first := mustCreate(t, client, "first")
 		second := mustCreate(t, client, "second")
 		third := mustCreate(t, client, "third")
-		for _, f := range []*flag.Flag{first, second, third} {
+		for _, f := range []*flagv1.Flag{first, second, third} {
 			mustArchive(t, client, f.Id)
 		}
 		mustUnarchive(t, client, second.Id)
-		for _, f := range []*flag.Flag{first, third} {
+		for _, f := range []*flagv1.Flag{first, third} {
 			if !isArchived(t, db, f.Id) {
 				t.Errorf("%s isn't archived after unarchiving %s", f.Key, second.Key)
 			}
@@ -1207,7 +1207,7 @@ func TestUnarchive(t *testing.T) {
 			resetDB(t, db)
 			created := mustCreate(t, client, "new-checkout")
 			mustArchive(t, client, created.Id)
-			_, err := client.Unarchive(ctx, &flag.UnarchiveRequest{Id: tc.id})
+			_, err := client.Unarchive(ctx, &flagv1.UnarchiveRequest{Id: tc.id})
 			wantCode(t, err, connect.CodeInvalidArgument, tc.message)
 			if !isArchived(t, db, created.Id) {
 				t.Fatal("the flag is unarchived after a rejected unarchive")
@@ -1219,7 +1219,7 @@ func TestUnarchive(t *testing.T) {
 		resetDB(t, db)
 		created := mustCreate(t, client, "new-checkout")
 		mustArchive(t, client, created.Id)
-		_, err := client.Unarchive(ctx, &flag.UnarchiveRequest{Id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"})
+		_, err := client.Unarchive(ctx, &flagv1.UnarchiveRequest{Id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"})
 		wantCode(t, err, connect.CodeNotFound, "can't unarchive flag")
 		if !isArchived(t, db, created.Id) {
 			t.Fatal("another flag is unarchived after unarchiving an id no flag has")
@@ -1229,7 +1229,7 @@ func TestUnarchive(t *testing.T) {
 	// The client gets the store's message, never the database's error.
 	t.Run("hides database failures", func(t *testing.T) {
 		unreachable := newClient(t, unreachableDB)
-		_, err := unreachable.Unarchive(ctx, &flag.UnarchiveRequest{Id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"})
+		_, err := unreachable.Unarchive(ctx, &flagv1.UnarchiveRequest{Id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"})
 		wantCode(t, err, connect.CodeInternal, "can't unarchive flag")
 	})
 }
