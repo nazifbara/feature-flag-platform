@@ -2016,7 +2016,7 @@ func TestUpdateFlagSettingOfArchivedFlag(t *testing.T) {
 		env := mustCreateEnv(t, store, "production")
 		f := mustCreateFlag(t, store, "new-checkout")
 		mustArchiveFlag(t, store, f.ID)
-		if err := store.UnarchiveFlag(ctx, f.ID); err != nil {
+		if _, err := store.UnarchiveFlag(ctx, f.ID); err != nil {
 			t.Fatalf("UnarchiveFlag(): %v", err)
 		}
 		got := mustUpdateFlagSetting(t, store, update(f, env))
