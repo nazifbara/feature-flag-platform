@@ -13,9 +13,9 @@ import (
 	"uuid"
 
 	"connectrpc.com/connect/v2"
-	"github.com/nazifbara/flagsvc/admin-api/internal/database"
-	"github.com/nazifbara/flagsvc/admin-api/internal/ffserrors"
-	"github.com/nazifbara/flagsvc/evaluator"
+	"github.com/nazifbara/feature-flag-platform/admin-api/internal/database"
+	"github.com/nazifbara/feature-flag-platform/admin-api/internal/ffserrors"
+	"github.com/nazifbara/feature-flag-platform/evaluator"
 )
 
 // storedClause is how a clause is kept in the rules.clauses column.

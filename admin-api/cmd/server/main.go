@@ -9,7 +9,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/nazifbara/flagsvc/admin-api/internal/store"
+	"github.com/nazifbara/feature-flag-platform/admin-api/internal/store"
 
 	_ "github.com/lib/pq"
 )

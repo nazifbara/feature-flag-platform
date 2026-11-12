@@ -794,7 +794,7 @@ const file_flagsvc_flag_v1_flag_proto_rawDesc = "" +
 	"\x06Delete\x12\x1e.flagsvc.flag.v1.DeleteRequest\x1a\x1f.flagsvc.flag.v1.DeleteResponse\"\x00\x12E\n" +
 	"\x04List\x12\x1c.flagsvc.flag.v1.ListRequest\x1a\x1d.flagsvc.flag.v1.ListResponse\"\x00\x12N\n" +
 	"\aArchive\x12\x1f.flagsvc.flag.v1.ArchiveRequest\x1a .flagsvc.flag.v1.ArchiveResponse\"\x00\x12T\n" +
-	"\tUnarchive\x12!.flagsvc.flag.v1.UnarchiveRequest\x1a\".flagsvc.flag.v1.UnarchiveResponse\"\x00B:Z8github.com/nazifbara/flagsvc/gen/go/flagsvc/flag/v1;flagb\x06proto3"
+	"\tUnarchive\x12!.flagsvc.flag.v1.UnarchiveRequest\x1a\".flagsvc.flag.v1.UnarchiveResponse\"\x00BHZFgithub.com/nazifbara/feature-flag-platform/gen/go/flagsvc/flag/v1;flagb\x06proto3"
 
 var (
 	file_flagsvc_flag_v1_flag_proto_rawDescOnce sync.Once

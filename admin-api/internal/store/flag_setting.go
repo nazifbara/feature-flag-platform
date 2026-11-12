@@ -5,8 +5,8 @@ import (
 	"uuid"
 
 	"connectrpc.com/connect/v2"
-	"github.com/nazifbara/flagsvc/admin-api/internal/database"
-	"github.com/nazifbara/flagsvc/admin-api/internal/ffserrors"
+	"github.com/nazifbara/feature-flag-platform/admin-api/internal/database"
+	"github.com/nazifbara/feature-flag-platform/admin-api/internal/ffserrors"
 )
 
 // checkFallthrough checks f is a fraction of traffic, in [0, 1].

@@ -1,4 +1,4 @@
-module github.com/nazifbara/flagsvc/admin-api
+module github.com/nazifbara/feature-flag-platform/admin-api
 
 go 1.27.2
 
@@ -8,8 +8,8 @@ require (
 	github.com/alexedwards/argon2id v1.0.0
 	github.com/google/go-cmp v0.7.0
 	github.com/lib/pq v1.12.3
-	github.com/nazifbara/flagsvc/evaluator v0.0.0
-	github.com/nazifbara/flagsvc/gen/go v0.0.0
+	github.com/nazifbara/feature-flag-platform/evaluator v0.0.0
+	github.com/nazifbara/feature-flag-platform/gen/go v0.0.0
 	google.golang.org/protobuf v1.36.12
 )
 
@@ -29,6 +29,6 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20261012220534-4341edf3f941 // indirect
 )
 
-replace github.com/nazifbara/flagsvc/evaluator => ../evaluator
+replace github.com/nazifbara/feature-flag-platform/evaluator => ../evaluator
 
-replace github.com/nazifbara/flagsvc/gen/go => ../gen/go
+replace github.com/nazifbara/feature-flag-platform/gen/go => ../gen/go

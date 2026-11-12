@@ -4,7 +4,7 @@ package flagsvc.ping.v1;
 
 import "buf/validate/validate.proto";
 
-option go_package = "github.com/nazifbara/flagsvc/gen/go/flagsvc/ping/v1;ping";
+option go_package = "github.com/nazifbara/feature-flag-platform/gen/go/flagsvc/ping/v1;ping";
 
 message PingRequest {
   string message = 1 [(buf.validate.field).string = {

@@ -7,7 +7,7 @@ package flagconnect
 import (
 	connect "connectrpc.com/connect/v2"
 	context "context"
-	v1 "github.com/nazifbara/flagsvc/gen/go/flagsvc/flag/v1"
+	v1 "github.com/nazifbara/feature-flag-platform/gen/go/flagsvc/flag/v1"
 	sync "sync"
 )
 

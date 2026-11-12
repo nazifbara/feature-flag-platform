@@ -7,8 +7,8 @@ import (
 	"uuid"
 
 	"connectrpc.com/connect/v2"
-	"github.com/nazifbara/flagsvc/admin-api/internal/database"
-	"github.com/nazifbara/flagsvc/admin-api/internal/ffserrors"
+	"github.com/nazifbara/feature-flag-platform/admin-api/internal/database"
+	"github.com/nazifbara/feature-flag-platform/admin-api/internal/ffserrors"
 )
 
 // normalizeEnvName trims and lowercases name and checks it fits the column.

@@ -1,4 +1,4 @@
-module github.com/nazifbara/flagsvc/evaluator
+module github.com/nazifbara/feature-flag-platform/evaluator
 
 go 1.27.2
 

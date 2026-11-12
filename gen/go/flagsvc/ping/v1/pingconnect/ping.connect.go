@@ -7,7 +7,7 @@ package pingconnect
 import (
 	connect "connectrpc.com/connect/v2"
 	context "context"
-	v1 "github.com/nazifbara/flagsvc/gen/go/flagsvc/ping/v1"
+	v1 "github.com/nazifbara/feature-flag-platform/gen/go/flagsvc/ping/v1"
 	sync "sync"
 )
 

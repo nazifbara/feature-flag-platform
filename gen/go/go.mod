@@ -1,4 +1,4 @@
-module github.com/nazifbara/flagsvc/gen/go
+module github.com/nazifbara/feature-flag-platform/gen/go
 
 go 1.27.2
 

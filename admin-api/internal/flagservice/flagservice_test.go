@@ -17,9 +17,9 @@ import (
 	connect "connectrpc.com/connect/v2"
 	"connectrpc.com/connect/v2/connecthttp"
 	"connectrpc.com/validate"
-	"github.com/nazifbara/flagsvc/admin-api/internal/store"
-	flag "github.com/nazifbara/flagsvc/gen/go/flagsvc/flag/v1"
-	"github.com/nazifbara/flagsvc/gen/go/flagsvc/flag/v1/flagconnect"
+	"github.com/nazifbara/feature-flag-platform/admin-api/internal/store"
+	flag "github.com/nazifbara/feature-flag-platform/gen/go/flagsvc/flag/v1"
+	"github.com/nazifbara/feature-flag-platform/gen/go/flagsvc/flag/v1/flagconnect"
 	"google.golang.org/protobuf/proto"
 
 	_ "github.com/lib/pq"
