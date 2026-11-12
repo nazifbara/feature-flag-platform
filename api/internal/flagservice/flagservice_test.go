@@ -225,6 +225,9 @@ func TestCreate(t *testing.T) {
 		if !updated.Equal(created) {
 			t.Errorf("updated_at = %v, want created_at %v", updated, created)
 		}
+		if got.Archived {
+			t.Error("archived = true, want a new flag not archived")
+		}
 
 		var key, salt string
 		var storedCreated, storedUpdated time.Time
@@ -960,6 +963,14 @@ func TestHandlersWithoutValidationRejectBadIDs(t *testing.T) {
 			_, err := svc.Delete(ctx, &flag.DeleteRequest{Id: id})
 			return err
 		},
+		"Archive": func(id string) error {
+			_, err := svc.Archive(ctx, &flag.ArchiveRequest{Id: id})
+			return err
+		},
+		"Unarchive": func(id string) error {
+			_, err := svc.Unarchive(ctx, &flag.UnarchiveRequest{Id: id})
+			return err
+		},
 	}
 	for rpc, call := range calls {
 		for _, id := range []string{"", "not-a-uuid", " 6ba7b810-9dad-11d1-80b4-00c04fd430c8 "} {
@@ -968,4 +979,257 @@ func TestHandlersWithoutValidationRejectBadIDs(t *testing.T) {
 			})
 		}
 	}
+}
+
+// isArchived reports whether the flag with id is archived in db, for checking
+// what was stored rather than what a response says.
+func isArchived(t *testing.T, db *sql.DB, id string) bool {
+	t.Helper()
+	var archived bool
+	if err := db.QueryRow("SELECT archived FROM flags WHERE id = $1", id).Scan(&archived); err != nil {
+		t.Fatalf("reading whether flag %s is archived: %v", id, err)
+	}
+	return archived
+}
+
+// mustArchive archives the flag with id and returns the response's flag,
+// failing the test if the call fails or the response carries no flag.
+func mustArchive(t *testing.T, client flagconnect.FlagServiceClient, id string) *flag.Flag {
+	t.Helper()
+	res, err := client.Archive(context.Background(), &flag.ArchiveRequest{Id: id})
+	if err != nil {
+		t.Fatalf("Archive(%s): %v", id, err)
+	}
+	if res.GetFlag() == nil {
+		t.Fatalf("Archive(%s) returned no flag", id)
+	}
+	return res.GetFlag()
+}
+
+// mustUnarchive unarchives the flag with id and returns the response's flag,
+// failing the test if the call fails or the response carries no flag.
+func mustUnarchive(t *testing.T, client flagconnect.FlagServiceClient, id string) *flag.Flag {
+	t.Helper()
+	res, err := client.Unarchive(context.Background(), &flag.UnarchiveRequest{Id: id})
+	if err != nil {
+		t.Fatalf("Unarchive(%s): %v", id, err)
+	}
+	if res.GetFlag() == nil {
+		t.Fatalf("Unarchive(%s) returned no flag", id)
+	}
+	return res.GetFlag()
+}
+
+func TestArchive(t *testing.T) {
+	db := testDB(t)
+	client := newClient(t, os.Getenv("TEST_DB_URL"))
+	ctx := context.Background()
+
+	t.Run("archives the flag", func(t *testing.T) {
+		resetDB(t, db)
+		created := mustCreate(t, client, "new-checkout")
+		mustArchive(t, client, created.Id)
+		if !isArchived(t, db, created.Id) {
+			t.Fatal("the flag isn't archived after Archive()")
+		}
+	})
+
+	// Only archived moves: Get shows the flag as Archive returned it.
+	t.Run("returns the archived flag", func(t *testing.T) {
+		resetDB(t, db)
+		created := mustCreate(t, client, "new-checkout")
+		want := proto.Clone(created).(*flag.Flag)
+		want.Archived = true
+		if got := mustArchive(t, client, created.Id); !proto.Equal(got, want) {
+			t.Fatalf("Archive() = %v, want %v", got, want)
+		}
+		if got := mustGet(t, client, created.Id); !proto.Equal(got, want) {
+			t.Fatalf("Get() = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("returns an archived flag as it is", func(t *testing.T) {
+		resetDB(t, db)
+		created := mustCreate(t, client, "new-checkout")
+		first := mustArchive(t, client, created.Id)
+		if got := mustArchive(t, client, created.Id); !proto.Equal(got, first) {
+			t.Fatalf("Archive() = %v, want %v", got, first)
+		}
+	})
+
+	// Archived flags stay listed, marked as archived.
+	t.Run("lists the flag as archived", func(t *testing.T) {
+		resetDB(t, db)
+		first := mustCreate(t, client, "first")
+		second := mustArchive(t, client, mustCreate(t, client, "second").Id)
+		wantFlags(t, mustList(t, client), []*flag.Flag{first, second})
+	})
+
+	t.Run("archives only the flag asked for", func(t *testing.T) {
+		resetDB(t, db)
+		first := mustCreate(t, client, "first")
+		second := mustCreate(t, client, "second")
+		third := mustCreate(t, client, "third")
+		mustArchive(t, client, second.Id)
+		for _, f := range []*flag.Flag{first, third} {
+			if isArchived(t, db, f.Id) {
+				t.Errorf("%s is archived after archiving %s", f.Key, second.Key)
+			}
+		}
+	})
+
+	t.Run("accepts an archived flag", func(t *testing.T) {
+		resetDB(t, db)
+		created := mustCreate(t, client, "new-checkout")
+		mustArchive(t, client, created.Id)
+		mustArchive(t, client, created.Id)
+		if !isArchived(t, db, created.Id) {
+			t.Fatal("the flag isn't archived after archiving it twice")
+		}
+	})
+
+	t.Run("accepts the id in upper case", func(t *testing.T) {
+		resetDB(t, db)
+		created := mustCreate(t, client, "new-checkout")
+		mustArchive(t, client, strings.ToUpper(created.Id))
+		if !isArchived(t, db, created.Id) {
+			t.Fatal("the flag isn't archived after Archive() with its id in upper case")
+		}
+	})
+
+	// Rejected ids archive nothing.
+	for name, tc := range badIDs {
+		t.Run("rejects "+name, func(t *testing.T) {
+			resetDB(t, db)
+			created := mustCreate(t, client, "new-checkout")
+			_, err := client.Archive(ctx, &flag.ArchiveRequest{Id: tc.id})
+			wantCode(t, err, connect.CodeInvalidArgument, tc.message)
+			if isArchived(t, db, created.Id) {
+				t.Fatal("the flag is archived after a rejected archive")
+			}
+		})
+	}
+
+	t.Run("rejects an id no flag has", func(t *testing.T) {
+		resetDB(t, db)
+		created := mustCreate(t, client, "new-checkout")
+		_, err := client.Archive(ctx, &flag.ArchiveRequest{Id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"})
+		wantCode(t, err, connect.CodeNotFound, "can't archive flag")
+		if isArchived(t, db, created.Id) {
+			t.Fatal("another flag is archived after archiving an id no flag has")
+		}
+	})
+
+	// The client gets the store's message, never the database's error.
+	t.Run("hides database failures", func(t *testing.T) {
+		unreachable := newClient(t, unreachableDB)
+		_, err := unreachable.Archive(ctx, &flag.ArchiveRequest{Id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"})
+		wantCode(t, err, connect.CodeInternal, "can't archive flag")
+	})
+}
+
+func TestUnarchive(t *testing.T) {
+	db := testDB(t)
+	client := newClient(t, os.Getenv("TEST_DB_URL"))
+	ctx := context.Background()
+
+	t.Run("unarchives the flag", func(t *testing.T) {
+		resetDB(t, db)
+		created := mustCreate(t, client, "new-checkout")
+		mustArchive(t, client, created.Id)
+		mustUnarchive(t, client, created.Id)
+		if isArchived(t, db, created.Id) {
+			t.Fatal("the flag is still archived after Unarchive()")
+		}
+	})
+
+	// Unarchiving gives back the flag as it was before it was archived.
+	t.Run("returns the flag as it was", func(t *testing.T) {
+		resetDB(t, db)
+		created := mustCreate(t, client, "new-checkout")
+		mustArchive(t, client, created.Id)
+		if got := mustUnarchive(t, client, created.Id); !proto.Equal(got, created) {
+			t.Fatalf("Unarchive() = %v, want %v", got, created)
+		}
+		if got := mustGet(t, client, created.Id); !proto.Equal(got, created) {
+			t.Fatalf("Get() = %v, want %v unchanged", got, created)
+		}
+	})
+
+	t.Run("returns a flag that isn't archived as it is", func(t *testing.T) {
+		resetDB(t, db)
+		created := mustCreate(t, client, "new-checkout")
+		if got := mustUnarchive(t, client, created.Id); !proto.Equal(got, created) {
+			t.Fatalf("Unarchive() = %v, want %v", got, created)
+		}
+	})
+
+	t.Run("unarchives only the flag asked for", func(t *testing.T) {
+		resetDB(t, db)
+		first := mustCreate(t, client, "first")
+		second := mustCreate(t, client, "second")
+		third := mustCreate(t, client, "third")
+		for _, f := range []*flag.Flag{first, second, third} {
+			mustArchive(t, client, f.Id)
+		}
+		mustUnarchive(t, client, second.Id)
+		for _, f := range []*flag.Flag{first, third} {
+			if !isArchived(t, db, f.Id) {
+				t.Errorf("%s isn't archived after unarchiving %s", f.Key, second.Key)
+			}
+		}
+	})
+
+	// A flag is created unarchived, so this unarchives a flag that never was
+	// archived.
+	t.Run("accepts a flag that isn't archived", func(t *testing.T) {
+		resetDB(t, db)
+		created := mustCreate(t, client, "new-checkout")
+		mustUnarchive(t, client, created.Id)
+		if isArchived(t, db, created.Id) {
+			t.Fatal("the flag is archived after unarchiving it")
+		}
+	})
+
+	t.Run("accepts the id in upper case", func(t *testing.T) {
+		resetDB(t, db)
+		created := mustCreate(t, client, "new-checkout")
+		mustArchive(t, client, created.Id)
+		mustUnarchive(t, client, strings.ToUpper(created.Id))
+		if isArchived(t, db, created.Id) {
+			t.Fatal("the flag is still archived after Unarchive() with its id in upper case")
+		}
+	})
+
+	// Rejected ids unarchive nothing.
+	for name, tc := range badIDs {
+		t.Run("rejects "+name, func(t *testing.T) {
+			resetDB(t, db)
+			created := mustCreate(t, client, "new-checkout")
+			mustArchive(t, client, created.Id)
+			_, err := client.Unarchive(ctx, &flag.UnarchiveRequest{Id: tc.id})
+			wantCode(t, err, connect.CodeInvalidArgument, tc.message)
+			if !isArchived(t, db, created.Id) {
+				t.Fatal("the flag is unarchived after a rejected unarchive")
+			}
+		})
+	}
+
+	t.Run("rejects an id no flag has", func(t *testing.T) {
+		resetDB(t, db)
+		created := mustCreate(t, client, "new-checkout")
+		mustArchive(t, client, created.Id)
+		_, err := client.Unarchive(ctx, &flag.UnarchiveRequest{Id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"})
+		wantCode(t, err, connect.CodeNotFound, "can't unarchive flag")
+		if !isArchived(t, db, created.Id) {
+			t.Fatal("another flag is unarchived after unarchiving an id no flag has")
+		}
+	})
+
+	// The client gets the store's message, never the database's error.
+	t.Run("hides database failures", func(t *testing.T) {
+		unreachable := newClient(t, unreachableDB)
+		_, err := unreachable.Unarchive(ctx, &flag.UnarchiveRequest{Id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"})
+		wantCode(t, err, connect.CodeInternal, "can't unarchive flag")
+	})
 }

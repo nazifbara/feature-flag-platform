@@ -34,6 +34,10 @@ const (
 	FlagServiceDeleteProcedure = "/flagsvc.flag.v1.FlagService/Delete"
 	// FlagServiceListProcedure is the procedure name of the FlagService's List RPC.
 	FlagServiceListProcedure = "/flagsvc.flag.v1.FlagService/List"
+	// FlagServiceArchiveProcedure is the procedure name of the FlagService's Archive RPC.
+	FlagServiceArchiveProcedure = "/flagsvc.flag.v1.FlagService/Archive"
+	// FlagServiceUnarchiveProcedure is the procedure name of the FlagService's Unarchive RPC.
+	FlagServiceUnarchiveProcedure = "/flagsvc.flag.v1.FlagService/Unarchive"
 )
 
 var (
@@ -72,6 +76,20 @@ var (
 			Procedure:  FlagServiceListProcedure,
 		}
 	})
+	flagServiceArchiveSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_flagsvc_flag_v1_flag_proto.Services().ByName("FlagService").Methods().ByName("Archive"),
+			Procedure:  FlagServiceArchiveProcedure,
+		}
+	})
+	flagServiceUnarchiveSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_flagsvc_flag_v1_flag_proto.Services().ByName("FlagService").Methods().ByName("Unarchive"),
+			Procedure:  FlagServiceUnarchiveProcedure,
+		}
+	})
 )
 
 // FlagServiceClient is a client for the flagsvc.flag.v1.FlagService service.
@@ -81,6 +99,8 @@ type FlagServiceClient interface {
 	Get(context.Context, *v1.GetRequest) (*v1.GetResponse, error)
 	Delete(context.Context, *v1.DeleteRequest) (*v1.DeleteResponse, error)
 	List(context.Context, *v1.ListRequest) (*v1.ListResponse, error)
+	Archive(context.Context, *v1.ArchiveRequest) (*v1.ArchiveResponse, error)
+	Unarchive(context.Context, *v1.UnarchiveRequest) (*v1.UnarchiveResponse, error)
 }
 
 // NewFlagServiceClient constructs a client for the flagsvc.flag.v1.FlagService service. Multiple
@@ -96,6 +116,8 @@ type FlagServiceHandler interface {
 	Get(context.Context, *v1.GetRequest) (*v1.GetResponse, error)
 	Delete(context.Context, *v1.DeleteRequest) (*v1.DeleteResponse, error)
 	List(context.Context, *v1.ListRequest) (*v1.ListResponse, error)
+	Archive(context.Context, *v1.ArchiveRequest) (*v1.ArchiveResponse, error)
+	Unarchive(context.Context, *v1.UnarchiveRequest) (*v1.UnarchiveResponse, error)
 }
 
 // RegisterFlagServiceHandler registers svc as the flagsvc.flag.v1.FlagService implementation on
@@ -108,6 +130,8 @@ func RegisterFlagServiceHandler(server *connect.Server, svc FlagServiceHandler) 
 		connect.Method{Spec: flagServiceGetSpec(), Handler: adapter.get},
 		connect.Method{Spec: flagServiceDeleteSpec(), Handler: adapter.delete},
 		connect.Method{Spec: flagServiceListSpec(), Handler: adapter.list},
+		connect.Method{Spec: flagServiceArchiveSpec(), Handler: adapter.archive},
+		connect.Method{Spec: flagServiceUnarchiveSpec(), Handler: adapter.unarchive},
 	)
 }
 
@@ -132,6 +156,14 @@ func (UnimplementedFlagServiceHandler) Delete(context.Context, *v1.DeleteRequest
 
 func (UnimplementedFlagServiceHandler) List(context.Context, *v1.ListRequest) (*v1.ListResponse, error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, "flagsvc.flag.v1.FlagService.List is not implemented")
+}
+
+func (UnimplementedFlagServiceHandler) Archive(context.Context, *v1.ArchiveRequest) (*v1.ArchiveResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "flagsvc.flag.v1.FlagService.Archive is not implemented")
+}
+
+func (UnimplementedFlagServiceHandler) Unarchive(context.Context, *v1.UnarchiveRequest) (*v1.UnarchiveResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "flagsvc.flag.v1.FlagService.Unarchive is not implemented")
 }
 
 type flagServiceClient struct {
@@ -173,6 +205,22 @@ func (c *flagServiceClient) Delete(ctx context.Context, req *v1.DeleteRequest) (
 func (c *flagServiceClient) List(ctx context.Context, req *v1.ListRequest) (*v1.ListResponse, error) {
 	var res v1.ListResponse
 	if err := c.client.CallUnary(ctx, flagServiceListSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *flagServiceClient) Archive(ctx context.Context, req *v1.ArchiveRequest) (*v1.ArchiveResponse, error) {
+	var res v1.ArchiveResponse
+	if err := c.client.CallUnary(ctx, flagServiceArchiveSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *flagServiceClient) Unarchive(ctx context.Context, req *v1.UnarchiveRequest) (*v1.UnarchiveResponse, error) {
+	var res v1.UnarchiveResponse
+	if err := c.client.CallUnary(ctx, flagServiceUnarchiveSpec(), req, &res); err != nil {
 		return nil, err
 	}
 	return &res, nil
@@ -234,6 +282,30 @@ func (h flagServiceHandler) list(ctx context.Context, _ connect.Spec, stream con
 		return err
 	}
 	res, err := h.svc.List(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h flagServiceHandler) archive(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.ArchiveRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.Archive(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h flagServiceHandler) unarchive(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.UnarchiveRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.Unarchive(ctx, &req)
 	if err != nil {
 		return err
 	}

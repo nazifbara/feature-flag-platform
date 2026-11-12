@@ -13,6 +13,8 @@ service FlagService {
   rpc Get(GetRequest) returns (GetResponse) {}
   rpc Delete(DeleteRequest) returns (DeleteResponse) {}
   rpc List(ListRequest) returns (ListResponse) {}
+  rpc Archive(ArchiveRequest) returns (ArchiveResponse) {}
+  rpc Unarchive(UnarchiveRequest) returns (UnarchiveResponse) {}
 }
 
 message Flag {
@@ -21,6 +23,7 @@ message Flag {
   string salt = 3;
   google.protobuf.Timestamp created_at = 4;
   google.protobuf.Timestamp updated_at = 5;
+  bool archived = 6;
 }
 
 message CreateRequest {
@@ -69,4 +72,20 @@ message ListRequest {
 message ListResponse {
   repeated Flag flags = 1;
   optional string next_page_token = 2;
+}
+
+message ArchiveRequest {
+  string id = 1 [(buf.validate.field).string.uuid = true];
+}
+
+message ArchiveResponse {
+  Flag flag = 1;
+}
+
+message UnarchiveRequest {
+  string id = 1 [(buf.validate.field).string.uuid = true];
+}
+
+message UnarchiveResponse {
+  Flag flag = 1;
 }

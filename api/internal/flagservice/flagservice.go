@@ -25,6 +25,19 @@ func New(store *store.Store) *Service {
 	}
 }
 
+// flagToProto converts a stored flag into the API's Flag, which every RPC
+// returning flags wraps in its own response.
+func flagToProto(f database.Flag) *flag.Flag {
+	return &flag.Flag{
+		Id:        f.ID.String(),
+		Key:       f.Key,
+		Salt:      f.Salt,
+		Archived:  f.Archived,
+		CreatedAt: timestamppb.New(f.CreatedAt),
+		UpdatedAt: timestamppb.New(f.UpdatedAt),
+	}
+}
+
 // Create adds a flag with the requested key, normalized and checked by the
 // store, which also gives it a disabled setting in every environment. It
 // returns the flag as stored, with its new id and salt. Store errors reach the
@@ -118,14 +131,36 @@ func (s *Service) List(ctx context.Context, req *flag.ListRequest) (*flag.ListRe
 	return &flag.ListResponse{Flags: flagMessages, NextPageToken: nextPageToken}, nil
 }
 
-// flagToProto converts a stored flag into the API's Flag, which every RPC
-// returning flags wraps in its own response.
-func flagToProto(f database.Flag) *flag.Flag {
-	return &flag.Flag{
-		Id:        f.ID.String(),
-		Key:       f.Key,
-		Salt:      f.Salt,
-		CreatedAt: timestamppb.New(f.CreatedAt),
-		UpdatedAt: timestamppb.New(f.UpdatedAt),
+// Archive archives the flag with the requested id, which freezes its settings
+// and rules in every environment, and logs it there. Archiving an archived flag
+// changes nothing. As in Update, the proto's rules reject an id that isn't a
+// UUID, and parsing it again guards against a caller without them. An id no
+// flag has gives NotFound.
+func (s *Service) Archive(ctx context.Context, req *flag.ArchiveRequest) (*flag.ArchiveResponse, error) {
+	flagID, err := uuid.Parse(req.Id)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, "invalid flag id").WithCause(err)
 	}
+	f, err := s.store.ArchiveFlag(ctx, flagID)
+	if err != nil {
+		return nil, err
+	}
+	return &flag.ArchiveResponse{Flag: flagToProto(f)}, nil
+}
+
+// Unarchive unarchives the flag with the requested id, so its settings and
+// rules can change again, and logs it in every environment. Unarchiving a flag
+// that isn't archived changes nothing. As in Update, the proto's rules reject
+// an id that isn't a UUID, and parsing it again guards against a caller without
+// them. An id no flag has gives NotFound.
+func (s *Service) Unarchive(ctx context.Context, req *flag.UnarchiveRequest) (*flag.UnarchiveResponse, error) {
+	flagID, err := uuid.Parse(req.Id)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, "invalid flag id").WithCause(err)
+	}
+	f, err := s.store.UnarchiveFlag(ctx, flagID)
+	if err != nil {
+		return nil, err
+	}
+	return &flag.UnarchiveResponse{Flag: flagToProto(f)}, nil
 }
