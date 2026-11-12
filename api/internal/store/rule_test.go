@@ -4617,7 +4617,7 @@ func TestRulesOfArchivedFlag(t *testing.T) {
 			setting := mustCreateRuleSetting(t, store)
 			rules := mustCreateNamedRules(t, store, setting.ID, "first", "second")
 			mustArchiveFlag(t, store, setting.FlagID)
-			if err := store.UnarchiveFlag(ctx, setting.FlagID); err != nil {
+			if _, err := store.UnarchiveFlag(ctx, setting.FlagID); err != nil {
 				t.Fatalf("UnarchiveFlag(): %v", err)
 			}
 			if _, err := op.call(setting, rules[0]); err != nil {
