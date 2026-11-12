@@ -19,6 +19,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/lib/pq"
 	"github.com/nazifbara/feature-flag-platform/admin-api/internal/database"
+	"github.com/nazifbara/feature-flag-platform/admin-api/internal/testutil"
 )
 
 // parseClauses needs no database, so its tests run without TEST_DB_URL.
@@ -202,7 +203,7 @@ func storedRule(t *testing.T, store *Store, id uuid.UUID) database.Rule {
 // to belong to.
 func mustCreateRuleSetting(t *testing.T, store *Store) database.FlagSetting {
 	t.Helper()
-	resetDB(t, store.db)
+	testutil.ResetDB(t, store.db)
 	flag := mustCreateFlag(t, store, "new-checkout")
 	env := mustCreateEnv(t, store, "production")
 	s, err := store.GetFlagSetting(context.Background(), database.GetFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID})
@@ -569,7 +570,7 @@ func TestCreateRuleRejectsInvalid(t *testing.T) {
 		}
 		for name, test := range tests {
 			t.Run(name, func(t *testing.T) {
-				resetDB(t, store.db)
+				testutil.ResetDB(t, store.db)
 				arg := valid()
 				arg.FlagSettingID = uuid.New()
 				test.change(&arg)

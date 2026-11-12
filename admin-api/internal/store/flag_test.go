@@ -15,6 +15,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/nazifbara/feature-flag-platform/admin-api/internal/database"
+	"github.com/nazifbara/feature-flag-platform/admin-api/internal/testutil"
 )
 
 // flagCount gives the number of committed flags.
@@ -45,7 +46,7 @@ func TestCreateFlag(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("creates the flag", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		before := time.Now()
 		got, err := store.CreateFlag(ctx, "new-checkout")
 		if err != nil {
@@ -76,7 +77,7 @@ func TestCreateFlag(t *testing.T) {
 	})
 
 	t.Run("each flag gets its own ID", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		a, err := store.CreateFlag(ctx, "new-checkout")
 		if err != nil {
 			t.Fatalf("CreateFlag(): %v", err)
@@ -92,7 +93,7 @@ func TestCreateFlag(t *testing.T) {
 
 	// Flags sharing a salt would roll out to the same users.
 	t.Run("each flag gets its own salt", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		a, err := store.CreateFlag(ctx, "new-checkout")
 		if err != nil {
 			t.Fatalf("CreateFlag(): %v", err)
@@ -109,7 +110,7 @@ func TestCreateFlag(t *testing.T) {
 	// The clock is read per flag, not per transaction, so flags created
 	// together still get increasing times.
 	t.Run("flags created in one transaction get increasing times", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		var flags []database.Flag
 		err := store.ExecTx(ctx, func(q *database.Queries) error {
 			for _, key := range []string{"a", "b", "c"} {
@@ -157,7 +158,7 @@ func TestCreateFlagNormalizesKey(t *testing.T) {
 	}
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			resetDB(t, store.db)
+			testutil.ResetDB(t, store.db)
 			got, err := store.CreateFlag(ctx, test.key)
 			if err != nil {
 				t.Fatalf("CreateFlag(%q): %v", test.key, err)
@@ -217,7 +218,7 @@ func TestCreateFlagRejectsInvalidKey(t *testing.T) {
 	}
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			resetDB(t, store.db)
+			testutil.ResetDB(t, store.db)
 			got, err := store.CreateFlag(ctx, test.key)
 			wantConnectErr(t, err, test.want)
 			if got != (database.Flag{}) {
@@ -239,7 +240,7 @@ func TestCreateFlagRejectsDuplicateKey(t *testing.T) {
 
 	for _, key := range []string{"new-checkout", "New-Checkout", "NEW-CHECKOUT", "  new-checkout  ", "\tNew-Checkout\n"} {
 		t.Run(key, func(t *testing.T) {
-			resetDB(t, store.db)
+			testutil.ResetDB(t, store.db)
 			first, err := store.CreateFlag(ctx, "new-checkout")
 			if err != nil {
 				t.Fatalf("CreateFlag() first call: %v", err)
@@ -328,7 +329,7 @@ func TestCreateFlagBumpsEnvVersions(t *testing.T) {
 	// Only the version and updated_at move, the version by one from wherever
 	// each environment was.
 	t.Run("every environment goes up by one", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		older := mustCreateEnv(t, store, "staging")
 		mustCreateFlag(t, store, "dark-mode")
 		newer := mustCreateEnv(t, store, "production")
@@ -352,7 +353,7 @@ func TestCreateFlagBumpsEnvVersions(t *testing.T) {
 	})
 
 	t.Run("each new flag counts", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		env := mustCreateEnv(t, store, "production")
 		for i := range 3 {
 			mustCreateFlag(t, store, fmt.Sprintf("flag-%d", i))
@@ -364,7 +365,7 @@ func TestCreateFlagBumpsEnvVersions(t *testing.T) {
 
 	// Flags racing to be created don't overwrite each other's bump.
 	t.Run("racing flags all count", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		env := mustCreateEnv(t, store, "production")
 		const racers = 8
 		errs := make(chan error, racers)
@@ -385,7 +386,7 @@ func TestCreateFlagBumpsEnvVersions(t *testing.T) {
 	})
 
 	t.Run("no environments to bump", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		if _, err := store.CreateFlag(ctx, "new-checkout"); err != nil {
 			t.Fatalf("CreateFlag(): %v", err)
 		}
@@ -393,7 +394,7 @@ func TestCreateFlagBumpsEnvVersions(t *testing.T) {
 
 	// Nothing changed, so readers have nothing to pick up.
 	t.Run("rejected flag leaves versions alone", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		mustCreateFlag(t, store, "new-checkout")
 		env := mustCreateEnv(t, store, "production")
 		for _, key := range []string{"", "not valid", "new-checkout"} {
@@ -407,7 +408,7 @@ func TestCreateFlagBumpsEnvVersions(t *testing.T) {
 	})
 
 	t.Run("failed settings leave versions alone", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		env := mustCreateEnv(t, store, "production")
 		rejectNewFlagSettings(t, store)
 		if _, err := store.CreateFlag(ctx, "new-checkout"); err == nil {
@@ -420,7 +421,7 @@ func TestCreateFlagBumpsEnvVersions(t *testing.T) {
 
 	// The flag, its settings and the bump land together or not at all.
 	t.Run("failed bump undoes the flag and its settings", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		env := mustCreateEnv(t, store, "production")
 		rejectEnvBumps(t, store)
 		got, err := store.CreateFlag(ctx, "new-checkout")
@@ -516,7 +517,7 @@ func TestCreateFlagLogsChange(t *testing.T) {
 	// Each entry carries the flag's normalized key, its id and salt, the setting
 	// it starts with and the version its environment moved to, and nothing else.
 	t.Run("one entry per environment", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		older := mustCreateEnv(t, store, "staging")
 		mustCreateFlag(t, store, "dark-mode")
 		newer := mustCreateEnv(t, store, "production")
@@ -552,7 +553,7 @@ func TestCreateFlagLogsChange(t *testing.T) {
 
 	// The entries come from one change, so they share a time.
 	t.Run("entries share a created_at", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		for _, name := range []string{"staging", "production", "development"} {
 			mustCreateEnv(t, store, name)
 		}
@@ -570,7 +571,7 @@ func TestCreateFlagLogsChange(t *testing.T) {
 
 	// The entry is about the new flag only: the others are not logged again.
 	t.Run("other flags are not logged again", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		mustCreateEnv(t, store, "production")
 		mustCreateFlag(t, store, "dark-mode")
 		before := changeLogCount(t, store)
@@ -581,7 +582,7 @@ func TestCreateFlagLogsChange(t *testing.T) {
 	})
 
 	t.Run("no environments to log", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		mustCreateFlag(t, store, "new-checkout")
 		if n := changeLogCount(t, store); n != 0 {
 			t.Fatalf("%d entries, want 0", n)
@@ -591,7 +592,7 @@ func TestCreateFlagLogsChange(t *testing.T) {
 	// Flags racing to be created each log the version they moved to, so no
 	// two entries claim the same one.
 	t.Run("racing flags log their own versions", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		env := mustCreateEnv(t, store, "production")
 		const racers = 8
 		errs := make(chan error, racers)
@@ -626,7 +627,7 @@ func TestCreateFlagLogsChange(t *testing.T) {
 
 	// Nothing changed, so there is nothing to log.
 	t.Run("rejected flag logs nothing", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		mustCreateEnv(t, store, "production")
 		mustCreateFlag(t, store, "new-checkout")
 		before := changeLogCount(t, store)
@@ -641,7 +642,7 @@ func TestCreateFlagLogsChange(t *testing.T) {
 	})
 
 	t.Run("failed settings log nothing", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		mustCreateEnv(t, store, "production")
 		rejectNewFlagSettings(t, store)
 		if _, err := store.CreateFlag(ctx, "new-checkout"); err == nil {
@@ -653,7 +654,7 @@ func TestCreateFlagLogsChange(t *testing.T) {
 	})
 
 	t.Run("failed bump logs nothing", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		mustCreateEnv(t, store, "production")
 		rejectEnvBumps(t, store)
 		if _, err := store.CreateFlag(ctx, "new-checkout"); err == nil {
@@ -667,7 +668,7 @@ func TestCreateFlagLogsChange(t *testing.T) {
 	// The flag, its settings, the bump and the log land together or not at
 	// all, so SDKs never miss a flag that exists.
 	t.Run("failed log undoes the flag", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		env := mustCreateEnv(t, store, "production")
 		rejectNewChangeLogs(t, store)
 		got, err := store.CreateFlag(ctx, "new-checkout")
@@ -776,7 +777,7 @@ func TestGetFlag(t *testing.T) {
 		if err != nil {
 			t.Fatalf("CreateFlag(): %v", err)
 		}
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		_, err = store.GetFlag(ctx, f.ID)
 		wantConnectErr(t, err, notFound)
 	})
@@ -846,7 +847,7 @@ func TestUpdateFlag(t *testing.T) {
 	// The key and updated_at change; the ID and created_at stay, and the
 	// change is saved, not just returned.
 	t.Run("changes the key", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		f := mustCreateFlag(t, store, "new-checkout")
 		got, err := store.UpdateFlag(ctx, f.ID, "checkout-v2")
 		if err != nil {
@@ -868,7 +869,7 @@ func TestUpdateFlag(t *testing.T) {
 	})
 
 	t.Run("leaves other flags alone", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		a := mustCreateFlag(t, store, "a")
 		b := mustCreateFlag(t, store, "b")
 		c := mustCreateFlag(t, store, "c")
@@ -885,7 +886,7 @@ func TestUpdateFlag(t *testing.T) {
 	// The clock is read per statement, not per transaction, so each update
 	// in one transaction gets a later time.
 	t.Run("updates in one transaction get increasing times", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		f := mustCreateFlag(t, store, "a")
 		var updates []database.Flag
 		err := store.ExecTx(ctx, func(q *database.Queries) error {
@@ -921,7 +922,7 @@ func TestUpdateFlag(t *testing.T) {
 		}
 		for name, test := range tests {
 			t.Run(name, func(t *testing.T) {
-				resetDB(t, store.db)
+				testutil.ResetDB(t, store.db)
 				f := mustCreateFlag(t, store, "new-checkout")
 				got, err := store.UpdateFlag(ctx, f.ID, test.key)
 				if err != nil {
@@ -942,7 +943,7 @@ func TestUpdateFlag(t *testing.T) {
 	t.Run("own key changes nothing", func(t *testing.T) {
 		for _, key := range []string{"new-checkout", "NEW-CHECKOUT", " New-Checkout "} {
 			t.Run(key, func(t *testing.T) {
-				resetDB(t, store.db)
+				testutil.ResetDB(t, store.db)
 				f := mustCreateFlag(t, store, "new-checkout")
 				got, err := store.UpdateFlag(ctx, f.ID, key)
 				if err != nil {
@@ -960,7 +961,7 @@ func TestUpdateFlag(t *testing.T) {
 
 	// Once a flag's key changes, its old key is free again.
 	t.Run("old key can be reused", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		f := mustCreateFlag(t, store, "checkout")
 		if _, err := store.UpdateFlag(ctx, f.ID, "checkout-v1"); err != nil {
 			t.Fatalf("UpdateFlag(): %v", err)
@@ -1002,7 +1003,7 @@ func TestUpdateFlagRejectsInvalidKey(t *testing.T) {
 	}
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			resetDB(t, store.db)
+			testutil.ResetDB(t, store.db)
 			f := mustCreateFlag(t, store, "new-checkout")
 			got, err := store.UpdateFlag(ctx, f.ID, test.key)
 			wantConnectErr(t, err, test.want)
@@ -1019,7 +1020,7 @@ func TestUpdateFlagRejectsInvalidKey(t *testing.T) {
 	// Validation comes first, so an invalid key is reported even for an ID
 	// that doesn't exist.
 	t.Run("invalid key checked before the ID", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		_, err := store.UpdateFlag(ctx, uuid.New(), "   ")
 		wantConnectErr(t, err, empty)
 	})
@@ -1034,7 +1035,7 @@ func TestUpdateFlagRejectsDuplicateKey(t *testing.T) {
 
 	for _, key := range []string{"new-checkout", "New-Checkout", "NEW-CHECKOUT", "  new-checkout  ", "\tNew-Checkout\n"} {
 		t.Run(key, func(t *testing.T) {
-			resetDB(t, store.db)
+			testutil.ResetDB(t, store.db)
 			taken := mustCreateFlag(t, store, "new-checkout")
 			f := mustCreateFlag(t, store, "dark-mode")
 			got, err := store.UpdateFlag(ctx, f.ID, key)
@@ -1058,7 +1059,7 @@ func TestUpdateFlagNotFound(t *testing.T) {
 	notFound := connect.NewError(connect.CodeNotFound, "can't update the flag")
 
 	t.Run("unknown ID", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		f := mustCreateFlag(t, store, "new-checkout")
 		got, err := store.UpdateFlag(ctx, uuid.New(), "checkout-v2")
 		wantConnectErr(t, err, notFound)
@@ -1071,14 +1072,14 @@ func TestUpdateFlagNotFound(t *testing.T) {
 		}
 	})
 	t.Run("zero ID", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		_, err := store.UpdateFlag(ctx, uuid.Nil(), "checkout-v2")
 		wantConnectErr(t, err, notFound)
 	})
 	t.Run("deleted flag", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		f := mustCreateFlag(t, store, "new-checkout")
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		_, err := store.UpdateFlag(ctx, f.ID, "checkout-v2")
 		wantConnectErr(t, err, notFound)
 	})
@@ -1113,7 +1114,7 @@ func TestUpdateFlagBumpsEnvVersions(t *testing.T) {
 	// Only the version and updated_at move, the version by one from wherever
 	// each environment was.
 	t.Run("every environment goes up by one", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		older := mustCreateEnv(t, store, "staging")
 		mustCreateFlag(t, store, "dark-mode")
 		newer := mustCreateEnv(t, store, "production")
@@ -1140,7 +1141,7 @@ func TestUpdateFlagBumpsEnvVersions(t *testing.T) {
 	})
 
 	t.Run("each change counts", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		f := mustCreateFlag(t, store, "new-checkout")
 		env := mustCreateEnv(t, store, "production")
 		for i := range 3 {
@@ -1157,7 +1158,7 @@ func TestUpdateFlagBumpsEnvVersions(t *testing.T) {
 	t.Run("own key leaves versions alone", func(t *testing.T) {
 		for _, key := range []string{"new-checkout", "NEW-CHECKOUT", " New-Checkout "} {
 			t.Run(key, func(t *testing.T) {
-				resetDB(t, store.db)
+				testutil.ResetDB(t, store.db)
 				f := mustCreateFlag(t, store, "new-checkout")
 				env := mustCreateEnv(t, store, "production")
 				if _, err := store.UpdateFlag(ctx, f.ID, key); err != nil {
@@ -1172,7 +1173,7 @@ func TestUpdateFlagBumpsEnvVersions(t *testing.T) {
 
 	// Going back to an earlier key is still a change from the current one.
 	t.Run("returning to an old key counts", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		f := mustCreateFlag(t, store, "new-checkout")
 		env := mustCreateEnv(t, store, "production")
 		for _, key := range []string{"checkout-v2", "new-checkout"} {
@@ -1188,7 +1189,7 @@ func TestUpdateFlagBumpsEnvVersions(t *testing.T) {
 	// Whichever gets there first makes the change; the others find the key
 	// already set.
 	t.Run("racing to the same key counts once", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		f := mustCreateFlag(t, store, "new-checkout")
 		env := mustCreateEnv(t, store, "production")
 		const racers = 8
@@ -1211,7 +1212,7 @@ func TestUpdateFlagBumpsEnvVersions(t *testing.T) {
 
 	// Updates racing on one flag don't overwrite each other's bump.
 	t.Run("racing updates all count", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		f := mustCreateFlag(t, store, "new-checkout")
 		env := mustCreateEnv(t, store, "production")
 		const racers = 8
@@ -1233,7 +1234,7 @@ func TestUpdateFlagBumpsEnvVersions(t *testing.T) {
 	})
 
 	t.Run("no environments to bump", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		f := mustCreateFlag(t, store, "new-checkout")
 		if _, err := store.UpdateFlag(ctx, f.ID, "checkout-v2"); err != nil {
 			t.Fatalf("UpdateFlag(): %v", err)
@@ -1242,7 +1243,7 @@ func TestUpdateFlagBumpsEnvVersions(t *testing.T) {
 
 	// Nothing changed, so readers have nothing to pick up.
 	t.Run("rejected update leaves versions alone", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		mustCreateFlag(t, store, "taken")
 		f := mustCreateFlag(t, store, "new-checkout")
 		env := mustCreateEnv(t, store, "production")
@@ -1270,7 +1271,7 @@ func TestUpdateFlagBumpsEnvVersions(t *testing.T) {
 
 	// The new key and the bump land together or not at all.
 	t.Run("failed bump keeps the old key", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		f := mustCreateFlag(t, store, "new-checkout")
 		env := mustCreateEnv(t, store, "production")
 		rejectEnvBumps(t, store)
@@ -1296,7 +1297,7 @@ func TestUpdateFlagLogsChange(t *testing.T) {
 	// Each entry carries the key the flag had, its normalized new key and the
 	// version its environment moved to, and nothing else.
 	t.Run("one entry per environment", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		older := mustCreateEnv(t, store, "staging")
 		mustCreateFlag(t, store, "dark-mode")
 		newer := mustCreateEnv(t, store, "production")
@@ -1329,7 +1330,7 @@ func TestUpdateFlagLogsChange(t *testing.T) {
 
 	// The entries come from one change, so they share a time.
 	t.Run("entries share a created_at", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		for _, name := range []string{"staging", "production", "development"} {
 			mustCreateEnv(t, store, name)
 		}
@@ -1350,7 +1351,7 @@ func TestUpdateFlagLogsChange(t *testing.T) {
 
 	// Only the renamed flag is logged.
 	t.Run("other flags are not logged", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		mustCreateEnv(t, store, "production")
 		mustCreateFlag(t, store, "dark-mode")
 		f := mustCreateFlag(t, store, "new-checkout")
@@ -1366,7 +1367,7 @@ func TestUpdateFlagLogsChange(t *testing.T) {
 	// Each rename names the key it replaced, so a flag renamed back and forth
 	// can be followed step by step.
 	t.Run("each rename names the key before it", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		mustCreateEnv(t, store, "production")
 		f := mustCreateFlag(t, store, "a")
 		keys := []string{"a", "b", "c", "a"}
@@ -1389,7 +1390,7 @@ func TestUpdateFlagLogsChange(t *testing.T) {
 	// Renames racing on one flag each see the key the one before left, so the
 	// entries chain without a gap.
 	t.Run("racing renames chain", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		mustCreateEnv(t, store, "production")
 		f := mustCreateFlag(t, store, "start")
 		const racers = 8
@@ -1422,7 +1423,7 @@ func TestUpdateFlagLogsChange(t *testing.T) {
 	})
 
 	t.Run("no environments to log", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		f := mustCreateFlag(t, store, "new-checkout")
 		if _, err := store.UpdateFlag(ctx, f.ID, "checkout-v2"); err != nil {
 			t.Fatalf("UpdateFlag(): %v", err)
@@ -1436,7 +1437,7 @@ func TestUpdateFlagLogsChange(t *testing.T) {
 	t.Run("own key logs nothing", func(t *testing.T) {
 		for _, key := range []string{"new-checkout", "NEW-CHECKOUT", " New-Checkout "} {
 			t.Run(key, func(t *testing.T) {
-				resetDB(t, store.db)
+				testutil.ResetDB(t, store.db)
 				mustCreateEnv(t, store, "production")
 				f := mustCreateFlag(t, store, "new-checkout")
 				before := changeLogCount(t, store)
@@ -1451,7 +1452,7 @@ func TestUpdateFlagLogsChange(t *testing.T) {
 	})
 
 	t.Run("rejected update logs nothing", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		mustCreateEnv(t, store, "production")
 		mustCreateFlag(t, store, "taken")
 		f := mustCreateFlag(t, store, "new-checkout")
@@ -1477,7 +1478,7 @@ func TestUpdateFlagLogsChange(t *testing.T) {
 	})
 
 	t.Run("failed bump logs nothing", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		f := mustCreateFlag(t, store, "new-checkout")
 		mustCreateEnv(t, store, "production")
 		rejectEnvBumps(t, store)
@@ -1492,7 +1493,7 @@ func TestUpdateFlagLogsChange(t *testing.T) {
 	// The new key, the bump and the log land together or not at all, so SDKs
 	// never miss a rename.
 	t.Run("failed log keeps the old key", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		env := mustCreateEnv(t, store, "production")
 		f := mustCreateFlag(t, store, "new-checkout")
 		before := mustGetEnv(t, store, env.ID)
@@ -1568,7 +1569,7 @@ func TestDeleteFlag(t *testing.T) {
 	settingGone := connect.NewError(connect.CodeNotFound, "can't get the flag setting")
 
 	t.Run("deletes and returns the flag as it was", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		f := mustCreateFlag(t, store, "new-checkout")
 		got, err := store.DeleteFlag(ctx, f.ID)
 		if err != nil {
@@ -1583,7 +1584,7 @@ func TestDeleteFlag(t *testing.T) {
 
 	// The returned flag is the last saved version, not the created one.
 	t.Run("returns the flag after updates", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		f := mustCreateFlag(t, store, "new-checkout")
 		updated, err := store.UpdateFlag(ctx, f.ID, "checkout-v2")
 		if err != nil {
@@ -1599,7 +1600,7 @@ func TestDeleteFlag(t *testing.T) {
 	})
 
 	t.Run("leaves other flags alone", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		a := mustCreateFlag(t, store, "a")
 		b := mustCreateFlag(t, store, "b")
 		c := mustCreateFlag(t, store, "c")
@@ -1619,7 +1620,7 @@ func TestDeleteFlag(t *testing.T) {
 	// The flag's settings go with it, in every environment; other flags'
 	// settings stay, and so do the environments, bumped.
 	t.Run("deletes the flag's settings", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		f := mustCreateFlag(t, store, "new-checkout")
 		other := mustCreateFlag(t, store, "dark-mode")
 		envs := []database.Environment{mustCreateEnv(t, store, "staging"), mustCreateEnv(t, store, "production")}
@@ -1656,7 +1657,7 @@ func TestDeleteFlag(t *testing.T) {
 	})
 
 	t.Run("deleting twice is not found", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		f := mustCreateFlag(t, store, "new-checkout")
 		if _, err := store.DeleteFlag(ctx, f.ID); err != nil {
 			t.Fatalf("DeleteFlag() first call: %v", err)
@@ -1669,7 +1670,7 @@ func TestDeleteFlag(t *testing.T) {
 	})
 
 	t.Run("unknown ID deletes nothing", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		f := mustCreateFlag(t, store, "new-checkout")
 		env := mustCreateEnv(t, store, "production")
 		// An environment's ID never matches a flag.
@@ -1688,7 +1689,7 @@ func TestDeleteFlag(t *testing.T) {
 	// A deleted flag's key is free again, and the new flag is a different
 	// one with a new setting, not the old one's values.
 	t.Run("key can be reused", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		old := mustCreateFlag(t, store, "new-checkout")
 		env := mustCreateEnv(t, store, "production")
 		oldSetting := mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: old.ID, EnvironmentID: env.ID, Enabled: true})
@@ -1749,7 +1750,7 @@ func TestDeleteFlagBumpsEnvVersions(t *testing.T) {
 	// Only the version and updated_at move, the version by one from wherever
 	// each environment was.
 	t.Run("every environment goes up by one", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		older := mustCreateEnv(t, store, "staging")
 		mustCreateFlag(t, store, "dark-mode")
 		newer := mustCreateEnv(t, store, "production")
@@ -1777,7 +1778,7 @@ func TestDeleteFlagBumpsEnvVersions(t *testing.T) {
 
 	// The second delete changes nothing, so readers have nothing to pick up.
 	t.Run("not found leaves versions alone", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		f := mustCreateFlag(t, store, "new-checkout")
 		env := mustCreateEnv(t, store, "production")
 		if _, err := store.DeleteFlag(ctx, f.ID); err != nil {
@@ -1795,7 +1796,7 @@ func TestDeleteFlagBumpsEnvVersions(t *testing.T) {
 
 	// Flags racing to be deleted don't overwrite each other's bump.
 	t.Run("racing deletes all count", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		env := mustCreateEnv(t, store, "production")
 		const racers = 8
 		var flags []database.Flag
@@ -1821,7 +1822,7 @@ func TestDeleteFlagBumpsEnvVersions(t *testing.T) {
 	})
 
 	t.Run("no environments to bump", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		f := mustCreateFlag(t, store, "new-checkout")
 		if _, err := store.DeleteFlag(ctx, f.ID); err != nil {
 			t.Fatalf("DeleteFlag(): %v", err)
@@ -1830,7 +1831,7 @@ func TestDeleteFlagBumpsEnvVersions(t *testing.T) {
 
 	// The delete and the bump land together or not at all.
 	t.Run("failed bump keeps the flag and its settings", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		f := mustCreateFlag(t, store, "new-checkout")
 		env := mustCreateEnv(t, store, "production")
 		s := mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: f.ID, EnvironmentID: env.ID, Fallthrough: 0.5})
@@ -1857,7 +1858,7 @@ func TestDeleteFlagLogsChange(t *testing.T) {
 	// Each entry carries the key the flag had and the version its environment
 	// moved to, and nothing else.
 	t.Run("one entry per environment", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		older := mustCreateEnv(t, store, "staging")
 		mustCreateFlag(t, store, "dark-mode")
 		newer := mustCreateEnv(t, store, "production")
@@ -1889,7 +1890,7 @@ func TestDeleteFlagLogsChange(t *testing.T) {
 
 	// The entries come from one change, so they share a time.
 	t.Run("entries share a created_at", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		for _, name := range []string{"staging", "production", "development"} {
 			mustCreateEnv(t, store, name)
 		}
@@ -1910,7 +1911,7 @@ func TestDeleteFlagLogsChange(t *testing.T) {
 
 	// Only the deleted flag is logged.
 	t.Run("other flags are not logged", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		mustCreateEnv(t, store, "production")
 		mustCreateFlag(t, store, "dark-mode")
 		f := mustCreateFlag(t, store, "new-checkout")
@@ -1926,7 +1927,7 @@ func TestDeleteFlagLogsChange(t *testing.T) {
 	// The log is a record, so what was said about the flag stays after it's
 	// gone.
 	t.Run("earlier entries stay", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		mustCreateEnv(t, store, "production")
 		f := mustCreateFlag(t, store, "new-checkout")
 		if _, err := store.UpdateFlag(ctx, f.ID, "checkout-v2"); err != nil {
@@ -1942,7 +1943,7 @@ func TestDeleteFlagLogsChange(t *testing.T) {
 	})
 
 	t.Run("no environments to log", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		f := mustCreateFlag(t, store, "new-checkout")
 		if _, err := store.DeleteFlag(ctx, f.ID); err != nil {
 			t.Fatalf("DeleteFlag(): %v", err)
@@ -1955,7 +1956,7 @@ func TestDeleteFlagLogsChange(t *testing.T) {
 	// Flags racing to be deleted each log the version they moved to, so no
 	// two entries claim the same one.
 	t.Run("racing deletes log their own versions", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		env := mustCreateEnv(t, store, "production")
 		const racers = 8
 		var flags []database.Flag
@@ -1993,7 +1994,7 @@ func TestDeleteFlagLogsChange(t *testing.T) {
 
 	// Nothing changed, so there is nothing to log.
 	t.Run("not found logs nothing", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		mustCreateEnv(t, store, "production")
 		f := mustCreateFlag(t, store, "new-checkout")
 		if _, err := store.DeleteFlag(ctx, f.ID); err != nil {
@@ -2010,7 +2011,7 @@ func TestDeleteFlagLogsChange(t *testing.T) {
 	})
 
 	t.Run("failed bump logs nothing", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		f := mustCreateFlag(t, store, "new-checkout")
 		mustCreateEnv(t, store, "production")
 		rejectEnvBumps(t, store)
@@ -2025,7 +2026,7 @@ func TestDeleteFlagLogsChange(t *testing.T) {
 	// The delete, the bump and the log land together or not at all, so SDKs
 	// never keep serving a flag that's gone.
 	t.Run("failed log keeps the flag and its settings", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		env := mustCreateEnv(t, store, "production")
 		f := mustCreateFlag(t, store, "new-checkout")
 		s := mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: f.ID, EnvironmentID: env.ID, Fallthrough: 0.5})
@@ -2115,14 +2116,14 @@ func TestListFlags(t *testing.T) {
 	}
 
 	t.Run("no flags", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		if got := list(t); len(got) != 0 {
 			t.Fatalf("ListFlags() = %+v, want no flags", got)
 		}
 	})
 
 	t.Run("returns every flag as stored", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		a := mustCreateFlag(t, store, "a")
 		b := mustCreateFlag(t, store, "b")
 		want := []database.Flag{storedFlag(t, store, a.ID), storedFlag(t, store, b.ID)}
@@ -2135,7 +2136,7 @@ func TestListFlags(t *testing.T) {
 	// sorts as bytes do: - before digits before letters, and a key before the
 	// longer keys it starts.
 	t.Run("orders by key", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		for _, key := range []string{"b", "a-c", "10", "a", "9", "a1", "ab", "a-b"} {
 			mustCreateFlag(t, store, key)
 		}
@@ -2146,7 +2147,7 @@ func TestListFlags(t *testing.T) {
 	})
 
 	t.Run("a renamed flag moves to its new key", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		a := mustCreateFlag(t, store, "a")
 		mustCreateFlag(t, store, "b")
 		if _, err := store.UpdateFlag(ctx, a.ID, "c"); err != nil {
@@ -2158,7 +2159,7 @@ func TestListFlags(t *testing.T) {
 	})
 
 	t.Run("leaves out deleted flags", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		mustCreateFlag(t, store, "a")
 		b := mustCreateFlag(t, store, "b")
 		mustCreateFlag(t, store, "c")
@@ -2207,7 +2208,7 @@ func TestListFlagsPages(t *testing.T) {
 	store := newTestStore(t)
 
 	t.Run("a full page is the last when nothing follows it", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		keys := mustCreateFlags(t, store, MaxFlagsPerPage)
 		got, next := listPage(t, store, nil)
 		if diff := cmp.Diff(keys, keysOf(got)); diff != "" {
@@ -2221,7 +2222,7 @@ func TestListFlagsPages(t *testing.T) {
 	// The first page stops at MaxFlagsPerPage flags, and its cursor is the
 	// last key on it, so the next page starts with the flag after.
 	t.Run("one flag past a page gives a second page", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		keys := mustCreateFlags(t, store, MaxFlagsPerPage+1)
 
 		first, next := listPage(t, store, nil)
@@ -2244,7 +2245,7 @@ func TestListFlagsPages(t *testing.T) {
 
 	// Following the cursors lists every flag once, in key order.
 	t.Run("following cursors lists every flag once", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		keys := mustCreateFlags(t, store, 2*MaxFlagsPerPage+7)
 		var got []string
 		var cursor *FlagsCursor
@@ -2269,7 +2270,7 @@ func TestListFlagsPages(t *testing.T) {
 
 	// A zero cursor, as a decoded token can hold, has no key to start after.
 	t.Run("a zero cursor starts at the first flag", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		for _, key := range []string{"a", "b"} {
 			mustCreateFlag(t, store, key)
 		}
@@ -2283,7 +2284,7 @@ func TestListFlagsPages(t *testing.T) {
 	})
 
 	t.Run("starts after the cursor's key", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		for _, key := range []string{"a", "b", "c"} {
 			mustCreateFlag(t, store, key)
 		}
@@ -2299,7 +2300,7 @@ func TestListFlagsPages(t *testing.T) {
 	// The cursor's flag can be renamed or deleted between pages; the next page
 	// still starts at the first key after the cursor's.
 	t.Run("a cursor whose flag is gone still works", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		mustCreateFlag(t, store, "a")
 		b := mustCreateFlag(t, store, "b")
 		mustCreateFlag(t, store, "c")
@@ -2313,7 +2314,7 @@ func TestListFlagsPages(t *testing.T) {
 	})
 
 	t.Run("a cursor past the last key gives an empty last page", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		mustCreateFlag(t, store, "a")
 		got, next := listPage(t, store, &FlagsCursor{Key: "z"})
 		if len(got) != 0 {
@@ -2422,7 +2423,7 @@ func TestArchiveFlag(t *testing.T) {
 	for name, op := range archiveOps {
 		// Only archived moves: the key and salt evaluation hangs on stay.
 		t.Run(name+" sets archived", func(t *testing.T) {
-			resetDB(t, store.db)
+			testutil.ResetDB(t, store.db)
 			f := mustCreateFlagFor(t, store, op.archived, "new-checkout")
 			got, err := op.call(store, ctx, f.ID)
 			if err != nil {
@@ -2441,7 +2442,7 @@ func TestArchiveFlag(t *testing.T) {
 		})
 
 		t.Run(name+" leaves other flags alone", func(t *testing.T) {
-			resetDB(t, store.db)
+			testutil.ResetDB(t, store.db)
 			other := mustCreateFlagFor(t, store, op.archived, "dark-mode")
 			f := mustCreateFlagFor(t, store, op.archived, "new-checkout")
 			if _, err := op.call(store, ctx, f.ID); err != nil {
@@ -2454,7 +2455,7 @@ func TestArchiveFlag(t *testing.T) {
 
 		// The flag's settings and rules are kept for when it's unarchived.
 		t.Run(name+" leaves settings and rules alone", func(t *testing.T) {
-			resetDB(t, store.db)
+			testutil.ResetDB(t, store.db)
 			env := mustCreateEnv(t, store, "production")
 			f := mustCreateFlag(t, store, "new-checkout")
 			s := mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: f.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: 0.5})
@@ -2474,7 +2475,7 @@ func TestArchiveFlag(t *testing.T) {
 		})
 
 		t.Run(name+" not found", func(t *testing.T) {
-			resetDB(t, store.db)
+			testutil.ResetDB(t, store.db)
 			gone := mustCreateFlag(t, store, "new-checkout")
 			if _, err := store.DeleteFlag(ctx, gone.ID); err != nil {
 				t.Fatalf("DeleteFlag(): %v", err)
@@ -2493,7 +2494,7 @@ func TestArchiveFlag(t *testing.T) {
 		// A flag already in the state asked for has nothing to change, so
 		// readers have nothing to pick up.
 		t.Run(name+" twice changes nothing the second time", func(t *testing.T) {
-			resetDB(t, store.db)
+			testutil.ResetDB(t, store.db)
 			env := mustCreateEnv(t, store, "production")
 			f := mustCreateFlagFor(t, store, !op.archived, "new-checkout")
 			envBefore := mustGetEnv(t, store, env.ID)
@@ -2518,7 +2519,7 @@ func TestArchiveFlag(t *testing.T) {
 
 		// The flag, the bump and the log land together or not at all.
 		t.Run(name+" failed update bumps and logs nothing", func(t *testing.T) {
-			resetDB(t, store.db)
+			testutil.ResetDB(t, store.db)
 			env := mustCreateEnv(t, store, "production")
 			f := mustCreateFlagFor(t, store, op.archived, "new-checkout")
 			envBefore := mustGetEnv(t, store, env.ID)
@@ -2543,7 +2544,7 @@ func TestArchiveFlag(t *testing.T) {
 
 	// Archiving is undone by unarchiving, any number of times.
 	t.Run("archive then unarchive", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		f := mustCreateFlag(t, store, "new-checkout")
 		for range 2 {
 			mustArchiveFlag(t, store, f.ID)
@@ -2560,7 +2561,7 @@ func TestArchiveFlag(t *testing.T) {
 	})
 
 	t.Run("a new flag isn't archived", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		if f := mustCreateFlag(t, store, "new-checkout"); f.Archived {
 			t.Fatalf("CreateFlag() = %+v, want it not archived", f)
 		}
@@ -2575,7 +2576,7 @@ func TestArchiveFlagBumpsEnvVersions(t *testing.T) {
 
 	for name, op := range archiveOps {
 		t.Run(name+" moves every environment up by one", func(t *testing.T) {
-			resetDB(t, store.db)
+			testutil.ResetDB(t, store.db)
 			older := mustCreateEnv(t, store, "staging")
 			mustCreateFlag(t, store, "dark-mode")
 			newer := mustCreateEnv(t, store, "production")
@@ -2596,7 +2597,7 @@ func TestArchiveFlagBumpsEnvVersions(t *testing.T) {
 		})
 
 		t.Run(name+" not found leaves versions alone", func(t *testing.T) {
-			resetDB(t, store.db)
+			testutil.ResetDB(t, store.db)
 			env := mustCreateEnv(t, store, "production")
 			want := mustGetEnv(t, store, env.ID)
 			if _, err := op.call(store, ctx, uuid.New()); err == nil {
@@ -2608,7 +2609,7 @@ func TestArchiveFlagBumpsEnvVersions(t *testing.T) {
 		})
 
 		t.Run(name+" failed bump keeps the flag as it was", func(t *testing.T) {
-			resetDB(t, store.db)
+			testutil.ResetDB(t, store.db)
 			mustCreateEnv(t, store, "production")
 			f := mustCreateFlagFor(t, store, op.archived, "new-checkout")
 			rejectEnvBumps(t, store)
@@ -2634,7 +2635,7 @@ func TestArchiveFlagLogsChange(t *testing.T) {
 		// Each entry carries the flag's key and the version its environment
 		// moved to, and nothing else.
 		t.Run(name+" one entry per environment", func(t *testing.T) {
-			resetDB(t, store.db)
+			testutil.ResetDB(t, store.db)
 			older := mustCreateEnv(t, store, "staging")
 			mustCreateFlag(t, store, "dark-mode")
 			newer := mustCreateEnv(t, store, "production")
@@ -2665,7 +2666,7 @@ func TestArchiveFlagLogsChange(t *testing.T) {
 		})
 
 		t.Run(name+" entries share a created_at", func(t *testing.T) {
-			resetDB(t, store.db)
+			testutil.ResetDB(t, store.db)
 			for _, env := range []string{"staging", "production", "development"} {
 				mustCreateEnv(t, store, env)
 			}
@@ -2685,7 +2686,7 @@ func TestArchiveFlagLogsChange(t *testing.T) {
 		})
 
 		t.Run(name+" no environments to log", func(t *testing.T) {
-			resetDB(t, store.db)
+			testutil.ResetDB(t, store.db)
 			f := mustCreateFlagFor(t, store, op.archived, "new-checkout")
 			if _, err := op.call(store, ctx, f.ID); err != nil {
 				t.Fatalf("%s(): %v", name, err)
@@ -2696,7 +2697,7 @@ func TestArchiveFlagLogsChange(t *testing.T) {
 		})
 
 		t.Run(name+" not found logs nothing", func(t *testing.T) {
-			resetDB(t, store.db)
+			testutil.ResetDB(t, store.db)
 			mustCreateEnv(t, store, "production")
 			before := changeLogCount(t, store)
 			if _, err := op.call(store, ctx, uuid.New()); err == nil {
@@ -2710,7 +2711,7 @@ func TestArchiveFlagLogsChange(t *testing.T) {
 		// The change, the bump and the log land together or not at all, so
 		// SDKs never miss an archived flag.
 		t.Run(name+" failed log keeps the flag and versions", func(t *testing.T) {
-			resetDB(t, store.db)
+			testutil.ResetDB(t, store.db)
 			env := mustCreateEnv(t, store, "production")
 			f := mustCreateFlagFor(t, store, op.archived, "new-checkout")
 			before := mustGetEnv(t, store, env.ID)

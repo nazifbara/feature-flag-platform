@@ -13,6 +13,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/nazifbara/feature-flag-platform/admin-api/internal/database"
+	"github.com/nazifbara/feature-flag-platform/admin-api/internal/testutil"
 )
 
 // snapshotRule and snapshotSetting mirror a snapshot's settings in named types,
@@ -70,7 +71,7 @@ func TestSnapshotEnv(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("the environment's version and name", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		env := mustCreateEnv(t, store, "production")
 		mustChangeSetting(t, store, mustCreateFlag(t, store, "new-checkout"), env, 3)
 		env = mustGetEnv(t, store, env.ID)
@@ -84,7 +85,7 @@ func TestSnapshotEnv(t *testing.T) {
 	// Rules come in position order, the order they're evaluated in and the
 	// one change log positions count in.
 	t.Run("every flag's setting by key, rules in order", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		env := mustCreateEnv(t, store, "production")
 		checkout := mustCreateFlag(t, store, "new-checkout")
 		dark := mustCreateFlag(t, store, "dark-mode")
@@ -106,7 +107,7 @@ func TestSnapshotEnv(t *testing.T) {
 	})
 
 	t.Run("only the environment's settings", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		env := mustCreateEnv(t, store, "production")
 		other := mustCreateEnv(t, store, "staging")
 		flag := mustCreateFlag(t, store, "new-checkout")
@@ -122,7 +123,7 @@ func TestSnapshotEnv(t *testing.T) {
 
 	// Nothing to evaluate is still a snapshot, not an error.
 	t.Run("an environment without flags", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		env := mustCreateEnv(t, store, "production")
 		got := mustSnapshotEnv(t, store, env.ID)
 		if got.Version != env.Version || got.Name != env.Name || len(got.FlagSettings) != 0 {
@@ -131,7 +132,7 @@ func TestSnapshotEnv(t *testing.T) {
 	})
 
 	t.Run("not found for an unknown environment", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		got, err := store.SnapshotEnv(ctx, uuid.New())
 		wantConnectErr(t, err, connect.NewError(connect.CodeNotFound, "can't get environment's snapshot"))
 		if got.Version != 0 || got.Name != "" || got.FlagSettings != nil {

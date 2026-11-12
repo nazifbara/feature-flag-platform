@@ -3,7 +3,6 @@ package envservice
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -18,74 +17,14 @@ import (
 	"connectrpc.com/connect/v2/connecthttp"
 	"connectrpc.com/validate"
 	"github.com/nazifbara/feature-flag-platform/admin-api/internal/store"
+	"github.com/nazifbara/feature-flag-platform/admin-api/internal/testutil"
 	envv1 "github.com/nazifbara/feature-flag-platform/gen/go/ffp/env/v1"
 	"github.com/nazifbara/feature-flag-platform/gen/go/ffp/env/v1/envv1connect"
 	"google.golang.org/protobuf/proto"
-
-	_ "github.com/lib/pq"
 )
 
-// testDBLock is the session advisory lock every package testing against
-// TEST_DB_URL holds for its whole run. go test runs packages in parallel, and
-// these tests empty the tables and count rows, so they'd break each other.
-// The store and flagservice tests hold the same one.
-const testDBLock = 7236402
-
-// TestMain runs the tests while holding testDBLock.
-func TestMain(m *testing.M) {
-	db, err := sql.Open("postgres", os.Getenv("TEST_DB_URL"))
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "opening the test database: %v\n", err)
-		os.Exit(1)
-	}
-	conn, err := db.Conn(context.Background())
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "connecting to the test database: %v\n", err)
-		os.Exit(1)
-	}
-	if _, err := conn.ExecContext(context.Background(), "SELECT pg_advisory_lock($1)", testDBLock); err != nil {
-		fmt.Fprintf(os.Stderr, "locking the test database: %v\n", err)
-		os.Exit(1)
-	}
-	code := m.Run()
-	// Closing the database ends the session, which releases the lock.
-	_ = conn.Close()
-	_ = db.Close()
-	os.Exit(code)
-}
-
-// testDB connects to TEST_DB_URL for the test to look at the tables directly,
-// and empties them.
-func testDB(t *testing.T) *sql.DB {
-	t.Helper()
-	dbURL := os.Getenv("TEST_DB_URL")
-	if dbURL == "" {
-		t.Fatal("TEST_DB_URL not set")
-	}
-	db, err := sql.Open("postgres", dbURL)
-	if err != nil {
-		t.Fatalf("opening the test database: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-	resetDB(t, db)
-	return db
-}
-
-// resetDB empties every table except goose's version table.
-func resetDB(t *testing.T, db *sql.DB) {
-	t.Helper()
-	_, err := db.Exec(`
-		DO $$ DECLARE r record; BEGIN
-			FOR r IN SELECT tablename FROM pg_tables
-				WHERE schemaname = 'public' AND tablename <> 'goose_db_version'
-			LOOP
-				EXECUTE 'TRUNCATE TABLE ' || quote_ident(r.tablename) || ' RESTART IDENTITY CASCADE';
-			END LOOP;
-		END $$;`)
-	if err != nil {
-		t.Fatalf("resetDB: %v", err)
-	}
-}
+// TestMain runs the tests while holding testutil.DBLock.
+func TestMain(m *testing.M) { testutil.Main(m) }
 
 // newStore opens a store at dbURL.
 func newStore(t *testing.T, dbURL string) *store.Store {
@@ -112,10 +51,6 @@ func newClient(t *testing.T, st *store.Store) envv1connect.EnvServiceClient {
 	)
 }
 
-// unreachableDB is a database URL nothing listens on, for a store whose every
-// query fails.
-const unreachableDB = "postgres://nobody@127.0.0.1:1/none?sslmode=disable&connect_timeout=2"
-
 // count gives the number of rows in table.
 func count(t *testing.T, db *sql.DB, table string) int {
 	t.Helper()
@@ -124,36 +59,6 @@ func count(t *testing.T, db *sql.DB, table string) int {
 		t.Fatalf("counting %s: %v", table, err)
 	}
 	return n
-}
-
-// dbNow reads the database's clock, which stamps created_at and updated_at.
-// The test's own clock can be off from it, as with Postgres in a Docker VM.
-func dbNow(t *testing.T, db *sql.DB) time.Time {
-	t.Helper()
-	var now time.Time
-	if err := db.QueryRow("SELECT clock_timestamp()").Scan(&now); err != nil {
-		t.Fatalf("reading the database's clock: %v", err)
-	}
-	return now
-}
-
-// wantCode fails the test unless err is a *connect.Error with code and, when
-// message isn't empty, that message.
-func wantCode(t *testing.T, err error, code connect.Code, message string) {
-	t.Helper()
-	if err == nil {
-		t.Fatalf("error = nil, want code %v", code)
-	}
-	got, ok := errors.AsType[*connect.Error](err)
-	if !ok {
-		t.Fatalf("error = %v (%T), want *connect.Error", err, err)
-	}
-	if got.Code() != code {
-		t.Fatalf("code = %v (%q), want %v", got.Code(), got.Message(), code)
-	}
-	if message != "" && got.Message() != message {
-		t.Fatalf("message = %q, want %q", got.Message(), message)
-	}
 }
 
 // mustCreate creates an environment named name and returns the response's
@@ -202,16 +107,16 @@ func settingsIn(t *testing.T, db *sql.DB, envID string) []settingRow {
 }
 
 func TestCreate(t *testing.T) {
-	db := testDB(t)
+	db := testutil.OpenDB(t)
 	st := newStore(t, os.Getenv("TEST_DB_URL"))
 	client := newClient(t, st)
 	ctx := context.Background()
 
 	t.Run("returns the stored environment", func(t *testing.T) {
-		resetDB(t, db)
-		before := dbNow(t, db)
+		testutil.ResetDB(t, db)
+		before := testutil.DBNow(t, db)
 		got := mustCreate(t, client, "production")
-		after := dbNow(t, db)
+		after := testutil.DBNow(t, db)
 
 		id, err := uuid.Parse(got.Id)
 		if err != nil {
@@ -246,7 +151,7 @@ func TestCreate(t *testing.T) {
 	})
 
 	t.Run("gives each environment its own id", func(t *testing.T) {
-		resetDB(t, db)
+		testutil.ResetDB(t, db)
 		first := mustCreate(t, client, "staging")
 		second := mustCreate(t, client, "production")
 		if first.Id == second.Id {
@@ -256,7 +161,7 @@ func TestCreate(t *testing.T) {
 
 	// The response carries the name as stored, not as sent.
 	t.Run("returns the normalized name", func(t *testing.T) {
-		resetDB(t, db)
+		testutil.ResetDB(t, db)
 		got := mustCreate(t, client, "  Production  ")
 		if got.Name != "production" {
 			t.Fatalf("name = %q, want %q", got.Name, "production")
@@ -266,7 +171,7 @@ func TestCreate(t *testing.T) {
 	// Every existing flag starts out disabled, serving nothing, in the new
 	// environment.
 	t.Run("gives every flag a disabled setting", func(t *testing.T) {
-		resetDB(t, db)
+		testutil.ResetDB(t, db)
 		var want []settingRow
 		for _, key := range []string{"new-checkout", "dark-mode"} {
 			f, err := st.CreateFlag(ctx, key)
@@ -286,7 +191,7 @@ func TestCreate(t *testing.T) {
 	// Flags created before it bump only the environments that existed then:
 	// a new environment starts at version 1 whatever happened before it.
 	t.Run("starts at version 1 after other changes", func(t *testing.T) {
-		resetDB(t, db)
+		testutil.ResetDB(t, db)
 		staging := mustCreate(t, client, "staging")
 		for _, key := range []string{"new-checkout", "dark-mode"} {
 			if _, err := st.CreateFlag(ctx, key); err != nil {
@@ -306,7 +211,7 @@ func TestCreate(t *testing.T) {
 	})
 
 	t.Run("gives no settings without flags", func(t *testing.T) {
-		resetDB(t, db)
+		testutil.ResetDB(t, db)
 		env := mustCreate(t, client, "production")
 		if got := settingsIn(t, db, env.Id); len(got) != 0 {
 			t.Fatalf("settings = %+v, want none", got)
@@ -348,12 +253,12 @@ func TestCreate(t *testing.T) {
 	}
 	for name, tc := range rejected {
 		t.Run("rejects "+name, func(t *testing.T) {
-			resetDB(t, db)
+			testutil.ResetDB(t, db)
 			if _, err := st.CreateFlag(ctx, "new-checkout"); err != nil {
 				t.Fatalf("CreateFlag(): %v", err)
 			}
 			_, err := client.Create(ctx, &envv1.CreateRequest{Name: tc.name})
-			wantCode(t, err, tc.code, tc.message)
+			testutil.WantCode(t, err, tc.code, tc.message)
 			if n := count(t, db, "environments"); n != 0 {
 				t.Errorf("%d environments after a rejected create, want 0", n)
 			}
@@ -379,7 +284,7 @@ func TestCreate(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			resetDB(t, db)
+			testutil.ResetDB(t, db)
 			if got := mustCreate(t, client, tc.name); got.Name != tc.want {
 				t.Fatalf("name = %q, want %q", got.Name, tc.want)
 			}
@@ -389,13 +294,13 @@ func TestCreate(t *testing.T) {
 	// Names are compared after normalizing, so case doesn't make a new
 	// environment.
 	t.Run("rejects a name already taken", func(t *testing.T) {
-		resetDB(t, db)
+		testutil.ResetDB(t, db)
 		if _, err := st.CreateFlag(ctx, "new-checkout"); err != nil {
 			t.Fatalf("CreateFlag(): %v", err)
 		}
 		mustCreate(t, client, "production")
 		_, err := client.Create(ctx, &envv1.CreateRequest{Name: "Production"})
-		wantCode(t, err, connect.CodeAlreadyExists, "can't create the environment")
+		testutil.WantCode(t, err, connect.CodeAlreadyExists, "can't create the environment")
 		if n := count(t, db, "environments"); n != 1 {
 			t.Errorf("%d environments after the duplicate, want 1", n)
 		}
@@ -406,42 +311,10 @@ func TestCreate(t *testing.T) {
 
 	// The client gets the store's message, never the database's error.
 	t.Run("hides database failures", func(t *testing.T) {
-		unreachable := newClient(t, newStore(t, unreachableDB))
+		unreachable := newClient(t, newStore(t, testutil.UnreachableDB))
 		_, err := unreachable.Create(ctx, &envv1.CreateRequest{Name: "production"})
-		wantCode(t, err, connect.CodeInternal, "can't create the environment")
+		testutil.WantCode(t, err, connect.CodeInternal, "can't create the environment")
 	})
-}
-
-// badIDs are environment ids the proto's uuid rule rejects, with the message
-// the client gets. The rule takes only the dashed form, unlike uuid.Parse.
-var badIDs = map[string]struct {
-	id      string
-	message string
-}{
-	"an empty id": {
-		id:      "",
-		message: "validation error: id: value is empty, which is not a valid UUID",
-	},
-	"an id that isn't a UUID": {
-		id:      "not-a-uuid",
-		message: "validation error: id: must be a valid UUID",
-	},
-	"an id with surrounding spaces": {
-		id:      " 6ba7b810-9dad-11d1-80b4-00c04fd430c8 ",
-		message: "validation error: id: must be a valid UUID",
-	},
-	"an id in braces": {
-		id:      "{6ba7b810-9dad-11d1-80b4-00c04fd430c8}",
-		message: "validation error: id: must be a valid UUID",
-	},
-	"an id as a URN": {
-		id:      "urn:uuid:6ba7b810-9dad-11d1-80b4-00c04fd430c8",
-		message: "validation error: id: must be a valid UUID",
-	},
-	"an id without dashes": {
-		id:      "6ba7b8109dad11d180b400c04fd430c8",
-		message: "validation error: id: must be a valid UUID",
-	},
 }
 
 // mustGet gets the environment with id and returns the response's
@@ -460,13 +333,13 @@ func mustGet(t *testing.T, client envv1connect.EnvServiceClient, id string) *env
 }
 
 func TestGet(t *testing.T) {
-	db := testDB(t)
+	db := testutil.OpenDB(t)
 	st := newStore(t, os.Getenv("TEST_DB_URL"))
 	client := newClient(t, st)
 	ctx := context.Background()
 
 	t.Run("returns the stored environment", func(t *testing.T) {
-		resetDB(t, db)
+		testutil.ResetDB(t, db)
 		created := mustCreate(t, client, "production")
 		if got := mustGet(t, client, created.Id); !proto.Equal(got, created) {
 			t.Fatalf("Get() = %v, want the created environment %v", got, created)
@@ -476,7 +349,7 @@ func TestGet(t *testing.T) {
 	// Every flag created bumps every environment, so Get shows the version
 	// SDKs sync to, past the 1 that Create returned.
 	t.Run("returns the current version", func(t *testing.T) {
-		resetDB(t, db)
+		testutil.ResetDB(t, db)
 		created := mustCreate(t, client, "production")
 		for _, key := range []string{"new-checkout", "dark-mode"} {
 			if _, err := st.CreateFlag(ctx, key); err != nil {
@@ -500,7 +373,7 @@ func TestGet(t *testing.T) {
 	})
 
 	t.Run("returns the environment asked for among others", func(t *testing.T) {
-		resetDB(t, db)
+		testutil.ResetDB(t, db)
 		mustCreate(t, client, "staging")
 		production := mustCreate(t, client, "production")
 		mustCreate(t, client, "development")
@@ -510,32 +383,32 @@ func TestGet(t *testing.T) {
 	})
 
 	t.Run("accepts the id in upper case", func(t *testing.T) {
-		resetDB(t, db)
+		testutil.ResetDB(t, db)
 		created := mustCreate(t, client, "production")
 		if got := mustGet(t, client, strings.ToUpper(created.Id)); got.Id != created.Id {
 			t.Fatalf("id = %s, want %s", got.Id, created.Id)
 		}
 	})
 
-	for name, tc := range badIDs {
+	for name, tc := range testutil.BadIDs {
 		t.Run("rejects "+name, func(t *testing.T) {
-			_, err := client.Get(ctx, &envv1.GetRequest{Id: tc.id})
-			wantCode(t, err, connect.CodeInvalidArgument, tc.message)
+			_, err := client.Get(ctx, &envv1.GetRequest{Id: tc.ID})
+			testutil.WantCode(t, err, connect.CodeInvalidArgument, tc.Message)
 		})
 	}
 
 	t.Run("rejects an id no environment has", func(t *testing.T) {
-		resetDB(t, db)
+		testutil.ResetDB(t, db)
 		mustCreate(t, client, "production")
 		_, err := client.Get(ctx, &envv1.GetRequest{Id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"})
-		wantCode(t, err, connect.CodeNotFound, "can't get the environment")
+		testutil.WantCode(t, err, connect.CodeNotFound, "can't get the environment")
 	})
 
 	// The client gets the store's message, never the database's error.
 	t.Run("hides database failures", func(t *testing.T) {
-		unreachable := newClient(t, newStore(t, unreachableDB))
+		unreachable := newClient(t, newStore(t, testutil.UnreachableDB))
 		_, err := unreachable.Get(ctx, &envv1.GetRequest{Id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"})
-		wantCode(t, err, connect.CodeInternal, "can't get the environment")
+		testutil.WantCode(t, err, connect.CodeInternal, "can't get the environment")
 	})
 }
 
@@ -543,7 +416,7 @@ func TestGet(t *testing.T) {
 // own parsing still rejects an id that isn't a UUID, before reaching the
 // store: the store here can't reach a database, and would answer Internal.
 func TestHandlersWithoutValidationRejectBadIDs(t *testing.T) {
-	svc := New(newStore(t, unreachableDB))
+	svc := New(newStore(t, testutil.UnreachableDB))
 	ctx := context.Background()
 	calls := map[string]func(id string) error{
 		"Get": func(id string) error {
@@ -552,9 +425,9 @@ func TestHandlersWithoutValidationRejectBadIDs(t *testing.T) {
 		},
 	}
 	for rpc, call := range calls {
-		for _, id := range []string{"", "not-a-uuid", " 6ba7b810-9dad-11d1-80b4-00c04fd430c8 "} {
+		for _, id := range testutil.UnparsableIDs {
 			t.Run(fmt.Sprintf("%s %q", rpc, id), func(t *testing.T) {
-				wantCode(t, call(id), connect.CodeInvalidArgument, "invalid environment id")
+				testutil.WantCode(t, call(id), connect.CodeInvalidArgument, "invalid environment id")
 			})
 		}
 	}

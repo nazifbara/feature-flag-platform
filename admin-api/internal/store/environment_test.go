@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"os"
@@ -15,23 +14,8 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/nazifbara/feature-flag-platform/admin-api/internal/database"
+	"github.com/nazifbara/feature-flag-platform/admin-api/internal/testutil"
 )
-
-// resetDB empties every table except goose's version table.
-func resetDB(t *testing.T, db *sql.DB) {
-	t.Helper()
-	_, err := db.Exec(`
-                DO $$ DECLARE r record; BEGIN
-                        FOR r IN SELECT tablename FROM pg_tables
-                                WHERE schemaname = 'public' AND tablename <> 'goose_db_version'
-                        LOOP
-                                EXECUTE 'TRUNCATE TABLE ' || quote_ident(r.tablename) || ' RESTART IDENTITY CASCADE';
-                        END LOOP;
-                END $$;`)
-	if err != nil {
-		t.Fatalf("resetDB: %v", err)
-	}
-}
 
 // newTestStore connects to TEST_DB_URL and starts from empty tables.
 func newTestStore(t *testing.T) *Store {
@@ -45,7 +29,7 @@ func newTestStore(t *testing.T) *Store {
 		t.Fatalf("New() = %v", err)
 	}
 	t.Cleanup(func() { store.db.Close() })
-	resetDB(t, store.db)
+	testutil.ResetDB(t, store.db)
 	return store
 }
 
@@ -128,7 +112,7 @@ func TestEnvironmentCreation(t *testing.T) {
 	}
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			resetDB(t, store.db)
+			testutil.ResetDB(t, store.db)
 			got, err := store.CreateEnv(context.Background(), test.name)
 			if test.err != nil {
 				wantConnectErr(t, err, test.err)
@@ -182,7 +166,7 @@ func TestEnvironmentCreationNormalizesName(t *testing.T) {
 	}
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			resetDB(t, store.db)
+			testutil.ResetDB(t, store.db)
 			got, err := store.CreateEnv(ctx, test.name)
 			if err != nil {
 				t.Fatalf("CreateEnv(%q): %v", test.name, err)
@@ -222,7 +206,7 @@ func TestEnvironmentCreationRejectsDuplicateName(t *testing.T) {
 	}
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			resetDB(t, store.db)
+			testutil.ResetDB(t, store.db)
 			if _, err := store.CreateEnv(ctx, test.first); err != nil {
 				t.Fatalf("CreateEnv(%q): %v", test.first, err)
 			}
@@ -233,7 +217,7 @@ func TestEnvironmentCreationRejectsDuplicateName(t *testing.T) {
 
 	// A different name is still accepted, with its own ID.
 	t.Run("different name accepted", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		first, err := store.CreateEnv(ctx, "production")
 		if err != nil {
 			t.Fatalf("CreateEnv() first call: %v", err)
@@ -307,7 +291,7 @@ func TestGetEnv(t *testing.T) {
 		if err != nil {
 			t.Fatalf("CreateEnv(): %v", err)
 		}
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		_, err = store.GetEnv(ctx, env.ID)
 		wantConnectErr(t, err, notFound)
 	})
@@ -368,7 +352,7 @@ func TestListEnvs(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("no environments", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		got, err := store.ListEnvs(ctx)
 		if err != nil {
 			t.Fatalf("ListEnvs(): %v", err)
@@ -379,7 +363,7 @@ func TestListEnvs(t *testing.T) {
 	})
 
 	t.Run("one environment", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		env, err := store.CreateEnv(ctx, "production")
 		if err != nil {
 			t.Fatalf("CreateEnv(): %v", err)
@@ -396,7 +380,7 @@ func TestListEnvs(t *testing.T) {
 	// Oldest first. The names are not in alphabetical order, so sorting by
 	// name instead would fail.
 	t.Run("every environment in creation order", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		var want []database.Environment
 		for _, name := range []string{"staging", "production", "development", "qa", "demo"} {
 			env, err := store.CreateEnv(ctx, name)
@@ -417,7 +401,7 @@ func TestListEnvs(t *testing.T) {
 	// Each insert gets its own creation time, so environments created in
 	// one transaction keep their order too.
 	t.Run("creation order within a transaction", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		var want []database.Environment
 		err := store.ExecTx(ctx, func(q *database.Queries) error {
 			for _, name := range []string{"staging", "production", "development", "qa", "demo"} {
@@ -445,7 +429,7 @@ func TestListEnvs(t *testing.T) {
 	// so the creation times are rewritten to differ from it: only sorting
 	// by created_at gives the expected order.
 	t.Run("sorted by created_at, not insertion order", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 		created := map[string]time.Time{
 			"production":  base.Add(2 * time.Hour),
@@ -476,7 +460,7 @@ func TestListEnvs(t *testing.T) {
 
 	// Names come back as stored, trimmed and lowercased.
 	t.Run("returns normalized names", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		for _, name := range []string{"  Production ", "STAGING"} {
 			if _, err := store.CreateEnv(ctx, name); err != nil {
 				t.Fatalf("CreateEnv(%q): %v", name, err)
@@ -498,7 +482,7 @@ func TestListEnvs(t *testing.T) {
 	// Rejected creations, and writes rolled back in a transaction, never
 	// show up.
 	t.Run("only committed environments", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		env, err := store.CreateEnv(ctx, "production")
 		if err != nil {
 			t.Fatalf("CreateEnv(): %v", err)
@@ -604,7 +588,7 @@ func TestUpdateEnv(t *testing.T) {
 	// Only the name and updated_at change: the ID and creation time stay, and
 	// the change is saved, not just returned.
 	t.Run("renames the environment", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		env := mustCreateEnv(t, store, "staging")
 		got, err := store.UpdateEnv(ctx, env.ID, "preprod")
 		if err != nil {
@@ -623,7 +607,7 @@ func TestUpdateEnv(t *testing.T) {
 	})
 
 	t.Run("leaves other environments alone", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		dev := mustCreateEnv(t, store, "development")
 		staging := mustCreateEnv(t, store, "staging")
 		prod := mustCreateEnv(t, store, "production")
@@ -640,7 +624,7 @@ func TestUpdateEnv(t *testing.T) {
 	// created_at is kept, so a renamed environment keeps its place in the
 	// list.
 	t.Run("keeps its place in the list", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		mustCreateEnv(t, store, "development")
 		staging := mustCreateEnv(t, store, "staging")
 		mustCreateEnv(t, store, "production")
@@ -676,7 +660,7 @@ func TestUpdateEnv(t *testing.T) {
 		}
 		for name, test := range tests {
 			t.Run(name, func(t *testing.T) {
-				resetDB(t, store.db)
+				testutil.ResetDB(t, store.db)
 				env := mustCreateEnv(t, store, "staging")
 				got, err := store.UpdateEnv(ctx, env.ID, test.name)
 				if err != nil {
@@ -697,7 +681,7 @@ func TestUpdateEnv(t *testing.T) {
 	t.Run("own name accepted", func(t *testing.T) {
 		for _, name := range []string{"production", "PRODUCTION", " Production "} {
 			t.Run(name, func(t *testing.T) {
-				resetDB(t, store.db)
+				testutil.ResetDB(t, store.db)
 				env := mustCreateEnv(t, store, "production")
 				got, err := store.UpdateEnv(ctx, env.ID, name)
 				if err != nil {
@@ -718,7 +702,7 @@ func TestUpdateEnv(t *testing.T) {
 
 	// Once an environment is renamed, its old name is free again.
 	t.Run("old name can be reused", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		prod := mustCreateEnv(t, store, "prod")
 		if _, err := store.UpdateEnv(ctx, prod.ID, "production"); err != nil {
 			t.Fatalf("UpdateEnv(): %v", err)
@@ -750,7 +734,7 @@ func TestUpdateEnvRejectsInvalidName(t *testing.T) {
 	}
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			resetDB(t, store.db)
+			testutil.ResetDB(t, store.db)
 			env := mustCreateEnv(t, store, "staging")
 			got, err := store.UpdateEnv(ctx, env.ID, test.name)
 			wantConnectErr(t, err, test.want)
@@ -767,7 +751,7 @@ func TestUpdateEnvRejectsInvalidName(t *testing.T) {
 	// Validation comes first, so an invalid name is reported even for an ID
 	// that doesn't exist.
 	t.Run("invalid name checked before the ID", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		_, err := store.UpdateEnv(ctx, uuid.New(), "   ")
 		wantConnectErr(t, err, empty)
 	})
@@ -782,7 +766,7 @@ func TestUpdateEnvRejectsDuplicateName(t *testing.T) {
 
 	for _, name := range []string{"production", "Production", "PRODUCTION", "  production  ", "\tProduction\n"} {
 		t.Run(name, func(t *testing.T) {
-			resetDB(t, store.db)
+			testutil.ResetDB(t, store.db)
 			prod := mustCreateEnv(t, store, "production")
 			staging := mustCreateEnv(t, store, "staging")
 			got, err := store.UpdateEnv(ctx, staging.ID, name)
@@ -806,7 +790,7 @@ func TestUpdateEnvNotFound(t *testing.T) {
 	notFound := connect.NewError(connect.CodeNotFound, "can't update the environment")
 
 	t.Run("unknown ID", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		env := mustCreateEnv(t, store, "staging")
 		got, err := store.UpdateEnv(ctx, uuid.New(), "preprod")
 		wantConnectErr(t, err, notFound)
@@ -819,14 +803,14 @@ func TestUpdateEnvNotFound(t *testing.T) {
 		}
 	})
 	t.Run("zero ID", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		_, err := store.UpdateEnv(ctx, uuid.Nil(), "preprod")
 		wantConnectErr(t, err, notFound)
 	})
 	t.Run("deleted environment", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		env := mustCreateEnv(t, store, "staging")
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		_, err := store.UpdateEnv(ctx, env.ID, "preprod")
 		wantConnectErr(t, err, notFound)
 	})
@@ -923,7 +907,7 @@ func TestDeleteEnv(t *testing.T) {
 	}
 
 	t.Run("deletes and returns the environment as it was", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		env := mustCreateEnv(t, store, "staging")
 		got, err := store.DeleteEnv(ctx, env.ID)
 		if err != nil {
@@ -938,7 +922,7 @@ func TestDeleteEnv(t *testing.T) {
 
 	// Only the given environment goes, and the rest keep their order.
 	t.Run("leaves other environments alone", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		dev := mustCreateEnv(t, store, "development")
 		staging := mustCreateEnv(t, store, "staging")
 		prod := mustCreateEnv(t, store, "production")
@@ -956,7 +940,7 @@ func TestDeleteEnv(t *testing.T) {
 	})
 
 	t.Run("deleting twice is not found", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		env := mustCreateEnv(t, store, "staging")
 		if _, err := store.DeleteEnv(ctx, env.ID); err != nil {
 			t.Fatalf("DeleteEnv() first call: %v", err)
@@ -969,7 +953,7 @@ func TestDeleteEnv(t *testing.T) {
 	})
 
 	t.Run("unknown ID deletes nothing", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		mustCreateEnv(t, store, "development")
 		mustCreateEnv(t, store, "production")
 		for _, id := range []uuid.UUID{uuid.New(), uuid.Nil()} {
@@ -984,7 +968,7 @@ func TestDeleteEnv(t *testing.T) {
 	// A deleted environment's name is free again, and the new environment
 	// is a different one.
 	t.Run("name can be reused", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		old := mustCreateEnv(t, store, "staging")
 		if _, err := store.DeleteEnv(ctx, old.ID); err != nil {
 			t.Fatalf("DeleteEnv(): %v", err)
@@ -999,7 +983,7 @@ func TestDeleteEnv(t *testing.T) {
 
 	// A recreated environment is new, so it goes to the end of the list.
 	t.Run("recreated environment is listed last", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		staging := mustCreateEnv(t, store, "staging")
 		mustCreateEnv(t, store, "production")
 		if _, err := store.DeleteEnv(ctx, staging.ID); err != nil {
@@ -1145,7 +1129,7 @@ func TestDeleteEnvLogsChange(t *testing.T) {
 	// Only the first of several racing deletes finds the environment, so it
 	// is logged once.
 	t.Run("racing deletes log once", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		env := mustCreateEnv(t, store, "production")
 		const racers = 8
 		errs := make(chan error, racers)
@@ -1165,7 +1149,7 @@ func TestDeleteEnvLogsChange(t *testing.T) {
 
 	// Nothing changed, so there is nothing to log.
 	t.Run("not found logs nothing", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		env := mustCreateEnv(t, store, "production")
 		if _, err := store.DeleteEnv(ctx, env.ID); err != nil {
 			t.Fatalf("DeleteEnv(): %v", err)

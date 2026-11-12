@@ -12,6 +12,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/lib/pq"
 	"github.com/nazifbara/feature-flag-platform/admin-api/internal/database"
+	"github.com/nazifbara/feature-flag-platform/admin-api/internal/testutil"
 )
 
 // mustChangeSetting changes the flag's setting in env n times, each change
@@ -44,7 +45,7 @@ func TestChangeSince(t *testing.T) {
 	store := newTestStore(t)
 
 	t.Run("nothing for an SDK up to date", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		env := mustCreateEnv(t, store, "production")
 		mustChangeSetting(t, store, mustCreateFlag(t, store, "new-checkout"), env, 2)
 		env = mustGetEnv(t, store, env.ID)
@@ -56,7 +57,7 @@ func TestChangeSince(t *testing.T) {
 	// Replaying in any other order would leave the SDK with an older setting,
 	// or with rules in the wrong places.
 	t.Run("entries past the version, oldest first", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		env := mustCreateEnv(t, store, "production")
 		flag := mustCreateFlag(t, store, "new-checkout")
 		since := mustGetEnv(t, store, env.ID).Version
@@ -72,7 +73,7 @@ func TestChangeSince(t *testing.T) {
 	})
 
 	t.Run("only the environment's entries", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		env := mustCreateEnv(t, store, "production")
 		other := mustCreateEnv(t, store, "staging")
 		flag := mustCreateFlag(t, store, "new-checkout")
@@ -88,7 +89,7 @@ func TestChangeSince(t *testing.T) {
 	// The furthest an SDK can be behind and still catch up: every entry it is
 	// missing comes back, none cut off.
 	t.Run("every entry for an SDK as far behind as allowed", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		env := mustCreateEnv(t, store, "production")
 		flag := mustCreateFlag(t, store, "new-checkout")
 		since := mustGetEnv(t, store, env.ID).Version
@@ -106,7 +107,7 @@ func TestChangeSince(t *testing.T) {
 
 	// One version too many and the SDK has to sync from scratch instead.
 	t.Run("too old an SDK one version further behind", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		env := mustCreateEnv(t, store, "production")
 		flag := mustCreateFlag(t, store, "new-checkout")
 		since := mustGetEnv(t, store, env.ID).Version
@@ -121,7 +122,7 @@ func TestChangeSince(t *testing.T) {
 
 	// An SDK can't be ahead of the server, so its version is wrong.
 	t.Run("rejects a version past the environment's", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		env := mustCreateEnv(t, store, "production")
 		got, err := store.ChangeSince(context.Background(), database.ChangeSinceParams{EnvironmentID: env.ID, Version: env.Version + 1})
 		connectErr, ok := errors.AsType[*connect.Error](err)
@@ -134,7 +135,7 @@ func TestChangeSince(t *testing.T) {
 	})
 
 	t.Run("not found for an unknown environment", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		got, err := store.ChangeSince(context.Background(), database.ChangeSinceParams{EnvironmentID: uuid.New(), Version: 1})
 		wantConnectErr(t, err, connect.NewError(connect.CodeNotFound, "can't get the change logs"))
 		if got != nil {
@@ -299,7 +300,7 @@ func TestChangeLogsTableIdentityFields(t *testing.T) {
 	}
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			resetDB(t, store.db)
+			testutil.ResetDB(t, store.db)
 			_, err := store.db.Exec(`
 				INSERT INTO change_logs (id, target_version, environment_id, flag_new_key, action, created_at,
 				  flag_id, flag_salt, rule_id, enabled, fallthrough, rule_serve, rule_clauses,
