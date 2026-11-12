@@ -121,7 +121,7 @@ const file_flagsvc_ping_v1_ping_proto_rawDesc = "" +
 	"\fPingResponse\x12\x18\n" +
 	"\amessage\x18\x01 \x01(\tR\amessage2T\n" +
 	"\vPingService\x12E\n" +
-	"\x04Ping\x12\x1c.flagsvc.ping.v1.PingRequest\x1a\x1d.flagsvc.ping.v1.PingResponse\"\x00B:Z8github.com/nazifbara/flagsvc/gen/go/flagsvc/ping/v1;pingb\x06proto3"
+	"\x04Ping\x12\x1c.flagsvc.ping.v1.PingRequest\x1a\x1d.flagsvc.ping.v1.PingResponse\"\x00BHZFgithub.com/nazifbara/feature-flag-platform/gen/go/flagsvc/ping/v1;pingb\x06proto3"
 
 var (
 	file_flagsvc_ping_v1_ping_proto_rawDescOnce sync.Once

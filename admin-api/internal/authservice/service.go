@@ -6,10 +6,10 @@ import (
 	"connectrpc.com/connect/v2"
 	"github.com/alexedwards/argon2id"
 
-	"github.com/nazifbara/flagsvc/admin-api/internal/database"
-	"github.com/nazifbara/flagsvc/admin-api/internal/ffserrors"
-	"github.com/nazifbara/flagsvc/admin-api/internal/store"
-	auth "github.com/nazifbara/flagsvc/gen/go/flagsvc/auth/v1"
+	"github.com/nazifbara/feature-flag-platform/admin-api/internal/database"
+	"github.com/nazifbara/feature-flag-platform/admin-api/internal/ffserrors"
+	"github.com/nazifbara/feature-flag-platform/admin-api/internal/store"
+	auth "github.com/nazifbara/feature-flag-platform/gen/go/flagsvc/auth/v1"
 )
 
 type Service struct {
