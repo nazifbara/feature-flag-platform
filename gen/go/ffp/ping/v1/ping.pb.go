@@ -2,7 +2,7 @@
 // versions:
 // 	protoc-gen-go v1.36.12
 // 	protoc        (unknown)
-// source: flagsvc/ping/v1/ping.proto
+// source: ffp/ping/v1/ping.proto
 
 package pingv1
 
@@ -31,7 +31,7 @@ type PingRequest struct {
 
 func (x *PingRequest) Reset() {
 	*x = PingRequest{}
-	mi := &file_flagsvc_ping_v1_ping_proto_msgTypes[0]
+	mi := &file_ffp_ping_v1_ping_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -43,7 +43,7 @@ func (x *PingRequest) String() string {
 func (*PingRequest) ProtoMessage() {}
 
 func (x *PingRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_flagsvc_ping_v1_ping_proto_msgTypes[0]
+	mi := &file_ffp_ping_v1_ping_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -56,7 +56,7 @@ func (x *PingRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PingRequest.ProtoReflect.Descriptor instead.
 func (*PingRequest) Descriptor() ([]byte, []int) {
-	return file_flagsvc_ping_v1_ping_proto_rawDescGZIP(), []int{0}
+	return file_ffp_ping_v1_ping_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *PingRequest) GetMessage() string {
@@ -75,7 +75,7 @@ type PingResponse struct {
 
 func (x *PingResponse) Reset() {
 	*x = PingResponse{}
-	mi := &file_flagsvc_ping_v1_ping_proto_msgTypes[1]
+	mi := &file_ffp_ping_v1_ping_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -87,7 +87,7 @@ func (x *PingResponse) String() string {
 func (*PingResponse) ProtoMessage() {}
 
 func (x *PingResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_flagsvc_ping_v1_ping_proto_msgTypes[1]
+	mi := &file_ffp_ping_v1_ping_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -100,7 +100,7 @@ func (x *PingResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PingResponse.ProtoReflect.Descriptor instead.
 func (*PingResponse) Descriptor() ([]byte, []int) {
-	return file_flagsvc_ping_v1_ping_proto_rawDescGZIP(), []int{1}
+	return file_ffp_ping_v1_ping_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *PingResponse) GetMessage() string {
@@ -110,40 +110,40 @@ func (x *PingResponse) GetMessage() string {
 	return ""
 }
 
-var File_flagsvc_ping_v1_ping_proto protoreflect.FileDescriptor
+var File_ffp_ping_v1_ping_proto protoreflect.FileDescriptor
 
-const file_flagsvc_ping_v1_ping_proto_rawDesc = "" +
+const file_ffp_ping_v1_ping_proto_rawDesc = "" +
 	"\n" +
-	"\x1aflagsvc/ping/v1/ping.proto\x12\x0fflagsvc.ping.v1\x1a\x1bbuf/validate/validate.proto\"3\n" +
+	"\x16ffp/ping/v1/ping.proto\x12\vffp.ping.v1\x1a\x1bbuf/validate/validate.proto\"3\n" +
 	"\vPingRequest\x12$\n" +
 	"\amessage\x18\x01 \x01(\tB\n" +
 	"\xbaH\ar\x05\x10\x01\x18\xff\x01R\amessage\"(\n" +
 	"\fPingResponse\x12\x18\n" +
-	"\amessage\x18\x01 \x01(\tR\amessage2T\n" +
-	"\vPingService\x12E\n" +
-	"\x04Ping\x12\x1c.flagsvc.ping.v1.PingRequest\x1a\x1d.flagsvc.ping.v1.PingResponse\"\x00B\xc8\x01\n" +
-	"\x13com.flagsvc.ping.v1B\tPingProtoP\x01ZHgithub.com/nazifbara/feature-flag-platform/gen/go/flagsvc/ping/v1;pingv1\xa2\x02\x03FPX\xaa\x02\x0fFlagsvc.Ping.V1\xca\x02\x0fFlagsvc\\Ping\\V1\xe2\x02\x1bFlagsvc\\Ping\\V1\\GPBMetadata\xea\x02\x11Flagsvc::Ping::V1b\x06proto3"
+	"\amessage\x18\x01 \x01(\tR\amessage2L\n" +
+	"\vPingService\x12=\n" +
+	"\x04Ping\x12\x18.ffp.ping.v1.PingRequest\x1a\x19.ffp.ping.v1.PingResponse\"\x00B\xb0\x01\n" +
+	"\x0fcom.ffp.ping.v1B\tPingProtoP\x01ZDgithub.com/nazifbara/feature-flag-platform/gen/go/ffp/ping/v1;pingv1\xa2\x02\x03FPX\xaa\x02\vFfp.Ping.V1\xca\x02\vFfp\\Ping\\V1\xe2\x02\x17Ffp\\Ping\\V1\\GPBMetadata\xea\x02\rFfp::Ping::V1b\x06proto3"
 
 var (
-	file_flagsvc_ping_v1_ping_proto_rawDescOnce sync.Once
-	file_flagsvc_ping_v1_ping_proto_rawDescData []byte
+	file_ffp_ping_v1_ping_proto_rawDescOnce sync.Once
+	file_ffp_ping_v1_ping_proto_rawDescData []byte
 )
 
-func file_flagsvc_ping_v1_ping_proto_rawDescGZIP() []byte {
-	file_flagsvc_ping_v1_ping_proto_rawDescOnce.Do(func() {
-		file_flagsvc_ping_v1_ping_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_flagsvc_ping_v1_ping_proto_rawDesc), len(file_flagsvc_ping_v1_ping_proto_rawDesc)))
+func file_ffp_ping_v1_ping_proto_rawDescGZIP() []byte {
+	file_ffp_ping_v1_ping_proto_rawDescOnce.Do(func() {
+		file_ffp_ping_v1_ping_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_ffp_ping_v1_ping_proto_rawDesc), len(file_ffp_ping_v1_ping_proto_rawDesc)))
 	})
-	return file_flagsvc_ping_v1_ping_proto_rawDescData
+	return file_ffp_ping_v1_ping_proto_rawDescData
 }
 
-var file_flagsvc_ping_v1_ping_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
-var file_flagsvc_ping_v1_ping_proto_goTypes = []any{
-	(*PingRequest)(nil),  // 0: flagsvc.ping.v1.PingRequest
-	(*PingResponse)(nil), // 1: flagsvc.ping.v1.PingResponse
+var file_ffp_ping_v1_ping_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_ffp_ping_v1_ping_proto_goTypes = []any{
+	(*PingRequest)(nil),  // 0: ffp.ping.v1.PingRequest
+	(*PingResponse)(nil), // 1: ffp.ping.v1.PingResponse
 }
-var file_flagsvc_ping_v1_ping_proto_depIdxs = []int32{
-	0, // 0: flagsvc.ping.v1.PingService.Ping:input_type -> flagsvc.ping.v1.PingRequest
-	1, // 1: flagsvc.ping.v1.PingService.Ping:output_type -> flagsvc.ping.v1.PingResponse
+var file_ffp_ping_v1_ping_proto_depIdxs = []int32{
+	0, // 0: ffp.ping.v1.PingService.Ping:input_type -> ffp.ping.v1.PingRequest
+	1, // 1: ffp.ping.v1.PingService.Ping:output_type -> ffp.ping.v1.PingResponse
 	1, // [1:2] is the sub-list for method output_type
 	0, // [0:1] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name
@@ -151,26 +151,26 @@ var file_flagsvc_ping_v1_ping_proto_depIdxs = []int32{
 	0, // [0:0] is the sub-list for field type_name
 }
 
-func init() { file_flagsvc_ping_v1_ping_proto_init() }
-func file_flagsvc_ping_v1_ping_proto_init() {
-	if File_flagsvc_ping_v1_ping_proto != nil {
+func init() { file_ffp_ping_v1_ping_proto_init() }
+func file_ffp_ping_v1_ping_proto_init() {
+	if File_ffp_ping_v1_ping_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_flagsvc_ping_v1_ping_proto_rawDesc), len(file_flagsvc_ping_v1_ping_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_ffp_ping_v1_ping_proto_rawDesc), len(file_ffp_ping_v1_ping_proto_rawDesc)),
 			NumEnums:      0,
 			NumMessages:   2,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
-		GoTypes:           file_flagsvc_ping_v1_ping_proto_goTypes,
-		DependencyIndexes: file_flagsvc_ping_v1_ping_proto_depIdxs,
-		MessageInfos:      file_flagsvc_ping_v1_ping_proto_msgTypes,
+		GoTypes:           file_ffp_ping_v1_ping_proto_goTypes,
+		DependencyIndexes: file_ffp_ping_v1_ping_proto_depIdxs,
+		MessageInfos:      file_ffp_ping_v1_ping_proto_msgTypes,
 	}.Build()
-	File_flagsvc_ping_v1_ping_proto = out.File
-	file_flagsvc_ping_v1_ping_proto_goTypes = nil
-	file_flagsvc_ping_v1_ping_proto_depIdxs = nil
+	File_ffp_ping_v1_ping_proto = out.File
+	file_ffp_ping_v1_ping_proto_goTypes = nil
+	file_ffp_ping_v1_ping_proto_depIdxs = nil
 }

@@ -2,7 +2,7 @@
 // versions:
 // 	protoc-gen-go v1.36.12
 // 	protoc        (unknown)
-// source: flagsvc/auth/v1/auth.proto
+// source: ffp/auth/v1/auth.proto
 
 package authv1
 
@@ -34,7 +34,7 @@ type SignUpRequest struct {
 
 func (x *SignUpRequest) Reset() {
 	*x = SignUpRequest{}
-	mi := &file_flagsvc_auth_v1_auth_proto_msgTypes[0]
+	mi := &file_ffp_auth_v1_auth_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -46,7 +46,7 @@ func (x *SignUpRequest) String() string {
 func (*SignUpRequest) ProtoMessage() {}
 
 func (x *SignUpRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_flagsvc_auth_v1_auth_proto_msgTypes[0]
+	mi := &file_ffp_auth_v1_auth_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -59,7 +59,7 @@ func (x *SignUpRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SignUpRequest.ProtoReflect.Descriptor instead.
 func (*SignUpRequest) Descriptor() ([]byte, []int) {
-	return file_flagsvc_auth_v1_auth_proto_rawDescGZIP(), []int{0}
+	return file_ffp_auth_v1_auth_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *SignUpRequest) GetEmail() string {
@@ -98,7 +98,7 @@ type SignUpResponse struct {
 
 func (x *SignUpResponse) Reset() {
 	*x = SignUpResponse{}
-	mi := &file_flagsvc_auth_v1_auth_proto_msgTypes[1]
+	mi := &file_ffp_auth_v1_auth_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -110,7 +110,7 @@ func (x *SignUpResponse) String() string {
 func (*SignUpResponse) ProtoMessage() {}
 
 func (x *SignUpResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_flagsvc_auth_v1_auth_proto_msgTypes[1]
+	mi := &file_ffp_auth_v1_auth_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -123,14 +123,14 @@ func (x *SignUpResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SignUpResponse.ProtoReflect.Descriptor instead.
 func (*SignUpResponse) Descriptor() ([]byte, []int) {
-	return file_flagsvc_auth_v1_auth_proto_rawDescGZIP(), []int{1}
+	return file_ffp_auth_v1_auth_proto_rawDescGZIP(), []int{1}
 }
 
-var File_flagsvc_auth_v1_auth_proto protoreflect.FileDescriptor
+var File_ffp_auth_v1_auth_proto protoreflect.FileDescriptor
 
-const file_flagsvc_auth_v1_auth_proto_rawDesc = "" +
+const file_ffp_auth_v1_auth_proto_rawDesc = "" +
 	"\n" +
-	"\x1aflagsvc/auth/v1/auth.proto\x12\x0fflagsvc.auth.v1\x1a\x1bbuf/validate/validate.proto\"\xaa\x01\n" +
+	"\x16ffp/auth/v1/auth.proto\x12\vffp.auth.v1\x1a\x1bbuf/validate/validate.proto\"\xaa\x01\n" +
 	"\rSignUpRequest\x12 \n" +
 	"\x05email\x18\x01 \x01(\tB\n" +
 	"\xbaH\ar\x05\x18\xff\x01`\x01R\x05email\x12(\n" +
@@ -138,31 +138,31 @@ const file_flagsvc_auth_v1_auth_proto_rawDesc = "" +
 	"first_name\x18\x02 \x01(\tB\t\xbaH\x06r\x04\x10\x01\x182R\tfirstName\x12&\n" +
 	"\tlast_name\x18\x03 \x01(\tB\t\xbaH\x06r\x04\x10\x01\x182R\blastName\x12%\n" +
 	"\bpassword\x18\x04 \x01(\tB\t\xbaH\x06r\x04\x10\b\x18DR\bpassword\"\x10\n" +
-	"\x0eSignUpResponse2Z\n" +
-	"\vAuthService\x12K\n" +
-	"\x06SignUp\x12\x1e.flagsvc.auth.v1.SignUpRequest\x1a\x1f.flagsvc.auth.v1.SignUpResponse\"\x00B\xc8\x01\n" +
-	"\x13com.flagsvc.auth.v1B\tAuthProtoP\x01ZHgithub.com/nazifbara/feature-flag-platform/gen/go/flagsvc/auth/v1;authv1\xa2\x02\x03FAX\xaa\x02\x0fFlagsvc.Auth.V1\xca\x02\x0fFlagsvc\\Auth\\V1\xe2\x02\x1bFlagsvc\\Auth\\V1\\GPBMetadata\xea\x02\x11Flagsvc::Auth::V1b\x06proto3"
+	"\x0eSignUpResponse2R\n" +
+	"\vAuthService\x12C\n" +
+	"\x06SignUp\x12\x1a.ffp.auth.v1.SignUpRequest\x1a\x1b.ffp.auth.v1.SignUpResponse\"\x00B\xb0\x01\n" +
+	"\x0fcom.ffp.auth.v1B\tAuthProtoP\x01ZDgithub.com/nazifbara/feature-flag-platform/gen/go/ffp/auth/v1;authv1\xa2\x02\x03FAX\xaa\x02\vFfp.Auth.V1\xca\x02\vFfp\\Auth\\V1\xe2\x02\x17Ffp\\Auth\\V1\\GPBMetadata\xea\x02\rFfp::Auth::V1b\x06proto3"
 
 var (
-	file_flagsvc_auth_v1_auth_proto_rawDescOnce sync.Once
-	file_flagsvc_auth_v1_auth_proto_rawDescData []byte
+	file_ffp_auth_v1_auth_proto_rawDescOnce sync.Once
+	file_ffp_auth_v1_auth_proto_rawDescData []byte
 )
 
-func file_flagsvc_auth_v1_auth_proto_rawDescGZIP() []byte {
-	file_flagsvc_auth_v1_auth_proto_rawDescOnce.Do(func() {
-		file_flagsvc_auth_v1_auth_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_flagsvc_auth_v1_auth_proto_rawDesc), len(file_flagsvc_auth_v1_auth_proto_rawDesc)))
+func file_ffp_auth_v1_auth_proto_rawDescGZIP() []byte {
+	file_ffp_auth_v1_auth_proto_rawDescOnce.Do(func() {
+		file_ffp_auth_v1_auth_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_ffp_auth_v1_auth_proto_rawDesc), len(file_ffp_auth_v1_auth_proto_rawDesc)))
 	})
-	return file_flagsvc_auth_v1_auth_proto_rawDescData
+	return file_ffp_auth_v1_auth_proto_rawDescData
 }
 
-var file_flagsvc_auth_v1_auth_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
-var file_flagsvc_auth_v1_auth_proto_goTypes = []any{
-	(*SignUpRequest)(nil),  // 0: flagsvc.auth.v1.SignUpRequest
-	(*SignUpResponse)(nil), // 1: flagsvc.auth.v1.SignUpResponse
+var file_ffp_auth_v1_auth_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_ffp_auth_v1_auth_proto_goTypes = []any{
+	(*SignUpRequest)(nil),  // 0: ffp.auth.v1.SignUpRequest
+	(*SignUpResponse)(nil), // 1: ffp.auth.v1.SignUpResponse
 }
-var file_flagsvc_auth_v1_auth_proto_depIdxs = []int32{
-	0, // 0: flagsvc.auth.v1.AuthService.SignUp:input_type -> flagsvc.auth.v1.SignUpRequest
-	1, // 1: flagsvc.auth.v1.AuthService.SignUp:output_type -> flagsvc.auth.v1.SignUpResponse
+var file_ffp_auth_v1_auth_proto_depIdxs = []int32{
+	0, // 0: ffp.auth.v1.AuthService.SignUp:input_type -> ffp.auth.v1.SignUpRequest
+	1, // 1: ffp.auth.v1.AuthService.SignUp:output_type -> ffp.auth.v1.SignUpResponse
 	1, // [1:2] is the sub-list for method output_type
 	0, // [0:1] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name
@@ -170,26 +170,26 @@ var file_flagsvc_auth_v1_auth_proto_depIdxs = []int32{
 	0, // [0:0] is the sub-list for field type_name
 }
 
-func init() { file_flagsvc_auth_v1_auth_proto_init() }
-func file_flagsvc_auth_v1_auth_proto_init() {
-	if File_flagsvc_auth_v1_auth_proto != nil {
+func init() { file_ffp_auth_v1_auth_proto_init() }
+func file_ffp_auth_v1_auth_proto_init() {
+	if File_ffp_auth_v1_auth_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_flagsvc_auth_v1_auth_proto_rawDesc), len(file_flagsvc_auth_v1_auth_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_ffp_auth_v1_auth_proto_rawDesc), len(file_ffp_auth_v1_auth_proto_rawDesc)),
 			NumEnums:      0,
 			NumMessages:   2,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
-		GoTypes:           file_flagsvc_auth_v1_auth_proto_goTypes,
-		DependencyIndexes: file_flagsvc_auth_v1_auth_proto_depIdxs,
-		MessageInfos:      file_flagsvc_auth_v1_auth_proto_msgTypes,
+		GoTypes:           file_ffp_auth_v1_auth_proto_goTypes,
+		DependencyIndexes: file_ffp_auth_v1_auth_proto_depIdxs,
+		MessageInfos:      file_ffp_auth_v1_auth_proto_msgTypes,
 	}.Build()
-	File_flagsvc_auth_v1_auth_proto = out.File
-	file_flagsvc_auth_v1_auth_proto_goTypes = nil
-	file_flagsvc_auth_v1_auth_proto_depIdxs = nil
+	File_ffp_auth_v1_auth_proto = out.File
+	file_ffp_auth_v1_auth_proto_goTypes = nil
+	file_ffp_auth_v1_auth_proto_depIdxs = nil
 }

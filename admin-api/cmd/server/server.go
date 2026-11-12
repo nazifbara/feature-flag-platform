@@ -14,9 +14,9 @@ import (
 	"github.com/nazifbara/feature-flag-platform/admin-api/internal/interceptor"
 	"github.com/nazifbara/feature-flag-platform/admin-api/internal/pingservice"
 	"github.com/nazifbara/feature-flag-platform/admin-api/internal/store"
-	"github.com/nazifbara/feature-flag-platform/gen/go/flagsvc/auth/v1/authv1connect"
-	"github.com/nazifbara/feature-flag-platform/gen/go/flagsvc/flag/v1/flagv1connect"
-	"github.com/nazifbara/feature-flag-platform/gen/go/flagsvc/ping/v1/pingv1connect"
+	"github.com/nazifbara/feature-flag-platform/gen/go/ffp/auth/v1/authv1connect"
+	"github.com/nazifbara/feature-flag-platform/gen/go/ffp/flag/v1/flagv1connect"
+	"github.com/nazifbara/feature-flag-platform/gen/go/ffp/ping/v1/pingv1connect"
 
 	connect "connectrpc.com/connect/v2"
 	"connectrpc.com/connect/v2/connecthttp"
