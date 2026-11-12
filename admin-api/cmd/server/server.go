@@ -16,7 +16,7 @@ import (
 	"github.com/nazifbara/feature-flag-platform/admin-api/internal/pingservice"
 	"github.com/nazifbara/feature-flag-platform/admin-api/internal/store"
 	"github.com/nazifbara/feature-flag-platform/gen/go/ffp/auth/v1/authv1connect"
-	"github.com/nazifbara/feature-flag-platform/gen/go/ffp/env/v1/envv1connect"
+	"github.com/nazifbara/feature-flag-platform/gen/go/ffp/environment/v1/environmentv1connect"
 	"github.com/nazifbara/feature-flag-platform/gen/go/ffp/flag/v1/flagv1connect"
 	"github.com/nazifbara/feature-flag-platform/gen/go/ffp/ping/v1/pingv1connect"
 
@@ -67,7 +67,7 @@ func newServer(port int, store *store.Store, cancel context.CancelFunc) *server 
 		pingservice.PingService{},
 	)
 	flagv1connect.RegisterFlagServiceHandler(connectServer, flagservice.New(store))
-	envv1connect.RegisterEnvServiceHandler(connectServer, envservice.New(store))
+	environmentv1connect.RegisterEnvironmentServiceHandler(connectServer, envservice.New(store))
 
 	mux := http.NewServeMux()
 	connecthttp.Mount(mux, connectServer)

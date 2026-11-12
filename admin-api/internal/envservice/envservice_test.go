@@ -18,8 +18,8 @@ import (
 	"connectrpc.com/validate"
 	"github.com/nazifbara/feature-flag-platform/admin-api/internal/store"
 	"github.com/nazifbara/feature-flag-platform/admin-api/internal/testutil"
-	envv1 "github.com/nazifbara/feature-flag-platform/gen/go/ffp/env/v1"
-	"github.com/nazifbara/feature-flag-platform/gen/go/ffp/env/v1/envv1connect"
+	environmentv1 "github.com/nazifbara/feature-flag-platform/gen/go/ffp/environment/v1"
+	"github.com/nazifbara/feature-flag-platform/gen/go/ffp/environment/v1/environmentv1connect"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -38,15 +38,15 @@ func newStore(t *testing.T, dbURL string) *store.Store {
 
 // newClient serves a Service backed by st through a real connect server, with
 // the validation interceptor the server runs, and returns a client for it.
-func newClient(t *testing.T, st *store.Store) envv1connect.EnvServiceClient {
+func newClient(t *testing.T, st *store.Store) environmentv1connect.EnvironmentServiceClient {
 	t.Helper()
 	server := connect.NewServer(validate.NewServerInterceptor())
-	envv1connect.RegisterEnvServiceHandler(server, New(st))
+	environmentv1connect.RegisterEnvironmentServiceHandler(server, New(st))
 	mux := http.NewServeMux()
 	connecthttp.Mount(mux, server)
 	ts := httptest.NewServer(mux)
 	t.Cleanup(ts.Close)
-	return envv1connect.NewEnvServiceClient(
+	return environmentv1connect.NewEnvironmentServiceClient(
 		connect.NewClient(connecthttp.NewTransport(ts.Client(), ts.URL)),
 	)
 }
@@ -64,9 +64,9 @@ func count(t *testing.T, db *sql.DB, table string) int {
 // mustCreate creates an environment named name and returns the response's
 // environment, failing the test if the call fails or the response carries
 // none.
-func mustCreate(t *testing.T, client envv1connect.EnvServiceClient, name string) *envv1.Environment {
+func mustCreate(t *testing.T, client environmentv1connect.EnvironmentServiceClient, name string) *environmentv1.Environment {
 	t.Helper()
-	res, err := client.Create(context.Background(), &envv1.CreateRequest{Name: name})
+	res, err := client.Create(context.Background(), &environmentv1.CreateRequest{Name: name})
 	if err != nil {
 		t.Fatalf("Create(%q): %v", name, err)
 	}
@@ -257,7 +257,7 @@ func TestCreate(t *testing.T) {
 			if _, err := st.CreateFlag(ctx, "new-checkout"); err != nil {
 				t.Fatalf("CreateFlag(): %v", err)
 			}
-			_, err := client.Create(ctx, &envv1.CreateRequest{Name: tc.name})
+			_, err := client.Create(ctx, &environmentv1.CreateRequest{Name: tc.name})
 			testutil.WantCode(t, err, tc.code, tc.message)
 			if n := count(t, db, "environments"); n != 0 {
 				t.Errorf("%d environments after a rejected create, want 0", n)
@@ -299,7 +299,7 @@ func TestCreate(t *testing.T) {
 			t.Fatalf("CreateFlag(): %v", err)
 		}
 		mustCreate(t, client, "production")
-		_, err := client.Create(ctx, &envv1.CreateRequest{Name: "Production"})
+		_, err := client.Create(ctx, &environmentv1.CreateRequest{Name: "Production"})
 		testutil.WantCode(t, err, connect.CodeAlreadyExists, "can't create the environment")
 		if n := count(t, db, "environments"); n != 1 {
 			t.Errorf("%d environments after the duplicate, want 1", n)
@@ -312,7 +312,7 @@ func TestCreate(t *testing.T) {
 	// The client gets the store's message, never the database's error.
 	t.Run("hides database failures", func(t *testing.T) {
 		unreachable := newClient(t, newStore(t, testutil.UnreachableDB))
-		_, err := unreachable.Create(ctx, &envv1.CreateRequest{Name: "production"})
+		_, err := unreachable.Create(ctx, &environmentv1.CreateRequest{Name: "production"})
 		testutil.WantCode(t, err, connect.CodeInternal, "can't create the environment")
 	})
 }
@@ -320,9 +320,9 @@ func TestCreate(t *testing.T) {
 // mustGet gets the environment with id and returns the response's
 // environment, failing the test if the call fails or the response carries
 // none.
-func mustGet(t *testing.T, client envv1connect.EnvServiceClient, id string) *envv1.Environment {
+func mustGet(t *testing.T, client environmentv1connect.EnvironmentServiceClient, id string) *environmentv1.Environment {
 	t.Helper()
-	res, err := client.Get(context.Background(), &envv1.GetRequest{Id: id})
+	res, err := client.Get(context.Background(), &environmentv1.GetRequest{Id: id})
 	if err != nil {
 		t.Fatalf("Get(%s): %v", id, err)
 	}
@@ -392,7 +392,7 @@ func TestGet(t *testing.T) {
 
 	for name, tc := range testutil.BadIDs {
 		t.Run("rejects "+name, func(t *testing.T) {
-			_, err := client.Get(ctx, &envv1.GetRequest{Id: tc.ID})
+			_, err := client.Get(ctx, &environmentv1.GetRequest{Id: tc.ID})
 			testutil.WantCode(t, err, connect.CodeInvalidArgument, tc.Message)
 		})
 	}
@@ -400,14 +400,14 @@ func TestGet(t *testing.T) {
 	t.Run("rejects an id no environment has", func(t *testing.T) {
 		testutil.ResetDB(t, db)
 		mustCreate(t, client, "production")
-		_, err := client.Get(ctx, &envv1.GetRequest{Id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"})
+		_, err := client.Get(ctx, &environmentv1.GetRequest{Id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"})
 		testutil.WantCode(t, err, connect.CodeNotFound, "can't get the environment")
 	})
 
 	// The client gets the store's message, never the database's error.
 	t.Run("hides database failures", func(t *testing.T) {
 		unreachable := newClient(t, newStore(t, testutil.UnreachableDB))
-		_, err := unreachable.Get(ctx, &envv1.GetRequest{Id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"})
+		_, err := unreachable.Get(ctx, &environmentv1.GetRequest{Id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"})
 		testutil.WantCode(t, err, connect.CodeInternal, "can't get the environment")
 	})
 }
@@ -420,7 +420,7 @@ func TestHandlersWithoutValidationRejectBadIDs(t *testing.T) {
 	ctx := context.Background()
 	calls := map[string]func(id string) error{
 		"Get": func(id string) error {
-			_, err := svc.Get(ctx, &envv1.GetRequest{Id: id})
+			_, err := svc.Get(ctx, &environmentv1.GetRequest{Id: id})
 			return err
 		},
 	}

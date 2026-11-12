@@ -1,11 +1,11 @@
 syntax = "proto3";
 
-package ffp.env.v1;
+package ffp.environment.v1;
 
 import "buf/validate/validate.proto";
 import "google/protobuf/timestamp.proto";
 
-service EnvService {
+service EnvironmentService {
   rpc Create(CreateRequest) returns (CreateResponse) {}
   rpc Get(GetRequest) returns (GetResponse) {}
 }
