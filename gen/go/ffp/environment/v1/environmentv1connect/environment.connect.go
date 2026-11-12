@@ -28,6 +28,8 @@ const (
 	EnvironmentServiceCreateProcedure = "/ffp.environment.v1.EnvironmentService/Create"
 	// EnvironmentServiceGetProcedure is the procedure name of the EnvironmentService's Get RPC.
 	EnvironmentServiceGetProcedure = "/ffp.environment.v1.EnvironmentService/Get"
+	// EnvironmentServiceUpdateProcedure is the procedure name of the EnvironmentService's Update RPC.
+	EnvironmentServiceUpdateProcedure = "/ffp.environment.v1.EnvironmentService/Update"
 )
 
 var (
@@ -45,12 +47,20 @@ var (
 			Procedure:  EnvironmentServiceGetProcedure,
 		}
 	})
+	environmentServiceUpdateSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_ffp_environment_v1_environment_proto.Services().ByName("EnvironmentService").Methods().ByName("Update"),
+			Procedure:  EnvironmentServiceUpdateProcedure,
+		}
+	})
 )
 
 // EnvironmentServiceClient is a client for the ffp.environment.v1.EnvironmentService service.
 type EnvironmentServiceClient interface {
 	Create(context.Context, *v1.CreateRequest) (*v1.CreateResponse, error)
 	Get(context.Context, *v1.GetRequest) (*v1.GetResponse, error)
+	Update(context.Context, *v1.UpdateRequest) (*v1.UpdateResponse, error)
 }
 
 // NewEnvironmentServiceClient constructs a client for the ffp.environment.v1.EnvironmentService
@@ -64,6 +74,7 @@ func NewEnvironmentServiceClient(client *connect.Client) EnvironmentServiceClien
 type EnvironmentServiceHandler interface {
 	Create(context.Context, *v1.CreateRequest) (*v1.CreateResponse, error)
 	Get(context.Context, *v1.GetRequest) (*v1.GetResponse, error)
+	Update(context.Context, *v1.UpdateRequest) (*v1.UpdateResponse, error)
 }
 
 // RegisterEnvironmentServiceHandler registers svc as the ffp.environment.v1.EnvironmentService
@@ -73,6 +84,7 @@ func RegisterEnvironmentServiceHandler(server *connect.Server, svc EnvironmentSe
 	server.Register(
 		connect.Method{Spec: environmentServiceCreateSpec(), Handler: adapter.create},
 		connect.Method{Spec: environmentServiceGetSpec(), Handler: adapter.get},
+		connect.Method{Spec: environmentServiceUpdateSpec(), Handler: adapter.update},
 	)
 }
 
@@ -85,6 +97,10 @@ func (UnimplementedEnvironmentServiceHandler) Create(context.Context, *v1.Create
 
 func (UnimplementedEnvironmentServiceHandler) Get(context.Context, *v1.GetRequest) (*v1.GetResponse, error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, "ffp.environment.v1.EnvironmentService.Get is not implemented")
+}
+
+func (UnimplementedEnvironmentServiceHandler) Update(context.Context, *v1.UpdateRequest) (*v1.UpdateResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "ffp.environment.v1.EnvironmentService.Update is not implemented")
 }
 
 type environmentServiceClient struct {
@@ -102,6 +118,14 @@ func (c *environmentServiceClient) Create(ctx context.Context, req *v1.CreateReq
 func (c *environmentServiceClient) Get(ctx context.Context, req *v1.GetRequest) (*v1.GetResponse, error) {
 	var res v1.GetResponse
 	if err := c.client.CallUnary(ctx, environmentServiceGetSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *environmentServiceClient) Update(ctx context.Context, req *v1.UpdateRequest) (*v1.UpdateResponse, error) {
+	var res v1.UpdateResponse
+	if err := c.client.CallUnary(ctx, environmentServiceUpdateSpec(), req, &res); err != nil {
 		return nil, err
 	}
 	return &res, nil
@@ -127,6 +151,18 @@ func (h environmentServiceHandler) get(ctx context.Context, _ connect.Spec, stre
 		return err
 	}
 	res, err := h.svc.Get(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h environmentServiceHandler) update(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.UpdateRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.Update(ctx, &req)
 	if err != nil {
 		return err
 	}

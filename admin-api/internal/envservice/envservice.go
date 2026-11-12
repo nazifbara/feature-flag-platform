@@ -62,3 +62,20 @@ func (s *Service) Get(ctx context.Context, req *environmentv1.GetRequest) (*envi
 	}
 	return &environmentv1.GetResponse{Environment: envToProto(env)}, nil
 }
+
+// Update gives the environment with the requested id the requested name,
+// normalized and checked by the store as in Create, and returns the
+// environment as stored. As in Get, the proto's rules reject an id that isn't
+// a UUID, and parsing it again guards against a caller without them. An id no
+// environment has gives NotFound.
+func (s *Service) Update(ctx context.Context, req *environmentv1.UpdateRequest) (*environmentv1.UpdateResponse, error) {
+	envID, err := utils.ParseID(req.Id, "environment")
+	if err != nil {
+		return nil, err
+	}
+	env, err := s.store.UpdateEnv(ctx, envID, req.Name)
+	if err != nil {
+		return nil, err
+	}
+	return &environmentv1.UpdateResponse{Environment: envToProto(env)}, nil
+}

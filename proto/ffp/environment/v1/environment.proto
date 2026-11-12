@@ -8,6 +8,7 @@ import "google/protobuf/timestamp.proto";
 service EnvironmentService {
   rpc Create(CreateRequest) returns (CreateResponse) {}
   rpc Get(GetRequest) returns (GetResponse) {}
+  rpc Update(UpdateRequest) returns (UpdateResponse) {}
 }
 
 message Environment {
@@ -31,5 +32,14 @@ message GetRequest {
 }
 
 message GetResponse {
+  Environment environment = 1;
+}
+
+message UpdateRequest {
+  string id = 1 [(buf.validate.field).string.uuid = true];
+  string name = 2 [(buf.validate.field).string = {min_len: 1}];
+}
+
+message UpdateResponse {
   Environment environment = 1;
 }
