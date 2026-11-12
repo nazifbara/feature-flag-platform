@@ -371,6 +371,190 @@ func (x *UpdateResponse) GetEnvironment() *Environment {
 	return nil
 }
 
+type DeleteRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteRequest) Reset() {
+	*x = DeleteRequest{}
+	mi := &file_ffp_environment_v1_environment_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteRequest) ProtoMessage() {}
+
+func (x *DeleteRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_ffp_environment_v1_environment_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteRequest.ProtoReflect.Descriptor instead.
+func (*DeleteRequest) Descriptor() ([]byte, []int) {
+	return file_ffp_environment_v1_environment_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *DeleteRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+type DeleteResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Environment   *Environment           `protobuf:"bytes,1,opt,name=environment,proto3" json:"environment,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteResponse) Reset() {
+	*x = DeleteResponse{}
+	mi := &file_ffp_environment_v1_environment_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteResponse) ProtoMessage() {}
+
+func (x *DeleteResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_ffp_environment_v1_environment_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteResponse.ProtoReflect.Descriptor instead.
+func (*DeleteResponse) Descriptor() ([]byte, []int) {
+	return file_ffp_environment_v1_environment_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *DeleteResponse) GetEnvironment() *Environment {
+	if x != nil {
+		return x.Environment
+	}
+	return nil
+}
+
+type ListRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	PageToken     *string                `protobuf:"bytes,1,opt,name=page_token,json=pageToken,proto3,oneof" json:"page_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListRequest) Reset() {
+	*x = ListRequest{}
+	mi := &file_ffp_environment_v1_environment_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListRequest) ProtoMessage() {}
+
+func (x *ListRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_ffp_environment_v1_environment_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListRequest.ProtoReflect.Descriptor instead.
+func (*ListRequest) Descriptor() ([]byte, []int) {
+	return file_ffp_environment_v1_environment_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *ListRequest) GetPageToken() string {
+	if x != nil && x.PageToken != nil {
+		return *x.PageToken
+	}
+	return ""
+}
+
+type ListResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Environments  []*Environment         `protobuf:"bytes,1,rep,name=environments,proto3" json:"environments,omitempty"`
+	NextPageToken *string                `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3,oneof" json:"next_page_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListResponse) Reset() {
+	*x = ListResponse{}
+	mi := &file_ffp_environment_v1_environment_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListResponse) ProtoMessage() {}
+
+func (x *ListResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_ffp_environment_v1_environment_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListResponse.ProtoReflect.Descriptor instead.
+func (*ListResponse) Descriptor() ([]byte, []int) {
+	return file_ffp_environment_v1_environment_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *ListResponse) GetEnvironments() []*Environment {
+	if x != nil {
+		return x.Environments
+	}
+	return nil
+}
+
+func (x *ListResponse) GetNextPageToken() string {
+	if x != nil && x.NextPageToken != nil {
+		return *x.NextPageToken
+	}
+	return ""
+}
+
 var File_ffp_environment_v1_environment_proto protoreflect.FileDescriptor
 
 const file_ffp_environment_v1_environment_proto_rawDesc = "" +
@@ -397,11 +581,25 @@ const file_ffp_environment_v1_environment_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x02id\x12\x1b\n" +
 	"\x04name\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x04name\"S\n" +
 	"\x0eUpdateResponse\x12A\n" +
-	"\venvironment\x18\x01 \x01(\v2\x1f.ffp.environment.v1.EnvironmentR\venvironment2\x84\x02\n" +
+	"\venvironment\x18\x01 \x01(\v2\x1f.ffp.environment.v1.EnvironmentR\venvironment\")\n" +
+	"\rDeleteRequest\x12\x18\n" +
+	"\x02id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x02id\"S\n" +
+	"\x0eDeleteResponse\x12A\n" +
+	"\venvironment\x18\x01 \x01(\v2\x1f.ffp.environment.v1.EnvironmentR\venvironment\"I\n" +
+	"\vListRequest\x12+\n" +
+	"\n" +
+	"page_token\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01H\x00R\tpageToken\x88\x01\x01B\r\n" +
+	"\v_page_token\"\x94\x01\n" +
+	"\fListResponse\x12C\n" +
+	"\fenvironments\x18\x01 \x03(\v2\x1f.ffp.environment.v1.EnvironmentR\fenvironments\x12+\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tH\x00R\rnextPageToken\x88\x01\x01B\x12\n" +
+	"\x10_next_page_token2\xa4\x03\n" +
 	"\x12EnvironmentService\x12Q\n" +
 	"\x06Create\x12!.ffp.environment.v1.CreateRequest\x1a\".ffp.environment.v1.CreateResponse\"\x00\x12H\n" +
 	"\x03Get\x12\x1e.ffp.environment.v1.GetRequest\x1a\x1f.ffp.environment.v1.GetResponse\"\x00\x12Q\n" +
-	"\x06Update\x12!.ffp.environment.v1.UpdateRequest\x1a\".ffp.environment.v1.UpdateResponse\"\x00B\xe8\x01\n" +
+	"\x06Update\x12!.ffp.environment.v1.UpdateRequest\x1a\".ffp.environment.v1.UpdateResponse\"\x00\x12Q\n" +
+	"\x06Delete\x12!.ffp.environment.v1.DeleteRequest\x1a\".ffp.environment.v1.DeleteResponse\"\x00\x12K\n" +
+	"\x04List\x12\x1f.ffp.environment.v1.ListRequest\x1a .ffp.environment.v1.ListResponse\"\x00B\xe8\x01\n" +
 	"\x16com.ffp.environment.v1B\x10EnvironmentProtoP\x01ZRgithub.com/nazifbara/feature-flag-platform/gen/go/ffp/environment/v1;environmentv1\xa2\x02\x03FEX\xaa\x02\x12Ffp.Environment.V1\xca\x02\x12Ffp\\Environment\\V1\xe2\x02\x1eFfp\\Environment\\V1\\GPBMetadata\xea\x02\x14Ffp::Environment::V1b\x06proto3"
 
 var (
@@ -416,7 +614,7 @@ func file_ffp_environment_v1_environment_proto_rawDescGZIP() []byte {
 	return file_ffp_environment_v1_environment_proto_rawDescData
 }
 
-var file_ffp_environment_v1_environment_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_ffp_environment_v1_environment_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
 var file_ffp_environment_v1_environment_proto_goTypes = []any{
 	(*Environment)(nil),           // 0: ffp.environment.v1.Environment
 	(*CreateRequest)(nil),         // 1: ffp.environment.v1.CreateRequest
@@ -425,25 +623,35 @@ var file_ffp_environment_v1_environment_proto_goTypes = []any{
 	(*GetResponse)(nil),           // 4: ffp.environment.v1.GetResponse
 	(*UpdateRequest)(nil),         // 5: ffp.environment.v1.UpdateRequest
 	(*UpdateResponse)(nil),        // 6: ffp.environment.v1.UpdateResponse
-	(*timestamppb.Timestamp)(nil), // 7: google.protobuf.Timestamp
+	(*DeleteRequest)(nil),         // 7: ffp.environment.v1.DeleteRequest
+	(*DeleteResponse)(nil),        // 8: ffp.environment.v1.DeleteResponse
+	(*ListRequest)(nil),           // 9: ffp.environment.v1.ListRequest
+	(*ListResponse)(nil),          // 10: ffp.environment.v1.ListResponse
+	(*timestamppb.Timestamp)(nil), // 11: google.protobuf.Timestamp
 }
 var file_ffp_environment_v1_environment_proto_depIdxs = []int32{
-	7, // 0: ffp.environment.v1.Environment.created_at:type_name -> google.protobuf.Timestamp
-	7, // 1: ffp.environment.v1.Environment.updated_at:type_name -> google.protobuf.Timestamp
-	0, // 2: ffp.environment.v1.CreateResponse.environment:type_name -> ffp.environment.v1.Environment
-	0, // 3: ffp.environment.v1.GetResponse.environment:type_name -> ffp.environment.v1.Environment
-	0, // 4: ffp.environment.v1.UpdateResponse.environment:type_name -> ffp.environment.v1.Environment
-	1, // 5: ffp.environment.v1.EnvironmentService.Create:input_type -> ffp.environment.v1.CreateRequest
-	3, // 6: ffp.environment.v1.EnvironmentService.Get:input_type -> ffp.environment.v1.GetRequest
-	5, // 7: ffp.environment.v1.EnvironmentService.Update:input_type -> ffp.environment.v1.UpdateRequest
-	2, // 8: ffp.environment.v1.EnvironmentService.Create:output_type -> ffp.environment.v1.CreateResponse
-	4, // 9: ffp.environment.v1.EnvironmentService.Get:output_type -> ffp.environment.v1.GetResponse
-	6, // 10: ffp.environment.v1.EnvironmentService.Update:output_type -> ffp.environment.v1.UpdateResponse
-	8, // [8:11] is the sub-list for method output_type
-	5, // [5:8] is the sub-list for method input_type
-	5, // [5:5] is the sub-list for extension type_name
-	5, // [5:5] is the sub-list for extension extendee
-	0, // [0:5] is the sub-list for field type_name
+	11, // 0: ffp.environment.v1.Environment.created_at:type_name -> google.protobuf.Timestamp
+	11, // 1: ffp.environment.v1.Environment.updated_at:type_name -> google.protobuf.Timestamp
+	0,  // 2: ffp.environment.v1.CreateResponse.environment:type_name -> ffp.environment.v1.Environment
+	0,  // 3: ffp.environment.v1.GetResponse.environment:type_name -> ffp.environment.v1.Environment
+	0,  // 4: ffp.environment.v1.UpdateResponse.environment:type_name -> ffp.environment.v1.Environment
+	0,  // 5: ffp.environment.v1.DeleteResponse.environment:type_name -> ffp.environment.v1.Environment
+	0,  // 6: ffp.environment.v1.ListResponse.environments:type_name -> ffp.environment.v1.Environment
+	1,  // 7: ffp.environment.v1.EnvironmentService.Create:input_type -> ffp.environment.v1.CreateRequest
+	3,  // 8: ffp.environment.v1.EnvironmentService.Get:input_type -> ffp.environment.v1.GetRequest
+	5,  // 9: ffp.environment.v1.EnvironmentService.Update:input_type -> ffp.environment.v1.UpdateRequest
+	7,  // 10: ffp.environment.v1.EnvironmentService.Delete:input_type -> ffp.environment.v1.DeleteRequest
+	9,  // 11: ffp.environment.v1.EnvironmentService.List:input_type -> ffp.environment.v1.ListRequest
+	2,  // 12: ffp.environment.v1.EnvironmentService.Create:output_type -> ffp.environment.v1.CreateResponse
+	4,  // 13: ffp.environment.v1.EnvironmentService.Get:output_type -> ffp.environment.v1.GetResponse
+	6,  // 14: ffp.environment.v1.EnvironmentService.Update:output_type -> ffp.environment.v1.UpdateResponse
+	8,  // 15: ffp.environment.v1.EnvironmentService.Delete:output_type -> ffp.environment.v1.DeleteResponse
+	10, // 16: ffp.environment.v1.EnvironmentService.List:output_type -> ffp.environment.v1.ListResponse
+	12, // [12:17] is the sub-list for method output_type
+	7,  // [7:12] is the sub-list for method input_type
+	7,  // [7:7] is the sub-list for extension type_name
+	7,  // [7:7] is the sub-list for extension extendee
+	0,  // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_ffp_environment_v1_environment_proto_init() }
@@ -451,13 +659,15 @@ func file_ffp_environment_v1_environment_proto_init() {
 	if File_ffp_environment_v1_environment_proto != nil {
 		return
 	}
+	file_ffp_environment_v1_environment_proto_msgTypes[9].OneofWrappers = []any{}
+	file_ffp_environment_v1_environment_proto_msgTypes[10].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_ffp_environment_v1_environment_proto_rawDesc), len(file_ffp_environment_v1_environment_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   7,
+			NumMessages:   11,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

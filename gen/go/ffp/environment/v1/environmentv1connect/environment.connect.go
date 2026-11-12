@@ -30,6 +30,10 @@ const (
 	EnvironmentServiceGetProcedure = "/ffp.environment.v1.EnvironmentService/Get"
 	// EnvironmentServiceUpdateProcedure is the procedure name of the EnvironmentService's Update RPC.
 	EnvironmentServiceUpdateProcedure = "/ffp.environment.v1.EnvironmentService/Update"
+	// EnvironmentServiceDeleteProcedure is the procedure name of the EnvironmentService's Delete RPC.
+	EnvironmentServiceDeleteProcedure = "/ffp.environment.v1.EnvironmentService/Delete"
+	// EnvironmentServiceListProcedure is the procedure name of the EnvironmentService's List RPC.
+	EnvironmentServiceListProcedure = "/ffp.environment.v1.EnvironmentService/List"
 )
 
 var (
@@ -54,6 +58,20 @@ var (
 			Procedure:  EnvironmentServiceUpdateProcedure,
 		}
 	})
+	environmentServiceDeleteSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_ffp_environment_v1_environment_proto.Services().ByName("EnvironmentService").Methods().ByName("Delete"),
+			Procedure:  EnvironmentServiceDeleteProcedure,
+		}
+	})
+	environmentServiceListSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_ffp_environment_v1_environment_proto.Services().ByName("EnvironmentService").Methods().ByName("List"),
+			Procedure:  EnvironmentServiceListProcedure,
+		}
+	})
 )
 
 // EnvironmentServiceClient is a client for the ffp.environment.v1.EnvironmentService service.
@@ -61,6 +79,8 @@ type EnvironmentServiceClient interface {
 	Create(context.Context, *v1.CreateRequest) (*v1.CreateResponse, error)
 	Get(context.Context, *v1.GetRequest) (*v1.GetResponse, error)
 	Update(context.Context, *v1.UpdateRequest) (*v1.UpdateResponse, error)
+	Delete(context.Context, *v1.DeleteRequest) (*v1.DeleteResponse, error)
+	List(context.Context, *v1.ListRequest) (*v1.ListResponse, error)
 }
 
 // NewEnvironmentServiceClient constructs a client for the ffp.environment.v1.EnvironmentService
@@ -75,6 +95,8 @@ type EnvironmentServiceHandler interface {
 	Create(context.Context, *v1.CreateRequest) (*v1.CreateResponse, error)
 	Get(context.Context, *v1.GetRequest) (*v1.GetResponse, error)
 	Update(context.Context, *v1.UpdateRequest) (*v1.UpdateResponse, error)
+	Delete(context.Context, *v1.DeleteRequest) (*v1.DeleteResponse, error)
+	List(context.Context, *v1.ListRequest) (*v1.ListResponse, error)
 }
 
 // RegisterEnvironmentServiceHandler registers svc as the ffp.environment.v1.EnvironmentService
@@ -85,6 +107,8 @@ func RegisterEnvironmentServiceHandler(server *connect.Server, svc EnvironmentSe
 		connect.Method{Spec: environmentServiceCreateSpec(), Handler: adapter.create},
 		connect.Method{Spec: environmentServiceGetSpec(), Handler: adapter.get},
 		connect.Method{Spec: environmentServiceUpdateSpec(), Handler: adapter.update},
+		connect.Method{Spec: environmentServiceDeleteSpec(), Handler: adapter.delete},
+		connect.Method{Spec: environmentServiceListSpec(), Handler: adapter.list},
 	)
 }
 
@@ -101,6 +125,14 @@ func (UnimplementedEnvironmentServiceHandler) Get(context.Context, *v1.GetReques
 
 func (UnimplementedEnvironmentServiceHandler) Update(context.Context, *v1.UpdateRequest) (*v1.UpdateResponse, error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, "ffp.environment.v1.EnvironmentService.Update is not implemented")
+}
+
+func (UnimplementedEnvironmentServiceHandler) Delete(context.Context, *v1.DeleteRequest) (*v1.DeleteResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "ffp.environment.v1.EnvironmentService.Delete is not implemented")
+}
+
+func (UnimplementedEnvironmentServiceHandler) List(context.Context, *v1.ListRequest) (*v1.ListResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "ffp.environment.v1.EnvironmentService.List is not implemented")
 }
 
 type environmentServiceClient struct {
@@ -126,6 +158,22 @@ func (c *environmentServiceClient) Get(ctx context.Context, req *v1.GetRequest) 
 func (c *environmentServiceClient) Update(ctx context.Context, req *v1.UpdateRequest) (*v1.UpdateResponse, error) {
 	var res v1.UpdateResponse
 	if err := c.client.CallUnary(ctx, environmentServiceUpdateSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *environmentServiceClient) Delete(ctx context.Context, req *v1.DeleteRequest) (*v1.DeleteResponse, error) {
+	var res v1.DeleteResponse
+	if err := c.client.CallUnary(ctx, environmentServiceDeleteSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *environmentServiceClient) List(ctx context.Context, req *v1.ListRequest) (*v1.ListResponse, error) {
+	var res v1.ListResponse
+	if err := c.client.CallUnary(ctx, environmentServiceListSpec(), req, &res); err != nil {
 		return nil, err
 	}
 	return &res, nil
@@ -163,6 +211,30 @@ func (h environmentServiceHandler) update(ctx context.Context, _ connect.Spec, s
 		return err
 	}
 	res, err := h.svc.Update(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h environmentServiceHandler) delete(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.DeleteRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.Delete(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h environmentServiceHandler) list(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.ListRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.List(ctx, &req)
 	if err != nil {
 		return err
 	}

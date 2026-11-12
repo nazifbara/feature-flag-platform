@@ -3,6 +3,7 @@ package envservice
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -634,6 +635,372 @@ func TestUpdate(t *testing.T) {
 	})
 }
 
+// mustDelete deletes the environment with id and returns the response's
+// environment, failing the test if the call fails or the response carries
+// none.
+func mustDelete(t *testing.T, client environmentv1connect.EnvironmentServiceClient, id string) *environmentv1.Environment {
+	t.Helper()
+	res, err := client.Delete(context.Background(), &environmentv1.DeleteRequest{Id: id})
+	if err != nil {
+		t.Fatalf("Delete(%s): %v", id, err)
+	}
+	if res.GetEnvironment() == nil {
+		t.Fatalf("Delete(%s) returned no environment", id)
+	}
+	return res.GetEnvironment()
+}
+
+// envExists reports whether db holds an environment with id.
+func envExists(t *testing.T, db *sql.DB, id string) bool {
+	t.Helper()
+	var exists bool
+	if err := db.QueryRow("SELECT EXISTS (SELECT 1 FROM environments WHERE id = $1)", id).Scan(&exists); err != nil {
+		t.Fatalf("looking for environment %s: %v", id, err)
+	}
+	return exists
+}
+
+func TestDelete(t *testing.T) {
+	db := testutil.OpenDB(t)
+	st := newStore(t, os.Getenv("TEST_DB_URL"))
+	client := newClient(t, st)
+	ctx := context.Background()
+
+	t.Run("returns the environment as it was", func(t *testing.T) {
+		testutil.ResetDB(t, db)
+		created := mustCreate(t, client, "staging")
+		updated := mustUpdate(t, client, created.Id, "production")
+		if got := mustDelete(t, client, created.Id); !proto.Equal(got, updated) {
+			t.Fatalf("Delete() = %v, want the environment as last updated %v", got, updated)
+		}
+	})
+
+	t.Run("removes the environment and its settings", func(t *testing.T) {
+		testutil.ResetDB(t, db)
+		created := mustCreate(t, client, "production")
+		if _, err := st.CreateFlag(ctx, "new-checkout"); err != nil {
+			t.Fatalf("CreateFlag(): %v", err)
+		}
+		mustDelete(t, client, created.Id)
+		if envExists(t, db, created.Id) {
+			t.Fatal("the environment is still stored after Delete()")
+		}
+		if got := settingsIn(t, db, created.Id); len(got) != 0 {
+			t.Fatalf("settings = %+v after Delete(), want none", got)
+		}
+		_, err := client.Get(ctx, &environmentv1.GetRequest{Id: created.Id})
+		testutil.WantCode(t, err, connect.CodeNotFound, "can't get the environment")
+	})
+
+	// SDKs syncing the environment see a version past the one it was at.
+	t.Run("logs the deletion at the next version", func(t *testing.T) {
+		testutil.ResetDB(t, db)
+		created := mustCreate(t, client, "production")
+		if _, err := st.CreateFlag(ctx, "new-checkout"); err != nil {
+			t.Fatalf("CreateFlag(): %v", err)
+		}
+		deleted := mustDelete(t, client, created.Id)
+		var action string
+		var version int64
+		err := db.QueryRow("SELECT action, target_version FROM change_logs WHERE environment_id = $1 ORDER BY target_version DESC LIMIT 1", created.Id).
+			Scan(&action, &version)
+		if err != nil {
+			t.Fatalf("reading the last change log entry: %v", err)
+		}
+		if action != "environment-deleted" || version != deleted.Version+1 {
+			t.Fatalf("last entry = %s at %d, want environment-deleted at %d", action, version, deleted.Version+1)
+		}
+	})
+
+	t.Run("removes only the environment asked for", func(t *testing.T) {
+		testutil.ResetDB(t, db)
+		first := mustCreate(t, client, "staging")
+		second := mustCreate(t, client, "production")
+		third := mustCreate(t, client, "development")
+		mustDelete(t, client, second.Id)
+		for _, e := range []*environmentv1.Environment{first, third} {
+			if got := mustGet(t, client, e.Id); !proto.Equal(got, e) {
+				t.Errorf("Get(%s) = %v, want %v unchanged", e.Name, got, e)
+			}
+		}
+	})
+
+	t.Run("rejects deleting the same environment twice", func(t *testing.T) {
+		testutil.ResetDB(t, db)
+		created := mustCreate(t, client, "production")
+		mustDelete(t, client, created.Id)
+		_, err := client.Delete(ctx, &environmentv1.DeleteRequest{Id: created.Id})
+		testutil.WantCode(t, err, connect.CodeNotFound, "can't delete the environment")
+	})
+
+	// A new environment can take a deleted one's name, and is one of its own.
+	t.Run("frees the name", func(t *testing.T) {
+		testutil.ResetDB(t, db)
+		deleted := mustCreate(t, client, "production")
+		mustDelete(t, client, deleted.Id)
+		if reused := mustCreate(t, client, "production"); reused.Id == deleted.Id {
+			t.Fatalf("new environment id = %s, want other than the deleted one's", reused.Id)
+		}
+	})
+
+	t.Run("accepts the id in upper case", func(t *testing.T) {
+		testutil.ResetDB(t, db)
+		created := mustCreate(t, client, "production")
+		if got := mustDelete(t, client, strings.ToUpper(created.Id)); got.Id != created.Id {
+			t.Fatalf("id = %s, want %s", got.Id, created.Id)
+		}
+	})
+
+	// Rejected ids delete nothing.
+	for name, tc := range testutil.BadIDs {
+		t.Run("rejects "+name, func(t *testing.T) {
+			testutil.ResetDB(t, db)
+			created := mustCreate(t, client, "production")
+			_, err := client.Delete(ctx, &environmentv1.DeleteRequest{Id: tc.ID})
+			testutil.WantCode(t, err, connect.CodeInvalidArgument, tc.Message)
+			if !envExists(t, db, created.Id) {
+				t.Fatal("the environment is gone after a rejected delete")
+			}
+		})
+	}
+
+	t.Run("rejects an id no environment has", func(t *testing.T) {
+		testutil.ResetDB(t, db)
+		created := mustCreate(t, client, "production")
+		_, err := client.Delete(ctx, &environmentv1.DeleteRequest{Id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"})
+		testutil.WantCode(t, err, connect.CodeNotFound, "can't delete the environment")
+		if !envExists(t, db, created.Id) {
+			t.Fatal("another environment is gone after deleting an id no environment has")
+		}
+	})
+
+	// The client gets the store's message, never the database's error.
+	t.Run("hides database failures", func(t *testing.T) {
+		unreachable := newClient(t, newStore(t, testutil.UnreachableDB))
+		_, err := unreachable.Delete(ctx, &environmentv1.DeleteRequest{Id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"})
+		testutil.WantCode(t, err, connect.CodeInternal, "can't delete the environment")
+	})
+}
+
+// mustList lists the first page, failing the test if the call fails or there's
+// a next page: callers have fewer environments than fill one.
+func mustList(t *testing.T, client environmentv1connect.EnvironmentServiceClient) []*environmentv1.Environment {
+	t.Helper()
+	res := listPage(t, client, nil)
+	if res.NextPageToken != nil {
+		t.Fatalf("List() next_page_token = %q with %d environments, want none", *res.NextPageToken, len(res.GetEnvironments()))
+	}
+	return res.GetEnvironments()
+}
+
+// listPage lists the page token points to, or the first page for a nil token,
+// failing the test if the call fails.
+func listPage(t *testing.T, client environmentv1connect.EnvironmentServiceClient, token *string) *environmentv1.ListResponse {
+	t.Helper()
+	req := &environmentv1.ListRequest{PageToken: token}
+	res, err := client.List(context.Background(), req)
+	if err != nil {
+		t.Fatalf("List(%q): %v", req.GetPageToken(), err)
+	}
+	return res
+}
+
+// names gives the names of envs, in order, to report a list compactly.
+func names(envs []*environmentv1.Environment) []string {
+	names := make([]string, len(envs))
+	for i, e := range envs {
+		names[i] = e.GetName()
+	}
+	return names
+}
+
+// wantEnvs fails the test unless got holds want's environments in want's
+// order.
+func wantEnvs(t *testing.T, got, want []*environmentv1.Environment) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("List() = %d environments %v, want %d %v", len(got), names(got), len(want), names(want))
+	}
+	for i := range want {
+		if !proto.Equal(got[i], want[i]) {
+			t.Fatalf("List()[%d] = %v, want %v", i, got[i], want[i])
+		}
+	}
+}
+
+func TestList(t *testing.T) {
+	db := testutil.OpenDB(t)
+	st := newStore(t, os.Getenv("TEST_DB_URL"))
+	client := newClient(t, st)
+	ctx := context.Background()
+
+	t.Run("no environments", func(t *testing.T) {
+		testutil.ResetDB(t, db)
+		wantEnvs(t, mustList(t, client), nil)
+	})
+
+	// Each environment is the one Create returned, oldest first rather than
+	// by name.
+	t.Run("returns every environment oldest first", func(t *testing.T) {
+		testutil.ResetDB(t, db)
+		staging := mustCreate(t, client, "staging")
+		production := mustCreate(t, client, "production")
+		development := mustCreate(t, client, "development")
+		wantEnvs(t, mustList(t, client), []*environmentv1.Environment{staging, production, development})
+	})
+
+	// A rename keeps the environment's place.
+	t.Run("returns environments as last updated", func(t *testing.T) {
+		testutil.ResetDB(t, db)
+		a := mustCreate(t, client, "staging")
+		b := mustCreate(t, client, "production")
+		renamed := mustUpdate(t, client, a.Id, "qa")
+		wantEnvs(t, mustList(t, client), []*environmentv1.Environment{renamed, b})
+	})
+
+	// Versions move as flags change, and List shows the current ones.
+	t.Run("returns current versions", func(t *testing.T) {
+		testutil.ResetDB(t, db)
+		created := mustCreate(t, client, "production")
+		if _, err := st.CreateFlag(ctx, "new-checkout"); err != nil {
+			t.Fatalf("CreateFlag(): %v", err)
+		}
+		wantEnvs(t, mustList(t, client), []*environmentv1.Environment{mustGet(t, client, created.Id)})
+	})
+
+	t.Run("leaves out deleted environments", func(t *testing.T) {
+		testutil.ResetDB(t, db)
+		a := mustCreate(t, client, "staging")
+		b := mustCreate(t, client, "production")
+		c := mustCreate(t, client, "development")
+		mustDelete(t, client, b.Id)
+		wantEnvs(t, mustList(t, client), []*environmentv1.Environment{a, c})
+	})
+
+	// The client gets the store's message, never the database's error.
+	t.Run("hides database failures", func(t *testing.T) {
+		unreachable := newClient(t, newStore(t, testutil.UnreachableDB))
+		_, err := unreachable.List(ctx, &environmentv1.ListRequest{})
+		testutil.WantCode(t, err, connect.CodeInternal, "can't list environments")
+	})
+}
+
+// mustCreateMany creates n environments named env-000, env-001 and so on, in
+// that order, and returns them in it.
+func mustCreateMany(t *testing.T, client environmentv1connect.EnvironmentServiceClient, n int) []*environmentv1.Environment {
+	t.Helper()
+	envs := make([]*environmentv1.Environment, n)
+	for i := range envs {
+		envs[i] = mustCreate(t, client, fmt.Sprintf("env-%03d", i))
+	}
+	return envs
+}
+
+func TestListPages(t *testing.T) {
+	db := testutil.OpenDB(t)
+	client := newClient(t, newStore(t, os.Getenv("TEST_DB_URL")))
+	ctx := context.Background()
+
+	t.Run("a full page has no next page token", func(t *testing.T) {
+		testutil.ResetDB(t, db)
+		envs := mustCreateMany(t, client, store.MaxEnvsPerPage)
+		wantEnvs(t, mustList(t, client), envs)
+	})
+
+	t.Run("one environment past a page gives a second page", func(t *testing.T) {
+		testutil.ResetDB(t, db)
+		envs := mustCreateMany(t, client, store.MaxEnvsPerPage+1)
+		first := listPage(t, client, nil)
+		wantEnvs(t, first.GetEnvironments(), envs[:store.MaxEnvsPerPage])
+		if first.NextPageToken == nil || *first.NextPageToken == "" {
+			t.Fatalf("first page next_page_token = %v, want a token", first.NextPageToken)
+		}
+		second := listPage(t, client, first.NextPageToken)
+		wantEnvs(t, second.GetEnvironments(), envs[store.MaxEnvsPerPage:])
+		if second.NextPageToken != nil {
+			t.Fatalf("second page next_page_token = %q, want none", *second.NextPageToken)
+		}
+	})
+
+	t.Run("following tokens lists every environment once", func(t *testing.T) {
+		testutil.ResetDB(t, db)
+		envs := mustCreateMany(t, client, 2*store.MaxEnvsPerPage+7)
+		var got []*environmentv1.Environment
+		var token *string
+		for pages := 1; ; pages++ {
+			if pages > 4 {
+				t.Fatalf("still listing after %d pages", pages-1)
+			}
+			res := listPage(t, client, token)
+			if len(res.GetEnvironments()) > store.MaxEnvsPerPage {
+				t.Fatalf("page %d has %d environments, want at most %d", pages, len(res.GetEnvironments()), store.MaxEnvsPerPage)
+			}
+			got = append(got, res.GetEnvironments()...)
+			if token = res.NextPageToken; token == nil {
+				break
+			}
+		}
+		wantEnvs(t, got, envs)
+	})
+
+	// The token's environment can be deleted between pages; the next page
+	// still starts at the first one created after it.
+	t.Run("a token whose environment is gone still works", func(t *testing.T) {
+		testutil.ResetDB(t, db)
+		envs := mustCreateMany(t, client, store.MaxEnvsPerPage+2)
+		first := listPage(t, client, nil)
+		if first.NextPageToken == nil {
+			t.Fatal("first page has no next_page_token")
+		}
+		last := first.GetEnvironments()[len(first.GetEnvironments())-1]
+		mustDelete(t, client, last.Id)
+		wantEnvs(t, listPage(t, client, first.NextPageToken).GetEnvironments(), envs[store.MaxEnvsPerPage:])
+	})
+
+	t.Run("rejects an empty page token", func(t *testing.T) {
+		empty := ""
+		_, err := client.List(ctx, &environmentv1.ListRequest{PageToken: &empty})
+		testutil.WantCode(t, err, connect.CodeInvalidArgument, "validation error: page_token: must be at least 1 characters")
+	})
+
+	for name, token := range map[string]string{
+		"not base64":                     "!!!",
+		"base64 of non-JSON":             base64.RawURLEncoding.EncodeToString([]byte("not json")),
+		"a created_at that isn't a time": base64.RawURLEncoding.EncodeToString([]byte(`{"created_at":1}`)),
+		"an id that isn't a UUID":        base64.RawURLEncoding.EncodeToString([]byte(`{"created_at":"2026-01-01T00:00:00Z","id":"x"}`)),
+	} {
+		t.Run("rejects a page token that's "+name, func(t *testing.T) {
+			_, err := client.List(ctx, &environmentv1.ListRequest{PageToken: &token})
+			testutil.WantCode(t, err, connect.CodeInvalidArgument, "invalid page cursor")
+		})
+	}
+
+	// The token is checked before the store is reached, which would answer
+	// Internal here.
+	t.Run("rejects a bad token before reaching the database", func(t *testing.T) {
+		unreachable := newClient(t, newStore(t, testutil.UnreachableDB))
+		token := "!!!"
+		_, err := unreachable.List(ctx, &environmentv1.ListRequest{PageToken: &token})
+		testutil.WantCode(t, err, connect.CodeInvalidArgument, "invalid page cursor")
+	})
+
+	t.Run("hides database failures on a later page", func(t *testing.T) {
+		unreachable := newClient(t, newStore(t, testutil.UnreachableDB))
+		token := base64.RawURLEncoding.EncodeToString([]byte(`{"created_at":"2026-01-01T00:00:00Z","id":"6ba7b810-9dad-11d1-80b4-00c04fd430c8"}`))
+		_, err := unreachable.List(ctx, &environmentv1.ListRequest{PageToken: &token})
+		testutil.WantCode(t, err, connect.CodeInternal, "can't list environments")
+	})
+}
+
+// Without the validation interceptor, as for a direct caller, an empty page
+// token is still rejected rather than read as the first page, before reaching
+// the store: it can't reach a database, and would answer Internal.
+func TestListWithoutValidationRejectsEmptyToken(t *testing.T) {
+	empty := ""
+	_, err := New(newStore(t, testutil.UnreachableDB)).List(context.Background(), &environmentv1.ListRequest{PageToken: &empty})
+	testutil.WantCode(t, err, connect.CodeInvalidArgument, "invalid page cursor")
+}
+
 // Without the validation interceptor, as for a direct caller, each handler's
 // own parsing still rejects an id that isn't a UUID, before reaching the
 // store: the store here can't reach a database, and would answer Internal.
@@ -647,6 +1014,10 @@ func TestHandlersWithoutValidationRejectBadIDs(t *testing.T) {
 		},
 		"Update": func(id string) error {
 			_, err := svc.Update(ctx, &environmentv1.UpdateRequest{Id: id, Name: "production"})
+			return err
+		},
+		"Delete": func(id string) error {
+			_, err := svc.Delete(ctx, &environmentv1.DeleteRequest{Id: id})
 			return err
 		},
 	}
