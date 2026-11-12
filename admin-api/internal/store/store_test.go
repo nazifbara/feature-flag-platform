@@ -4,42 +4,16 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"fmt"
-	"os"
 	"testing"
 	"time"
 	"uuid"
 
 	"github.com/nazifbara/feature-flag-platform/admin-api/internal/database"
+	"github.com/nazifbara/feature-flag-platform/admin-api/internal/testutil"
 )
 
-// testDBLock is the session advisory lock every package testing against
-// TEST_DB_URL holds for its whole run. go test runs packages in parallel, and
-// these tests empty the tables and count rows, so they'd break each other.
-const testDBLock = 7236402
-
-// TestMain runs the tests while holding testDBLock.
-func TestMain(m *testing.M) {
-	db, err := sql.Open("postgres", os.Getenv("TEST_DB_URL"))
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "opening the test database: %v\n", err)
-		os.Exit(1)
-	}
-	conn, err := db.Conn(context.Background())
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "connecting to the test database: %v\n", err)
-		os.Exit(1)
-	}
-	if _, err := conn.ExecContext(context.Background(), "SELECT pg_advisory_lock($1)", testDBLock); err != nil {
-		fmt.Fprintf(os.Stderr, "locking the test database: %v\n", err)
-		os.Exit(1)
-	}
-	code := m.Run()
-	// Closing the database ends the session, which releases the lock.
-	_ = conn.Close()
-	_ = db.Close()
-	os.Exit(code)
-}
+// TestMain runs the tests while holding testutil.DBLock.
+func TestMain(m *testing.M) { testutil.Main(m) }
 
 // envCount gives the number of committed environments.
 func envCount(t *testing.T, store *Store) int {
@@ -72,7 +46,7 @@ func TestExecTx(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("commits when fn succeeds", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		var created database.Environment
 		err := store.ExecTx(ctx, func(q *database.Queries) error {
 			var err error
@@ -92,7 +66,7 @@ func TestExecTx(t *testing.T) {
 	})
 
 	t.Run("commits every write in fn", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		err := store.ExecTx(ctx, func(q *database.Queries) error {
 			for _, name := range []string{"development", "staging", "production"} {
 				if _, err := q.CreateEnv(ctx, name); err != nil {
@@ -112,7 +86,7 @@ func TestExecTx(t *testing.T) {
 	// fn's writes are visible inside the transaction but not outside it
 	// until the commit.
 	t.Run("writes are hidden until committed", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		err := store.ExecTx(ctx, func(q *database.Queries) error {
 			env, err := q.CreateEnv(ctx, "production")
 			if err != nil {
@@ -132,7 +106,7 @@ func TestExecTx(t *testing.T) {
 	})
 
 	t.Run("rolls back and returns fn's error", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		errBoom := errors.New("boom")
 		err := store.ExecTx(ctx, func(q *database.Queries) error {
 			if _, err := q.CreateEnv(ctx, "production"); err != nil {
@@ -150,7 +124,7 @@ func TestExecTx(t *testing.T) {
 
 	// A failing write rolls back the writes before it too.
 	t.Run("a failing write rolls back earlier ones", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		err := store.ExecTx(ctx, func(q *database.Queries) error {
 			if _, err := q.CreateEnv(ctx, "production"); err != nil {
 				return err
@@ -167,7 +141,7 @@ func TestExecTx(t *testing.T) {
 	})
 
 	t.Run("canceled context fails before fn runs", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		canceled, cancel := context.WithCancel(ctx)
 		cancel()
 		called := false
@@ -186,7 +160,7 @@ func TestExecTx(t *testing.T) {
 	// When the transaction is already gone, the rollback fails too, and both
 	// errors are reported.
 	t.Run("reports a failed rollback with fn's error", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		txCtx, cancel := context.WithCancel(ctx)
 		defer cancel()
 		errBoom := errors.New("boom")
@@ -205,7 +179,7 @@ func TestExecTx(t *testing.T) {
 	})
 
 	t.Run("reports a failed commit", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		txCtx, cancel := context.WithCancel(ctx)
 		defer cancel()
 		err := store.ExecTx(txCtx, func(q *database.Queries) error {
@@ -228,7 +202,7 @@ func TestExecTx(t *testing.T) {
 	// checked out of the pool, and its locks held, for good. The panic itself
 	// keeps going up to the caller.
 	t.Run("rolls back when fn panics", func(t *testing.T) {
-		resetDB(t, store.db)
+		testutil.ResetDB(t, store.db)
 		// Canceling txCtx makes database/sql end the transaction if ExecTx
 		// didn't, so a failure here can't block the tests after it.
 		txCtx, cancel := context.WithCancel(ctx)
