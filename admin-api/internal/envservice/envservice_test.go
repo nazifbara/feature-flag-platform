@@ -412,6 +412,228 @@ func TestGet(t *testing.T) {
 	})
 }
 
+// envRow is an environment as stored.
+type envRow struct {
+	name             string
+	version          int64
+	created, updated time.Time
+}
+
+// readEnv reads the environment with id from db.
+func readEnv(t *testing.T, db *sql.DB, id string) envRow {
+	t.Helper()
+	var r envRow
+	err := db.QueryRow("SELECT name, version, created_at, updated_at FROM environments WHERE id = $1", id).
+		Scan(&r.name, &r.version, &r.created, &r.updated)
+	if err != nil {
+		t.Fatalf("reading environment %s: %v", id, err)
+	}
+	return r
+}
+
+// mustUpdate gives the environment with id the name and returns the
+// response's environment, failing the test if the call fails or the response
+// carries none.
+func mustUpdate(t *testing.T, client environmentv1connect.EnvironmentServiceClient, id, name string) *environmentv1.Environment {
+	t.Helper()
+	res, err := client.Update(context.Background(), &environmentv1.UpdateRequest{Id: id, Name: name})
+	if err != nil {
+		t.Fatalf("Update(%s, %q): %v", id, name, err)
+	}
+	if res.GetEnvironment() == nil {
+		t.Fatalf("Update(%s, %q) returned no environment", id, name)
+	}
+	return res.GetEnvironment()
+}
+
+func TestUpdate(t *testing.T) {
+	db := testutil.OpenDB(t)
+	st := newStore(t, os.Getenv("TEST_DB_URL"))
+	client := newClient(t, st)
+	ctx := context.Background()
+
+	// Only the name and updated_at move.
+	t.Run("returns the renamed environment", func(t *testing.T) {
+		testutil.ResetDB(t, db)
+		created := mustCreate(t, client, "staging")
+		before := testutil.DBNow(t, db)
+		got := mustUpdate(t, client, created.Id, "production")
+		after := testutil.DBNow(t, db)
+
+		if got.Id != created.Id {
+			t.Errorf("id = %s, want %s", got.Id, created.Id)
+		}
+		if got.Name != "production" {
+			t.Errorf("name = %q, want %q", got.Name, "production")
+		}
+		if got.Version != created.Version {
+			t.Errorf("version = %d, want %d unchanged", got.Version, created.Version)
+		}
+		if !proto.Equal(got.CreatedAt, created.CreatedAt) {
+			t.Errorf("created_at = %v, want %v unchanged", got.CreatedAt.AsTime(), created.CreatedAt.AsTime())
+		}
+		if updated := got.GetUpdatedAt().AsTime(); updated.Before(before) || updated.After(after) {
+			t.Errorf("updated_at = %v, want between %v and %v", updated, before, after)
+		}
+
+		stored := readEnv(t, db, created.Id)
+		want := envRow{name: got.Name, version: got.Version, created: got.CreatedAt.AsTime(), updated: got.UpdatedAt.AsTime()}
+		if !stored.created.Equal(want.created) || !stored.updated.Equal(want.updated) || stored.name != want.name || stored.version != want.version {
+			t.Errorf("stored environment = %+v, want the response's %+v", stored, want)
+		}
+		if g := mustGet(t, client, created.Id); !proto.Equal(g, got) {
+			t.Errorf("Get() = %v, want the updated environment %v", g, got)
+		}
+	})
+
+	// The response carries the name as stored, not as sent.
+	t.Run("returns the normalized name", func(t *testing.T) {
+		testutil.ResetDB(t, db)
+		created := mustCreate(t, client, "staging")
+		if got := mustUpdate(t, client, created.Id, "  Production  "); got.Name != "production" {
+			t.Fatalf("name = %q, want %q", got.Name, "production")
+		}
+	})
+
+	t.Run("renames only the environment asked for", func(t *testing.T) {
+		testutil.ResetDB(t, db)
+		first := mustCreate(t, client, "staging")
+		second := mustCreate(t, client, "production")
+		third := mustCreate(t, client, "development")
+		mustUpdate(t, client, second.Id, "prod")
+		for _, e := range []*environmentv1.Environment{first, third} {
+			if got := mustGet(t, client, e.Id); !proto.Equal(got, e) {
+				t.Errorf("Get(%s) = %v, want %v unchanged", e.Name, got, e)
+			}
+		}
+	})
+
+	// An environment's own name isn't taken from it, whatever its case.
+	t.Run("accepts the name it already has", func(t *testing.T) {
+		testutil.ResetDB(t, db)
+		created := mustCreate(t, client, "production")
+		if got := mustUpdate(t, client, created.Id, "Production"); got.Name != "production" {
+			t.Fatalf("name = %q, want %q", got.Name, "production")
+		}
+	})
+
+	// SDKs sync by the environment's id, and nothing they evaluate holds its
+	// name, so a rename has nothing for them to pick up.
+	t.Run("leaves the version, settings and change logs alone", func(t *testing.T) {
+		testutil.ResetDB(t, db)
+		created := mustCreate(t, client, "staging")
+		if _, err := st.CreateFlag(ctx, "new-checkout"); err != nil {
+			t.Fatalf("CreateFlag(): %v", err)
+		}
+		before := readEnv(t, db, created.Id)
+		settingsBefore := settingsIn(t, db, created.Id)
+		logsBefore := count(t, db, "change_logs")
+		mustUpdate(t, client, created.Id, "production")
+		if got := readEnv(t, db, created.Id).version; got != before.version {
+			t.Errorf("version = %d, want %d unchanged", got, before.version)
+		}
+		if got := settingsIn(t, db, created.Id); fmt.Sprint(got) != fmt.Sprint(settingsBefore) {
+			t.Errorf("settings = %+v, want %+v unchanged", got, settingsBefore)
+		}
+		if got := count(t, db, "change_logs"); got != logsBefore {
+			t.Errorf("%d change log entries, want %d", got, logsBefore)
+		}
+	})
+
+	t.Run("accepts the id in upper case", func(t *testing.T) {
+		testutil.ResetDB(t, db)
+		created := mustCreate(t, client, "staging")
+		if got := mustUpdate(t, client, strings.ToUpper(created.Id), "production"); got.Id != created.Id {
+			t.Fatalf("id = %s, want %s", got.Id, created.Id)
+		}
+	})
+
+	// The limit counts characters once the name is trimmed, as in Create.
+	t.Run("accepts a name of 100 characters once trimmed", func(t *testing.T) {
+		testutil.ResetDB(t, db)
+		created := mustCreate(t, client, "staging")
+		name := strings.Repeat("é", 100)
+		if got := mustUpdate(t, client, created.Id, "  "+name+"  "); got.Name != name {
+			t.Fatalf("name = %q, want %q", got.Name, name)
+		}
+	})
+
+	// Rejected updates leave the environment as it was.
+	rejected := map[string]struct {
+		id      string
+		name    string
+		code    connect.Code
+		message string
+	}{
+		"an id no environment has": {
+			id:      "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+			name:    "production",
+			code:    connect.CodeNotFound,
+			message: "can't update the environment",
+		},
+		// The proto's min_len.
+		"an empty name": {
+			name: "",
+			code: connect.CodeInvalidArgument,
+		},
+		// Passes min_len, so the store's checks catch these.
+		"a name of only spaces": {
+			name:    "   ",
+			code:    connect.CodeInvalidArgument,
+			message: "can't update an environment with an empty name",
+		},
+		"a name over 100 characters": {
+			name:    strings.Repeat("a", 101),
+			code:    connect.CodeInvalidArgument,
+			message: "can't update an environment with a name over 100 characters",
+		},
+	}
+	for name, tc := range rejected {
+		t.Run("rejects "+name, func(t *testing.T) {
+			testutil.ResetDB(t, db)
+			created := mustCreate(t, client, "staging")
+			before := readEnv(t, db, created.Id)
+			id := created.Id
+			if tc.id != "" {
+				id = tc.id
+			}
+			_, err := client.Update(ctx, &environmentv1.UpdateRequest{Id: id, Name: tc.name})
+			testutil.WantCode(t, err, tc.code, tc.message)
+			if after := readEnv(t, db, created.Id); after != before {
+				t.Fatalf("environment = %+v after a rejected update, want %+v unchanged", after, before)
+			}
+		})
+	}
+
+	for name, tc := range testutil.BadIDs {
+		t.Run("rejects "+name, func(t *testing.T) {
+			_, err := client.Update(ctx, &environmentv1.UpdateRequest{Id: tc.ID, Name: "production"})
+			testutil.WantCode(t, err, connect.CodeInvalidArgument, tc.Message)
+		})
+	}
+
+	// Names are compared after normalizing, so case doesn't dodge a taken
+	// name.
+	t.Run("rejects a name another environment has", func(t *testing.T) {
+		testutil.ResetDB(t, db)
+		mustCreate(t, client, "production")
+		other := mustCreate(t, client, "staging")
+		before := readEnv(t, db, other.Id)
+		_, err := client.Update(ctx, &environmentv1.UpdateRequest{Id: other.Id, Name: "Production"})
+		testutil.WantCode(t, err, connect.CodeAlreadyExists, "can't update the environment")
+		if after := readEnv(t, db, other.Id); after != before {
+			t.Fatalf("environment = %+v after a rejected update, want %+v unchanged", after, before)
+		}
+	})
+
+	// The client gets the store's message, never the database's error.
+	t.Run("hides database failures", func(t *testing.T) {
+		unreachable := newClient(t, newStore(t, testutil.UnreachableDB))
+		_, err := unreachable.Update(ctx, &environmentv1.UpdateRequest{Id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8", Name: "production"})
+		testutil.WantCode(t, err, connect.CodeInternal, "can't update the environment")
+	})
+}
+
 // Without the validation interceptor, as for a direct caller, each handler's
 // own parsing still rejects an id that isn't a UUID, before reaching the
 // store: the store here can't reach a database, and would answer Internal.
@@ -421,6 +643,10 @@ func TestHandlersWithoutValidationRejectBadIDs(t *testing.T) {
 	calls := map[string]func(id string) error{
 		"Get": func(id string) error {
 			_, err := svc.Get(ctx, &environmentv1.GetRequest{Id: id})
+			return err
+		},
+		"Update": func(id string) error {
+			_, err := svc.Update(ctx, &environmentv1.UpdateRequest{Id: id, Name: "production"})
 			return err
 		},
 	}
