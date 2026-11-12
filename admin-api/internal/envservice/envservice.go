@@ -7,11 +7,11 @@ import (
 	"github.com/nazifbara/feature-flag-platform/admin-api/internal/database"
 	"github.com/nazifbara/feature-flag-platform/admin-api/internal/store"
 	"github.com/nazifbara/feature-flag-platform/admin-api/internal/utils"
-	envv1 "github.com/nazifbara/feature-flag-platform/gen/go/ffp/env/v1"
+	environmentv1 "github.com/nazifbara/feature-flag-platform/gen/go/ffp/environment/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// Service implements the EnvService RPCs on top of the store.
+// Service implements the EnvironmentService RPCs on top of the store.
 type Service struct {
 	store *store.Store
 }
@@ -25,8 +25,8 @@ func New(store *store.Store) *Service {
 
 // envToProto converts a stored environment into the API's Environment,
 // which every RPC returning environments wraps in its own response.
-func envToProto(storedEnv database.Environment) *envv1.Environment {
-	return &envv1.Environment{
+func envToProto(storedEnv database.Environment) *environmentv1.Environment {
+	return &environmentv1.Environment{
 		Id:        storedEnv.ID.String(),
 		Name:      storedEnv.Name,
 		Version:   storedEnv.Version,
@@ -39,19 +39,19 @@ func envToProto(storedEnv database.Environment) *envv1.Environment {
 // by the store, which also gives every existing flag a disabled setting in it.
 // It returns the environment as stored, with its new id. Store errors reach
 // the client as they are, since they're already connect errors meant for it.
-func (s *Service) Create(ctx context.Context, req *envv1.CreateRequest) (*envv1.CreateResponse, error) {
+func (s *Service) Create(ctx context.Context, req *environmentv1.CreateRequest) (*environmentv1.CreateResponse, error) {
 	env, err := s.store.CreateEnv(ctx, req.Name)
 	if err != nil {
 		return nil, err
 	}
-	return &envv1.CreateResponse{Environment: envToProto(env)}, nil
+	return &environmentv1.CreateResponse{Environment: envToProto(env)}, nil
 }
 
 // Get returns the environment with the requested id, at its current version.
 // The proto's rules reject an id that isn't a UUID; parsing it again here only
 // guards against a caller without them. An id no environment has gives
 // NotFound.
-func (s *Service) Get(ctx context.Context, req *envv1.GetRequest) (*envv1.GetResponse, error) {
+func (s *Service) Get(ctx context.Context, req *environmentv1.GetRequest) (*environmentv1.GetResponse, error) {
 	envID, err := utils.ParseID(req.Id, "environment")
 	if err != nil {
 		return nil, err
@@ -60,5 +60,5 @@ func (s *Service) Get(ctx context.Context, req *envv1.GetRequest) (*envv1.GetRes
 	if err != nil {
 		return nil, err
 	}
-	return &envv1.GetResponse{Environment: envToProto(env)}, nil
+	return &environmentv1.GetResponse{Environment: envToProto(env)}, nil
 }

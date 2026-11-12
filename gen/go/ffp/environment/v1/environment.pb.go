@@ -2,9 +2,9 @@
 // versions:
 // 	protoc-gen-go v1.36.12
 // 	protoc        (unknown)
-// source: ffp/env/v1/env.proto
+// source: ffp/environment/v1/environment.proto
 
-package envv1
+package environmentv1
 
 import (
 	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
@@ -36,7 +36,7 @@ type Environment struct {
 
 func (x *Environment) Reset() {
 	*x = Environment{}
-	mi := &file_ffp_env_v1_env_proto_msgTypes[0]
+	mi := &file_ffp_environment_v1_environment_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -48,7 +48,7 @@ func (x *Environment) String() string {
 func (*Environment) ProtoMessage() {}
 
 func (x *Environment) ProtoReflect() protoreflect.Message {
-	mi := &file_ffp_env_v1_env_proto_msgTypes[0]
+	mi := &file_ffp_environment_v1_environment_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -61,7 +61,7 @@ func (x *Environment) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Environment.ProtoReflect.Descriptor instead.
 func (*Environment) Descriptor() ([]byte, []int) {
-	return file_ffp_env_v1_env_proto_rawDescGZIP(), []int{0}
+	return file_ffp_environment_v1_environment_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *Environment) GetId() string {
@@ -108,7 +108,7 @@ type CreateRequest struct {
 
 func (x *CreateRequest) Reset() {
 	*x = CreateRequest{}
-	mi := &file_ffp_env_v1_env_proto_msgTypes[1]
+	mi := &file_ffp_environment_v1_environment_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -120,7 +120,7 @@ func (x *CreateRequest) String() string {
 func (*CreateRequest) ProtoMessage() {}
 
 func (x *CreateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_ffp_env_v1_env_proto_msgTypes[1]
+	mi := &file_ffp_environment_v1_environment_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -133,7 +133,7 @@ func (x *CreateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateRequest.ProtoReflect.Descriptor instead.
 func (*CreateRequest) Descriptor() ([]byte, []int) {
-	return file_ffp_env_v1_env_proto_rawDescGZIP(), []int{1}
+	return file_ffp_environment_v1_environment_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *CreateRequest) GetName() string {
@@ -152,7 +152,7 @@ type CreateResponse struct {
 
 func (x *CreateResponse) Reset() {
 	*x = CreateResponse{}
-	mi := &file_ffp_env_v1_env_proto_msgTypes[2]
+	mi := &file_ffp_environment_v1_environment_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -164,7 +164,7 @@ func (x *CreateResponse) String() string {
 func (*CreateResponse) ProtoMessage() {}
 
 func (x *CreateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_ffp_env_v1_env_proto_msgTypes[2]
+	mi := &file_ffp_environment_v1_environment_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -177,7 +177,7 @@ func (x *CreateResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateResponse.ProtoReflect.Descriptor instead.
 func (*CreateResponse) Descriptor() ([]byte, []int) {
-	return file_ffp_env_v1_env_proto_rawDescGZIP(), []int{2}
+	return file_ffp_environment_v1_environment_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *CreateResponse) GetEnvironment() *Environment {
@@ -196,7 +196,7 @@ type GetRequest struct {
 
 func (x *GetRequest) Reset() {
 	*x = GetRequest{}
-	mi := &file_ffp_env_v1_env_proto_msgTypes[3]
+	mi := &file_ffp_environment_v1_environment_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -208,7 +208,7 @@ func (x *GetRequest) String() string {
 func (*GetRequest) ProtoMessage() {}
 
 func (x *GetRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_ffp_env_v1_env_proto_msgTypes[3]
+	mi := &file_ffp_environment_v1_environment_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -221,7 +221,7 @@ func (x *GetRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetRequest.ProtoReflect.Descriptor instead.
 func (*GetRequest) Descriptor() ([]byte, []int) {
-	return file_ffp_env_v1_env_proto_rawDescGZIP(), []int{3}
+	return file_ffp_environment_v1_environment_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *GetRequest) GetId() string {
@@ -240,7 +240,7 @@ type GetResponse struct {
 
 func (x *GetResponse) Reset() {
 	*x = GetResponse{}
-	mi := &file_ffp_env_v1_env_proto_msgTypes[4]
+	mi := &file_ffp_environment_v1_environment_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -252,7 +252,7 @@ func (x *GetResponse) String() string {
 func (*GetResponse) ProtoMessage() {}
 
 func (x *GetResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_ffp_env_v1_env_proto_msgTypes[4]
+	mi := &file_ffp_environment_v1_environment_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -265,7 +265,7 @@ func (x *GetResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetResponse.ProtoReflect.Descriptor instead.
 func (*GetResponse) Descriptor() ([]byte, []int) {
-	return file_ffp_env_v1_env_proto_rawDescGZIP(), []int{4}
+	return file_ffp_environment_v1_environment_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *GetResponse) GetEnvironment() *Environment {
@@ -275,12 +275,11 @@ func (x *GetResponse) GetEnvironment() *Environment {
 	return nil
 }
 
-var File_ffp_env_v1_env_proto protoreflect.FileDescriptor
+var File_ffp_environment_v1_environment_proto protoreflect.FileDescriptor
 
-const file_ffp_env_v1_env_proto_rawDesc = "" +
+const file_ffp_environment_v1_environment_proto_rawDesc = "" +
 	"\n" +
-	"\x14ffp/env/v1/env.proto\x12\n" +
-	"ffp.env.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xc1\x01\n" +
+	"$ffp/environment/v1/environment.proto\x12\x12ffp.environment.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xc1\x01\n" +
 	"\vEnvironment\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x18\n" +
@@ -290,52 +289,49 @@ const file_ffp_env_v1_env_proto_rawDesc = "" +
 	"\n" +
 	"updated_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\",\n" +
 	"\rCreateRequest\x12\x1b\n" +
-	"\x04name\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x04name\"K\n" +
-	"\x0eCreateResponse\x129\n" +
-	"\venvironment\x18\x01 \x01(\v2\x17.ffp.env.v1.EnvironmentR\venvironment\"&\n" +
+	"\x04name\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x04name\"S\n" +
+	"\x0eCreateResponse\x12A\n" +
+	"\venvironment\x18\x01 \x01(\v2\x1f.ffp.environment.v1.EnvironmentR\venvironment\"&\n" +
 	"\n" +
 	"GetRequest\x12\x18\n" +
-	"\x02id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x02id\"H\n" +
-	"\vGetResponse\x129\n" +
-	"\venvironment\x18\x01 \x01(\v2\x17.ffp.env.v1.EnvironmentR\venvironment2\x89\x01\n" +
-	"\n" +
-	"EnvService\x12A\n" +
-	"\x06Create\x12\x19.ffp.env.v1.CreateRequest\x1a\x1a.ffp.env.v1.CreateResponse\"\x00\x128\n" +
-	"\x03Get\x12\x16.ffp.env.v1.GetRequest\x1a\x17.ffp.env.v1.GetResponse\"\x00B\xa8\x01\n" +
-	"\x0ecom.ffp.env.v1B\bEnvProtoP\x01ZBgithub.com/nazifbara/feature-flag-platform/gen/go/ffp/env/v1;envv1\xa2\x02\x03FEX\xaa\x02\n" +
-	"Ffp.Env.V1\xca\x02\n" +
-	"Ffp\\Env\\V1\xe2\x02\x16Ffp\\Env\\V1\\GPBMetadata\xea\x02\fFfp::Env::V1b\x06proto3"
+	"\x02id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x02id\"P\n" +
+	"\vGetResponse\x12A\n" +
+	"\venvironment\x18\x01 \x01(\v2\x1f.ffp.environment.v1.EnvironmentR\venvironment2\xb1\x01\n" +
+	"\x12EnvironmentService\x12Q\n" +
+	"\x06Create\x12!.ffp.environment.v1.CreateRequest\x1a\".ffp.environment.v1.CreateResponse\"\x00\x12H\n" +
+	"\x03Get\x12\x1e.ffp.environment.v1.GetRequest\x1a\x1f.ffp.environment.v1.GetResponse\"\x00B\xe8\x01\n" +
+	"\x16com.ffp.environment.v1B\x10EnvironmentProtoP\x01ZRgithub.com/nazifbara/feature-flag-platform/gen/go/ffp/environment/v1;environmentv1\xa2\x02\x03FEX\xaa\x02\x12Ffp.Environment.V1\xca\x02\x12Ffp\\Environment\\V1\xe2\x02\x1eFfp\\Environment\\V1\\GPBMetadata\xea\x02\x14Ffp::Environment::V1b\x06proto3"
 
 var (
-	file_ffp_env_v1_env_proto_rawDescOnce sync.Once
-	file_ffp_env_v1_env_proto_rawDescData []byte
+	file_ffp_environment_v1_environment_proto_rawDescOnce sync.Once
+	file_ffp_environment_v1_environment_proto_rawDescData []byte
 )
 
-func file_ffp_env_v1_env_proto_rawDescGZIP() []byte {
-	file_ffp_env_v1_env_proto_rawDescOnce.Do(func() {
-		file_ffp_env_v1_env_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_ffp_env_v1_env_proto_rawDesc), len(file_ffp_env_v1_env_proto_rawDesc)))
+func file_ffp_environment_v1_environment_proto_rawDescGZIP() []byte {
+	file_ffp_environment_v1_environment_proto_rawDescOnce.Do(func() {
+		file_ffp_environment_v1_environment_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_ffp_environment_v1_environment_proto_rawDesc), len(file_ffp_environment_v1_environment_proto_rawDesc)))
 	})
-	return file_ffp_env_v1_env_proto_rawDescData
+	return file_ffp_environment_v1_environment_proto_rawDescData
 }
 
-var file_ffp_env_v1_env_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
-var file_ffp_env_v1_env_proto_goTypes = []any{
-	(*Environment)(nil),           // 0: ffp.env.v1.Environment
-	(*CreateRequest)(nil),         // 1: ffp.env.v1.CreateRequest
-	(*CreateResponse)(nil),        // 2: ffp.env.v1.CreateResponse
-	(*GetRequest)(nil),            // 3: ffp.env.v1.GetRequest
-	(*GetResponse)(nil),           // 4: ffp.env.v1.GetResponse
+var file_ffp_environment_v1_environment_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_ffp_environment_v1_environment_proto_goTypes = []any{
+	(*Environment)(nil),           // 0: ffp.environment.v1.Environment
+	(*CreateRequest)(nil),         // 1: ffp.environment.v1.CreateRequest
+	(*CreateResponse)(nil),        // 2: ffp.environment.v1.CreateResponse
+	(*GetRequest)(nil),            // 3: ffp.environment.v1.GetRequest
+	(*GetResponse)(nil),           // 4: ffp.environment.v1.GetResponse
 	(*timestamppb.Timestamp)(nil), // 5: google.protobuf.Timestamp
 }
-var file_ffp_env_v1_env_proto_depIdxs = []int32{
-	5, // 0: ffp.env.v1.Environment.created_at:type_name -> google.protobuf.Timestamp
-	5, // 1: ffp.env.v1.Environment.updated_at:type_name -> google.protobuf.Timestamp
-	0, // 2: ffp.env.v1.CreateResponse.environment:type_name -> ffp.env.v1.Environment
-	0, // 3: ffp.env.v1.GetResponse.environment:type_name -> ffp.env.v1.Environment
-	1, // 4: ffp.env.v1.EnvService.Create:input_type -> ffp.env.v1.CreateRequest
-	3, // 5: ffp.env.v1.EnvService.Get:input_type -> ffp.env.v1.GetRequest
-	2, // 6: ffp.env.v1.EnvService.Create:output_type -> ffp.env.v1.CreateResponse
-	4, // 7: ffp.env.v1.EnvService.Get:output_type -> ffp.env.v1.GetResponse
+var file_ffp_environment_v1_environment_proto_depIdxs = []int32{
+	5, // 0: ffp.environment.v1.Environment.created_at:type_name -> google.protobuf.Timestamp
+	5, // 1: ffp.environment.v1.Environment.updated_at:type_name -> google.protobuf.Timestamp
+	0, // 2: ffp.environment.v1.CreateResponse.environment:type_name -> ffp.environment.v1.Environment
+	0, // 3: ffp.environment.v1.GetResponse.environment:type_name -> ffp.environment.v1.Environment
+	1, // 4: ffp.environment.v1.EnvironmentService.Create:input_type -> ffp.environment.v1.CreateRequest
+	3, // 5: ffp.environment.v1.EnvironmentService.Get:input_type -> ffp.environment.v1.GetRequest
+	2, // 6: ffp.environment.v1.EnvironmentService.Create:output_type -> ffp.environment.v1.CreateResponse
+	4, // 7: ffp.environment.v1.EnvironmentService.Get:output_type -> ffp.environment.v1.GetResponse
 	6, // [6:8] is the sub-list for method output_type
 	4, // [4:6] is the sub-list for method input_type
 	4, // [4:4] is the sub-list for extension type_name
@@ -343,26 +339,26 @@ var file_ffp_env_v1_env_proto_depIdxs = []int32{
 	0, // [0:4] is the sub-list for field type_name
 }
 
-func init() { file_ffp_env_v1_env_proto_init() }
-func file_ffp_env_v1_env_proto_init() {
-	if File_ffp_env_v1_env_proto != nil {
+func init() { file_ffp_environment_v1_environment_proto_init() }
+func file_ffp_environment_v1_environment_proto_init() {
+	if File_ffp_environment_v1_environment_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_ffp_env_v1_env_proto_rawDesc), len(file_ffp_env_v1_env_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_ffp_environment_v1_environment_proto_rawDesc), len(file_ffp_environment_v1_environment_proto_rawDesc)),
 			NumEnums:      0,
 			NumMessages:   5,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
-		GoTypes:           file_ffp_env_v1_env_proto_goTypes,
-		DependencyIndexes: file_ffp_env_v1_env_proto_depIdxs,
-		MessageInfos:      file_ffp_env_v1_env_proto_msgTypes,
+		GoTypes:           file_ffp_environment_v1_environment_proto_goTypes,
+		DependencyIndexes: file_ffp_environment_v1_environment_proto_depIdxs,
+		MessageInfos:      file_ffp_environment_v1_environment_proto_msgTypes,
 	}.Build()
-	File_ffp_env_v1_env_proto = out.File
-	file_ffp_env_v1_env_proto_goTypes = nil
-	file_ffp_env_v1_env_proto_depIdxs = nil
+	File_ffp_environment_v1_environment_proto = out.File
+	file_ffp_environment_v1_environment_proto_goTypes = nil
+	file_ffp_environment_v1_environment_proto_depIdxs = nil
 }
