@@ -159,7 +159,7 @@ func (s *Store) CreateRule(ctx context.Context, args database.CreateRuleParams) 
 		if err := q.IncrementEnvVersion(ctx, setting.EnvironmentID); err != nil {
 			return err
 		}
-		return q.CreateChangeLogsForRuleCreate(ctx, rule.ID)
+		return q.ChangeLogRuleCreated(ctx, rule.ID)
 	})
 	if err != nil {
 		return database.Rule{}, ffserrors.FromDBErr(err, "can't create the rule")
@@ -231,7 +231,7 @@ func (s *Store) DeleteRule(ctx context.Context, id uuid.UUID) (database.Rule, er
 		if err := q.IncrementEnvVersion(ctx, setting.EnvironmentID); err != nil {
 			return err
 		}
-		return q.CreateChangeLogsForRuleDelete(ctx, database.CreateChangeLogsForRuleDeleteParams{
+		return q.ChangeLogRuleDeleted(ctx, database.ChangeLogRuleDeletedParams{
 			FlagSettingID: deletedRule.FlagSettingID,
 			Position:      deletedRule.Position,
 		})
@@ -302,7 +302,7 @@ func (s *Store) UpdateRule(ctx context.Context, args database.UpdateRuleParams) 
 		if err := q.IncrementEnvVersion(ctx, setting.EnvironmentID); err != nil {
 			return err
 		}
-		return q.CreateChangeLogsForRuleUpdate(ctx, r.ID)
+		return q.ChangeLogRuleUpdated(ctx, r.ID)
 	})
 	if err != nil {
 		return database.Rule{}, ffserrors.FromDBErr(err, "can't update the rule")
@@ -382,7 +382,7 @@ func (s *Store) ChangeRulePosition(ctx context.Context, args database.ChangeRule
 		if err := q.IncrementEnvVersion(ctx, setting.EnvironmentID); err != nil {
 			return err
 		}
-		return q.CreateChangeLogsForRulePositionChange(ctx, database.CreateChangeLogsForRulePositionChangeParams{
+		return q.ChangeLogRulePositionChanged(ctx, database.ChangeLogRulePositionChangedParams{
 			OldPosition: rule.Position,
 			RuleID:      rule.ID,
 		})

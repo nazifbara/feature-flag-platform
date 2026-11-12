@@ -220,7 +220,7 @@ func TestChangeLogsTableRejectsSameVersionTwice(t *testing.T) {
 	env, other := uuid.New(), uuid.New()
 
 	log := func(env uuid.UUID, version int64) error {
-		return store.Queries.CreateChangeLogsForEnvDelete(ctx, database.CreateChangeLogsForEnvDeleteParams{Version: version, EnvironmentID: env})
+		return store.Queries.ChangeLogEnvironmentDeleted(ctx, database.ChangeLogEnvironmentDeletedParams{Version: version, EnvironmentID: env})
 	}
 	if err := log(env, 2); err != nil {
 		t.Fatalf("logging version 2: %v", err)
@@ -253,7 +253,7 @@ func TestWriteLoggingATakenVersionFails(t *testing.T) {
 	env := mustCreateEnv(t, store, "production")
 	flag := mustCreateFlag(t, store, "new-checkout")
 	env = mustGetEnv(t, store, env.ID)
-	if err := store.Queries.CreateChangeLogsForEnvDelete(ctx, database.CreateChangeLogsForEnvDeleteParams{Version: env.Version + 1, EnvironmentID: env.ID}); err != nil {
+	if err := store.Queries.ChangeLogEnvironmentDeleted(ctx, database.ChangeLogEnvironmentDeletedParams{Version: env.Version + 1, EnvironmentID: env.ID}); err != nil {
 		t.Fatalf("taking version %d: %v", env.Version+1, err)
 	}
 	want := matrixState(t, store)

@@ -98,7 +98,7 @@ func (s *Store) DeleteEnv(ctx context.Context, id uuid.UUID) (database.Environme
 			return err
 		}
 		env = e
-		return q.CreateChangeLogsForEnvDelete(ctx, database.CreateChangeLogsForEnvDeleteParams{
+		return q.ChangeLogEnvironmentDeleted(ctx, database.ChangeLogEnvironmentDeletedParams{
 			EnvironmentID: e.ID,
 			Version:       e.Version + 1,
 		})
