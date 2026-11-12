@@ -2,8 +2,12 @@ package utils
 
 import (
 	"encoding/base64"
+	"errors"
 	"strings"
 	"testing"
+	"uuid"
+
+	"connectrpc.com/connect/v2"
 )
 
 type testCursor struct {
@@ -77,5 +81,51 @@ func TestDecodePageCursorRejectsBadTokens(t *testing.T) {
 				t.Fatalf("DecodePageCursor(%q) = %+v on error, want nil or the zero cursor", token, *got)
 			}
 		})
+	}
+}
+
+func TestParseID(t *testing.T) {
+	want := "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+	// uuid.Parse is looser than the proto's rule: it takes these forms too.
+	for _, id := range []string{
+		want,
+		strings.ToUpper(want),
+		"{" + want + "}",
+		"urn:uuid:" + want,
+		strings.ReplaceAll(want, "-", ""),
+	} {
+		t.Run(id, func(t *testing.T) {
+			got, err := ParseID(id, "flag")
+			if err != nil {
+				t.Fatalf("ParseID(%q): %v", id, err)
+			}
+			if got.String() != want {
+				t.Fatalf("ParseID(%q) = %v, want %v", id, got, want)
+			}
+		})
+	}
+}
+
+func TestParseIDRejectsBadIDs(t *testing.T) {
+	for _, id := range []string{"", "not-a-uuid", " 6ba7b810-9dad-11d1-80b4-00c04fd430c8 "} {
+		for _, what := range []string{"flag", "environment"} {
+			t.Run(what+" "+id, func(t *testing.T) {
+				got, err := ParseID(id, what)
+				if got != (uuid.UUID{}) {
+					t.Errorf("ParseID(%q) = %v on error, want the zero UUID", id, got)
+				}
+				connectErr, ok := errors.AsType[*connect.Error](err)
+				if !ok {
+					t.Fatalf("ParseID(%q) error = %v (%T), want *connect.Error", id, err, err)
+				}
+				if connectErr.Code() != connect.CodeInvalidArgument || connectErr.Message() != "invalid "+what+" id" {
+					t.Fatalf("ParseID(%q) = %v %q, want invalid_argument %q", id, connectErr.Code(), connectErr.Message(), "invalid "+what+" id")
+				}
+				// The parse error stays as the cause, for logs.
+				if connectErr.Unwrap() == nil {
+					t.Error("ParseID() error has no cause")
+				}
+			})
+		}
 	}
 }

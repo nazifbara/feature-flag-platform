@@ -3,7 +3,6 @@ package flagservice
 
 import (
 	"context"
-	"uuid"
 
 	"connectrpc.com/connect/v2"
 	"github.com/nazifbara/feature-flag-platform/admin-api/internal/database"
@@ -27,14 +26,14 @@ func New(store *store.Store) *Service {
 
 // flagToProto converts a stored flag into the API's Flag, which every RPC
 // returning flags wraps in its own response.
-func flagToProto(f database.Flag) *flagv1.Flag {
+func flagToProto(storedFlag database.Flag) *flagv1.Flag {
 	return &flagv1.Flag{
-		Id:        f.ID.String(),
-		Key:       f.Key,
-		Salt:      f.Salt,
-		Archived:  f.Archived,
-		CreatedAt: timestamppb.New(f.CreatedAt),
-		UpdatedAt: timestamppb.New(f.UpdatedAt),
+		Id:        storedFlag.ID.String(),
+		Key:       storedFlag.Key,
+		Salt:      storedFlag.Salt,
+		Archived:  storedFlag.Archived,
+		CreatedAt: timestamppb.New(storedFlag.CreatedAt),
+		UpdatedAt: timestamppb.New(storedFlag.UpdatedAt),
 	}
 }
 
@@ -56,9 +55,9 @@ func (s *Service) Create(ctx context.Context, req *flagv1.CreateRequest) (*flagv
 // parsing it again here only guards against a caller without them. An id no
 // flag has gives NotFound.
 func (s *Service) Update(ctx context.Context, req *flagv1.UpdateRequest) (*flagv1.UpdateResponse, error) {
-	flagID, err := uuid.Parse(req.Id)
+	flagID, err := utils.ParseID(req.Id, "flag")
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, "invalid flag id").WithCause(err)
+		return nil, err
 	}
 	updatedFlag, err := s.store.UpdateFlag(ctx, flagID, req.Key)
 	if err != nil {
@@ -71,9 +70,9 @@ func (s *Service) Update(ctx context.Context, req *flagv1.UpdateRequest) (*flagv
 // reject an id that isn't a UUID, and parsing it again guards against a caller
 // without them. An id no flag has gives NotFound.
 func (s *Service) Get(ctx context.Context, req *flagv1.GetRequest) (*flagv1.GetResponse, error) {
-	flagID, err := uuid.Parse(req.Id)
+	flagID, err := utils.ParseID(req.Id, "flag")
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, "invalid flag id").WithCause(err)
+		return nil, err
 	}
 	storedFlag, err := s.store.GetFlag(ctx, flagID)
 	if err != nil {
@@ -88,9 +87,9 @@ func (s *Service) Get(ctx context.Context, req *flagv1.GetRequest) (*flagv1.GetR
 // UUID, and parsing it again guards against a caller without them. An id no
 // flag has gives NotFound.
 func (s *Service) Delete(ctx context.Context, req *flagv1.DeleteRequest) (*flagv1.DeleteResponse, error) {
-	flagID, err := uuid.Parse(req.Id)
+	flagID, err := utils.ParseID(req.Id, "flag")
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, "invalid flag id").WithCause(err)
+		return nil, err
 	}
 	deletedFlag, err := s.store.DeleteFlag(ctx, flagID)
 	if err != nil {
@@ -137,9 +136,9 @@ func (s *Service) List(ctx context.Context, req *flagv1.ListRequest) (*flagv1.Li
 // UUID, and parsing it again guards against a caller without them. An id no
 // flag has gives NotFound.
 func (s *Service) Archive(ctx context.Context, req *flagv1.ArchiveRequest) (*flagv1.ArchiveResponse, error) {
-	flagID, err := uuid.Parse(req.Id)
+	flagID, err := utils.ParseID(req.Id, "flag")
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, "invalid flag id").WithCause(err)
+		return nil, err
 	}
 	f, err := s.store.ArchiveFlag(ctx, flagID)
 	if err != nil {
@@ -154,9 +153,9 @@ func (s *Service) Archive(ctx context.Context, req *flagv1.ArchiveRequest) (*fla
 // an id that isn't a UUID, and parsing it again guards against a caller without
 // them. An id no flag has gives NotFound.
 func (s *Service) Unarchive(ctx context.Context, req *flagv1.UnarchiveRequest) (*flagv1.UnarchiveResponse, error) {
-	flagID, err := uuid.Parse(req.Id)
+	flagID, err := utils.ParseID(req.Id, "flag")
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, "invalid flag id").WithCause(err)
+		return nil, err
 	}
 	f, err := s.store.UnarchiveFlag(ctx, flagID)
 	if err != nil {

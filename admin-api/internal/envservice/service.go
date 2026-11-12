@@ -3,11 +3,10 @@ package envservice
 
 import (
 	"context"
-	"uuid"
 
-	"connectrpc.com/connect/v2"
 	"github.com/nazifbara/feature-flag-platform/admin-api/internal/database"
 	"github.com/nazifbara/feature-flag-platform/admin-api/internal/store"
+	"github.com/nazifbara/feature-flag-platform/admin-api/internal/utils"
 	envv1 "github.com/nazifbara/feature-flag-platform/gen/go/ffp/env/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -53,9 +52,9 @@ func (s *Service) Create(ctx context.Context, req *envv1.CreateRequest) (*envv1.
 // guards against a caller without them. An id no environment has gives
 // NotFound.
 func (s *Service) Get(ctx context.Context, req *envv1.GetRequest) (*envv1.GetResponse, error) {
-	envID, err := uuid.Parse(req.Id)
+	envID, err := utils.ParseID(req.Id, "environment")
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, "invalid environment id").WithCause(err)
+		return nil, err
 	}
 	env, err := s.store.GetEnv(ctx, envID)
 	if err != nil {
