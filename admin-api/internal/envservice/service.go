@@ -3,7 +3,9 @@ package envservice
 
 import (
 	"context"
+	"uuid"
 
+	"connectrpc.com/connect/v2"
 	"github.com/nazifbara/feature-flag-platform/admin-api/internal/database"
 	"github.com/nazifbara/feature-flag-platform/admin-api/internal/store"
 	envv1 "github.com/nazifbara/feature-flag-platform/gen/go/ffp/env/v1"
@@ -44,4 +46,20 @@ func (s *Service) Create(ctx context.Context, req *envv1.CreateRequest) (*envv1.
 		return nil, err
 	}
 	return &envv1.CreateResponse{Environment: envToProto(env)}, nil
+}
+
+// Get returns the environment with the requested id, at its current version.
+// The proto's rules reject an id that isn't a UUID; parsing it again here only
+// guards against a caller without them. An id no environment has gives
+// NotFound.
+func (s *Service) Get(ctx context.Context, req *envv1.GetRequest) (*envv1.GetResponse, error) {
+	envID, err := uuid.Parse(req.Id)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, "invalid environment id").WithCause(err)
+	}
+	env, err := s.store.GetEnv(ctx, envID)
+	if err != nil {
+		return nil, err
+	}
+	return &envv1.GetResponse{Environment: envToProto(env)}, nil
 }
