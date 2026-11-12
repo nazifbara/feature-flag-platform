@@ -4,6 +4,7 @@ package envservice
 import (
 	"context"
 
+	"connectrpc.com/connect/v2"
 	"github.com/nazifbara/feature-flag-platform/admin-api/internal/database"
 	"github.com/nazifbara/feature-flag-platform/admin-api/internal/store"
 	"github.com/nazifbara/feature-flag-platform/admin-api/internal/utils"
@@ -78,4 +79,53 @@ func (s *Service) Update(ctx context.Context, req *environmentv1.UpdateRequest) 
 		return nil, err
 	}
 	return &environmentv1.UpdateResponse{Environment: envToProto(env)}, nil
+}
+
+// Delete removes the environment with the requested id, which the store does
+// with its settings and their rules, logging the deletion for SDKs syncing
+// it, and returns the environment as it was. As in Get, the proto's rules
+// reject an id that isn't a UUID, and parsing it again guards against a
+// caller without them. An id no environment has gives NotFound.
+func (s *Service) Delete(ctx context.Context, req *environmentv1.DeleteRequest) (*environmentv1.DeleteResponse, error) {
+	envID, err := utils.ParseID(req.Id, "environment")
+	if err != nil {
+		return nil, err
+	}
+	env, err := s.store.DeleteEnv(ctx, envID)
+	if err != nil {
+		return nil, err
+	}
+	return &environmentv1.DeleteResponse{Environment: envToProto(env)}, nil
+}
+
+// List returns a page of environments, oldest first: the first page without a
+// page token, or the page after the one that gave the token. Its next page
+// token is unset on the last page. A token that doesn't decode gives
+// InvalidArgument.
+func (s *Service) List(ctx context.Context, req *environmentv1.ListRequest) (*environmentv1.ListResponse, error) {
+	var cursor *store.EnvsCursor
+	if req.PageToken != nil {
+		c, err := utils.DecodePageCursor[store.EnvsCursor](*req.PageToken)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument, "invalid page cursor").WithCause(err)
+		}
+		cursor = c
+	}
+	envs, nextCursor, err := s.store.ListEnvs(ctx, cursor)
+	if err != nil {
+		return nil, err
+	}
+	var envMessages []*environmentv1.Environment
+	for _, e := range envs {
+		envMessages = append(envMessages, envToProto(e))
+	}
+	var nextPageToken *string
+	if nextCursor != nil {
+		token, err := utils.EncodePageCursor(nextCursor)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal, "can't list environments").WithCause(err)
+		}
+		nextPageToken = &token
+	}
+	return &environmentv1.ListResponse{Environments: envMessages, NextPageToken: nextPageToken}, nil
 }
