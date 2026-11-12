@@ -27,7 +27,7 @@ vite.config.ts.timestamp-*
 .keys/
 
 gen/ts/**/*.ts
-api/internal/database
+admin-api/internal/database
 *.log
 
 # Editor backups, undo and swap files

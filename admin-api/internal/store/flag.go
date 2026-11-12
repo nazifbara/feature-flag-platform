@@ -9,9 +9,9 @@ import (
 	"uuid"
 
 	"connectrpc.com/connect/v2"
-	"github.com/nazifbara/flagsvc/api/internal/database"
-	"github.com/nazifbara/flagsvc/api/internal/ffserrors"
-	"github.com/nazifbara/flagsvc/api/internal/utils"
+	"github.com/nazifbara/flagsvc/admin-api/internal/database"
+	"github.com/nazifbara/flagsvc/admin-api/internal/ffserrors"
+	"github.com/nazifbara/flagsvc/admin-api/internal/utils"
 )
 
 // FlagsCursor marks where a page of ListFlags ended: the next page starts at

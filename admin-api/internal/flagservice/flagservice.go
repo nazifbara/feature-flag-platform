@@ -6,9 +6,9 @@ import (
 	"uuid"
 
 	"connectrpc.com/connect/v2"
-	"github.com/nazifbara/flagsvc/api/internal/database"
-	"github.com/nazifbara/flagsvc/api/internal/store"
-	"github.com/nazifbara/flagsvc/api/internal/utils"
+	"github.com/nazifbara/flagsvc/admin-api/internal/database"
+	"github.com/nazifbara/flagsvc/admin-api/internal/store"
+	"github.com/nazifbara/flagsvc/admin-api/internal/utils"
 	flag "github.com/nazifbara/flagsvc/gen/go/flagsvc/flag/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )

@@ -6,9 +6,9 @@ import (
 	"connectrpc.com/connect/v2"
 	"github.com/alexedwards/argon2id"
 
-	"github.com/nazifbara/flagsvc/api/internal/database"
-	"github.com/nazifbara/flagsvc/api/internal/ffserrors"
-	"github.com/nazifbara/flagsvc/api/internal/store"
+	"github.com/nazifbara/flagsvc/admin-api/internal/database"
+	"github.com/nazifbara/flagsvc/admin-api/internal/ffserrors"
+	"github.com/nazifbara/flagsvc/admin-api/internal/store"
 	auth "github.com/nazifbara/flagsvc/gen/go/flagsvc/auth/v1"
 )
 

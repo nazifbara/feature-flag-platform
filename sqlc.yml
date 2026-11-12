@@ -1,11 +1,11 @@
 version: "2"
 sql:
-  - schema: "./api/sql/schema"
-    queries: "./api/sql/queries"
+  - schema: "./admin-api/sql/schema"
+    queries: "./admin-api/sql/queries"
     engine: "postgresql"
     gen:
       go:
-        out: "./api/internal/database"
+        out: "./admin-api/internal/database"
         overrides:
           - db_type: "uuid"
             go_type:
