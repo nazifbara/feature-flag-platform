@@ -275,10 +275,12 @@ func TestCreate(t *testing.T) {
 			key:  "",
 			code: connect.CodeInvalidArgument,
 		},
-		// The proto's max_len.
+		// The proto has no max_len: the store checks the length once the key
+		// is trimmed.
 		"a key over 100 characters": {
-			key:  strings.Repeat("a", 101),
-			code: connect.CodeInvalidArgument,
+			key:     strings.Repeat("a", 101),
+			code:    connect.CodeInvalidArgument,
+			message: "can't create a flag with a key over 100 characters",
 		},
 		// Passes min_len, so the store's check catches it.
 		"a key of only spaces": {
@@ -313,6 +315,14 @@ func TestCreate(t *testing.T) {
 		key := strings.Repeat("a", 100)
 		got := mustCreate(t, client, key)
 		if got.Key != key {
+			t.Fatalf("key = %q, want %q", got.Key, key)
+		}
+	})
+
+	t.Run("accepts a key of 100 characters once trimmed", func(t *testing.T) {
+		resetDB(t, db)
+		key := strings.Repeat("a", 100)
+		if got := mustCreate(t, client, "  "+key+"  "); got.Key != key {
 			t.Fatalf("key = %q, want %q", got.Key, key)
 		}
 	})
@@ -463,10 +473,12 @@ func TestUpdate(t *testing.T) {
 			key:  "",
 			code: connect.CodeInvalidArgument,
 		},
-		// The proto's max_len.
+		// The proto has no max_len: the store checks the length once the key
+		// is trimmed.
 		"a key over 100 characters": {
-			key:  strings.Repeat("a", 101),
-			code: connect.CodeInvalidArgument,
+			key:     strings.Repeat("a", 101),
+			code:    connect.CodeInvalidArgument,
+			message: "can't update a flag with a key over 100 characters",
 		},
 		// Passes min_len, so the store's check catches it.
 		"a key of only spaces": {
@@ -507,6 +519,15 @@ func TestUpdate(t *testing.T) {
 		created := mustCreate(t, client, "old-checkout")
 		key := strings.Repeat("a", 100)
 		if got := mustUpdate(t, client, created.Id, key); got.Key != key {
+			t.Fatalf("key = %q, want %q", got.Key, key)
+		}
+	})
+
+	t.Run("accepts a key of 100 characters once trimmed", func(t *testing.T) {
+		resetDB(t, db)
+		created := mustCreate(t, client, "old-checkout")
+		key := strings.Repeat("a", 100)
+		if got := mustUpdate(t, client, created.Id, "  "+key+"  "); got.Key != key {
 			t.Fatalf("key = %q, want %q", got.Key, key)
 		}
 	})

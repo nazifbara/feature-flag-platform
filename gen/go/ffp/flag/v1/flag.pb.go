@@ -752,14 +752,14 @@ const file_ffp_flag_v1_flag_proto_rawDesc = "" +
 	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
 	"updated_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12\x1a\n" +
-	"\barchived\x18\x06 \x01(\bR\barchived\",\n" +
-	"\rCreateRequest\x12\x1b\n" +
-	"\x03key\x18\x01 \x01(\tB\t\xbaH\x06r\x04\x10\x01\x18dR\x03key\"7\n" +
+	"\barchived\x18\x06 \x01(\bR\barchived\"*\n" +
+	"\rCreateRequest\x12\x19\n" +
+	"\x03key\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x03key\"7\n" +
 	"\x0eCreateResponse\x12%\n" +
-	"\x04flag\x18\x01 \x01(\v2\x11.ffp.flag.v1.FlagR\x04flag\"F\n" +
+	"\x04flag\x18\x01 \x01(\v2\x11.ffp.flag.v1.FlagR\x04flag\"D\n" +
 	"\rUpdateRequest\x12\x18\n" +
-	"\x02id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x02id\x12\x1b\n" +
-	"\x03key\x18\x02 \x01(\tB\t\xbaH\x06r\x04\x10\x01\x18dR\x03key\"7\n" +
+	"\x02id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x02id\x12\x19\n" +
+	"\x03key\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x03key\"7\n" +
 	"\x0eUpdateResponse\x12%\n" +
 	"\x04flag\x18\x01 \x01(\v2\x11.ffp.flag.v1.FlagR\x04flag\"&\n" +
 	"\n" +
