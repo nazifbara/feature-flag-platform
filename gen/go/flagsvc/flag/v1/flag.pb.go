@@ -4,7 +4,7 @@
 // 	protoc        (unknown)
 // source: flagsvc/flag/v1/flag.proto
 
-package flag
+package flagv1
 
 import (
 	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
@@ -794,7 +794,8 @@ const file_flagsvc_flag_v1_flag_proto_rawDesc = "" +
 	"\x06Delete\x12\x1e.flagsvc.flag.v1.DeleteRequest\x1a\x1f.flagsvc.flag.v1.DeleteResponse\"\x00\x12E\n" +
 	"\x04List\x12\x1c.flagsvc.flag.v1.ListRequest\x1a\x1d.flagsvc.flag.v1.ListResponse\"\x00\x12N\n" +
 	"\aArchive\x12\x1f.flagsvc.flag.v1.ArchiveRequest\x1a .flagsvc.flag.v1.ArchiveResponse\"\x00\x12T\n" +
-	"\tUnarchive\x12!.flagsvc.flag.v1.UnarchiveRequest\x1a\".flagsvc.flag.v1.UnarchiveResponse\"\x00BHZFgithub.com/nazifbara/feature-flag-platform/gen/go/flagsvc/flag/v1;flagb\x06proto3"
+	"\tUnarchive\x12!.flagsvc.flag.v1.UnarchiveRequest\x1a\".flagsvc.flag.v1.UnarchiveResponse\"\x00B\xc8\x01\n" +
+	"\x13com.flagsvc.flag.v1B\tFlagProtoP\x01ZHgithub.com/nazifbara/feature-flag-platform/gen/go/flagsvc/flag/v1;flagv1\xa2\x02\x03FFX\xaa\x02\x0fFlagsvc.Flag.V1\xca\x02\x0fFlagsvc\\Flag\\V1\xe2\x02\x1bFlagsvc\\Flag\\V1\\GPBMetadata\xea\x02\x11Flagsvc::Flag::V1b\x06proto3"
 
 var (
 	file_flagsvc_flag_v1_flag_proto_rawDescOnce sync.Once

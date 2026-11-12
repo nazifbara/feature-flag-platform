@@ -1,4 +1,16 @@
 version: v2
+# Managed mode derives each file's go_package from its path under proto/ and
+# this prefix, with a versioned package name such as flagv1, so the .proto
+# files don't spell out Go import paths.
+managed:
+  enabled: true
+  disable:
+    # Dependencies keep the go_package they ship with.
+    - file_option: go_package
+      module: buf.build/bufbuild/protovalidate
+  override:
+    - file_option: go_package_prefix
+      value: github.com/nazifbara/feature-flag-platform/gen/go
 plugins:
   - local: protoc-gen-go
     out: gen/go

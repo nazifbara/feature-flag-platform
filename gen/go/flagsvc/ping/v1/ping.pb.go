@@ -4,7 +4,7 @@
 // 	protoc        (unknown)
 // source: flagsvc/ping/v1/ping.proto
 
-package ping
+package pingv1
 
 import (
 	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
@@ -121,7 +121,8 @@ const file_flagsvc_ping_v1_ping_proto_rawDesc = "" +
 	"\fPingResponse\x12\x18\n" +
 	"\amessage\x18\x01 \x01(\tR\amessage2T\n" +
 	"\vPingService\x12E\n" +
-	"\x04Ping\x12\x1c.flagsvc.ping.v1.PingRequest\x1a\x1d.flagsvc.ping.v1.PingResponse\"\x00BHZFgithub.com/nazifbara/feature-flag-platform/gen/go/flagsvc/ping/v1;pingb\x06proto3"
+	"\x04Ping\x12\x1c.flagsvc.ping.v1.PingRequest\x1a\x1d.flagsvc.ping.v1.PingResponse\"\x00B\xc8\x01\n" +
+	"\x13com.flagsvc.ping.v1B\tPingProtoP\x01ZHgithub.com/nazifbara/feature-flag-platform/gen/go/flagsvc/ping/v1;pingv1\xa2\x02\x03FPX\xaa\x02\x0fFlagsvc.Ping.V1\xca\x02\x0fFlagsvc\\Ping\\V1\xe2\x02\x1bFlagsvc\\Ping\\V1\\GPBMetadata\xea\x02\x11Flagsvc::Ping::V1b\x06proto3"
 
 var (
 	file_flagsvc_ping_v1_ping_proto_rawDescOnce sync.Once

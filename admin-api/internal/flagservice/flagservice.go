@@ -9,7 +9,7 @@ import (
 	"github.com/nazifbara/feature-flag-platform/admin-api/internal/database"
 	"github.com/nazifbara/feature-flag-platform/admin-api/internal/store"
 	"github.com/nazifbara/feature-flag-platform/admin-api/internal/utils"
-	flag "github.com/nazifbara/feature-flag-platform/gen/go/flagsvc/flag/v1"
+	flagv1 "github.com/nazifbara/feature-flag-platform/gen/go/flagsvc/flag/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -27,8 +27,8 @@ func New(store *store.Store) *Service {
 
 // flagToProto converts a stored flag into the API's Flag, which every RPC
 // returning flags wraps in its own response.
-func flagToProto(f database.Flag) *flag.Flag {
-	return &flag.Flag{
+func flagToProto(f database.Flag) *flagv1.Flag {
+	return &flagv1.Flag{
 		Id:        f.ID.String(),
 		Key:       f.Key,
 		Salt:      f.Salt,
@@ -42,12 +42,12 @@ func flagToProto(f database.Flag) *flag.Flag {
 // store, which also gives it a disabled setting in every environment. It
 // returns the flag as stored, with its new id and salt. Store errors reach the
 // client as they are, since they're already connect errors meant for it.
-func (s *Service) Create(ctx context.Context, req *flag.CreateRequest) (*flag.CreateResponse, error) {
+func (s *Service) Create(ctx context.Context, req *flagv1.CreateRequest) (*flagv1.CreateResponse, error) {
 	storedFlag, err := s.store.CreateFlag(ctx, req.Key)
 	if err != nil {
 		return nil, err
 	}
-	return &flag.CreateResponse{Flag: flagToProto(storedFlag)}, nil
+	return &flagv1.CreateResponse{Flag: flagToProto(storedFlag)}, nil
 }
 
 // Update gives the flag with the requested id the requested key, normalized and
@@ -55,7 +55,7 @@ func (s *Service) Create(ctx context.Context, req *flag.CreateRequest) (*flag.Cr
 // returns the flag as stored. The proto's rules reject an id that isn't a UUID;
 // parsing it again here only guards against a caller without them. An id no
 // flag has gives NotFound.
-func (s *Service) Update(ctx context.Context, req *flag.UpdateRequest) (*flag.UpdateResponse, error) {
+func (s *Service) Update(ctx context.Context, req *flagv1.UpdateRequest) (*flagv1.UpdateResponse, error) {
 	flagID, err := uuid.Parse(req.Id)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, "invalid flag id").WithCause(err)
@@ -64,13 +64,13 @@ func (s *Service) Update(ctx context.Context, req *flag.UpdateRequest) (*flag.Up
 	if err != nil {
 		return nil, err
 	}
-	return &flag.UpdateResponse{Flag: flagToProto(updatedFlag)}, nil
+	return &flagv1.UpdateResponse{Flag: flagToProto(updatedFlag)}, nil
 }
 
 // Get returns the flag with the requested id. As in Update, the proto's rules
 // reject an id that isn't a UUID, and parsing it again guards against a caller
 // without them. An id no flag has gives NotFound.
-func (s *Service) Get(ctx context.Context, req *flag.GetRequest) (*flag.GetResponse, error) {
+func (s *Service) Get(ctx context.Context, req *flagv1.GetRequest) (*flagv1.GetResponse, error) {
 	flagID, err := uuid.Parse(req.Id)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, "invalid flag id").WithCause(err)
@@ -79,7 +79,7 @@ func (s *Service) Get(ctx context.Context, req *flag.GetRequest) (*flag.GetRespo
 	if err != nil {
 		return nil, err
 	}
-	return &flag.GetResponse{Flag: flagToProto(storedFlag)}, nil
+	return &flagv1.GetResponse{Flag: flagToProto(storedFlag)}, nil
 }
 
 // Delete removes the flag with the requested id, which the store does with its
@@ -87,7 +87,7 @@ func (s *Service) Get(ctx context.Context, req *flag.GetRequest) (*flag.GetRespo
 // flag as it was. As in Update, the proto's rules reject an id that isn't a
 // UUID, and parsing it again guards against a caller without them. An id no
 // flag has gives NotFound.
-func (s *Service) Delete(ctx context.Context, req *flag.DeleteRequest) (*flag.DeleteResponse, error) {
+func (s *Service) Delete(ctx context.Context, req *flagv1.DeleteRequest) (*flagv1.DeleteResponse, error) {
 	flagID, err := uuid.Parse(req.Id)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, "invalid flag id").WithCause(err)
@@ -96,13 +96,13 @@ func (s *Service) Delete(ctx context.Context, req *flag.DeleteRequest) (*flag.De
 	if err != nil {
 		return nil, err
 	}
-	return &flag.DeleteResponse{Flag: flagToProto(deletedFlag)}, nil
+	return &flagv1.DeleteResponse{Flag: flagToProto(deletedFlag)}, nil
 }
 
 // List returns a page of flags ordered by key: the first page without a page
 // token, or the page after the one that gave the token. Its next page token is
 // unset on the last page. A token that doesn't decode gives InvalidArgument.
-func (s *Service) List(ctx context.Context, req *flag.ListRequest) (*flag.ListResponse, error) {
+func (s *Service) List(ctx context.Context, req *flagv1.ListRequest) (*flagv1.ListResponse, error) {
 	var cursor *store.FlagsCursor
 	if req.PageToken != nil {
 		c, err := utils.DecodePageCursor[store.FlagsCursor](*req.PageToken)
@@ -115,7 +115,7 @@ func (s *Service) List(ctx context.Context, req *flag.ListRequest) (*flag.ListRe
 	if err != nil {
 		return nil, err
 	}
-	var flagMessages []*flag.Flag
+	var flagMessages []*flagv1.Flag
 	for _, f := range flags {
 		flagMessages = append(flagMessages, flagToProto(f))
 	}
@@ -128,7 +128,7 @@ func (s *Service) List(ctx context.Context, req *flag.ListRequest) (*flag.ListRe
 		nextPageToken = &token
 	}
 
-	return &flag.ListResponse{Flags: flagMessages, NextPageToken: nextPageToken}, nil
+	return &flagv1.ListResponse{Flags: flagMessages, NextPageToken: nextPageToken}, nil
 }
 
 // Archive archives the flag with the requested id, which freezes its settings
@@ -136,7 +136,7 @@ func (s *Service) List(ctx context.Context, req *flag.ListRequest) (*flag.ListRe
 // changes nothing. As in Update, the proto's rules reject an id that isn't a
 // UUID, and parsing it again guards against a caller without them. An id no
 // flag has gives NotFound.
-func (s *Service) Archive(ctx context.Context, req *flag.ArchiveRequest) (*flag.ArchiveResponse, error) {
+func (s *Service) Archive(ctx context.Context, req *flagv1.ArchiveRequest) (*flagv1.ArchiveResponse, error) {
 	flagID, err := uuid.Parse(req.Id)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, "invalid flag id").WithCause(err)
@@ -145,7 +145,7 @@ func (s *Service) Archive(ctx context.Context, req *flag.ArchiveRequest) (*flag.
 	if err != nil {
 		return nil, err
 	}
-	return &flag.ArchiveResponse{Flag: flagToProto(f)}, nil
+	return &flagv1.ArchiveResponse{Flag: flagToProto(f)}, nil
 }
 
 // Unarchive unarchives the flag with the requested id, so its settings and
@@ -153,7 +153,7 @@ func (s *Service) Archive(ctx context.Context, req *flag.ArchiveRequest) (*flag.
 // that isn't archived changes nothing. As in Update, the proto's rules reject
 // an id that isn't a UUID, and parsing it again guards against a caller without
 // them. An id no flag has gives NotFound.
-func (s *Service) Unarchive(ctx context.Context, req *flag.UnarchiveRequest) (*flag.UnarchiveResponse, error) {
+func (s *Service) Unarchive(ctx context.Context, req *flagv1.UnarchiveRequest) (*flagv1.UnarchiveResponse, error) {
 	flagID, err := uuid.Parse(req.Id)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, "invalid flag id").WithCause(err)
@@ -162,5 +162,5 @@ func (s *Service) Unarchive(ctx context.Context, req *flag.UnarchiveRequest) (*f
 	if err != nil {
 		return nil, err
 	}
-	return &flag.UnarchiveResponse{Flag: flagToProto(f)}, nil
+	return &flagv1.UnarchiveResponse{Flag: flagToProto(f)}, nil
 }

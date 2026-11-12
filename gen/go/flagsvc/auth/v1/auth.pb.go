@@ -4,7 +4,7 @@
 // 	protoc        (unknown)
 // source: flagsvc/auth/v1/auth.proto
 
-package auth
+package authv1
 
 import (
 	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
@@ -140,7 +140,8 @@ const file_flagsvc_auth_v1_auth_proto_rawDesc = "" +
 	"\bpassword\x18\x04 \x01(\tB\t\xbaH\x06r\x04\x10\b\x18DR\bpassword\"\x10\n" +
 	"\x0eSignUpResponse2Z\n" +
 	"\vAuthService\x12K\n" +
-	"\x06SignUp\x12\x1e.flagsvc.auth.v1.SignUpRequest\x1a\x1f.flagsvc.auth.v1.SignUpResponse\"\x00BHZFgithub.com/nazifbara/feature-flag-platform/gen/go/flagsvc/auth/v1;authb\x06proto3"
+	"\x06SignUp\x12\x1e.flagsvc.auth.v1.SignUpRequest\x1a\x1f.flagsvc.auth.v1.SignUpResponse\"\x00B\xc8\x01\n" +
+	"\x13com.flagsvc.auth.v1B\tAuthProtoP\x01ZHgithub.com/nazifbara/feature-flag-platform/gen/go/flagsvc/auth/v1;authv1\xa2\x02\x03FAX\xaa\x02\x0fFlagsvc.Auth.V1\xca\x02\x0fFlagsvc\\Auth\\V1\xe2\x02\x1bFlagsvc\\Auth\\V1\\GPBMetadata\xea\x02\x11Flagsvc::Auth::V1b\x06proto3"
 
 var (
 	file_flagsvc_auth_v1_auth_proto_rawDescOnce sync.Once

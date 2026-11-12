@@ -2,7 +2,7 @@
 //
 // Source: flagsvc/ping/v1/ping.proto
 
-package pingconnect
+package pingv1connect
 
 import (
 	connect "connectrpc.com/connect/v2"

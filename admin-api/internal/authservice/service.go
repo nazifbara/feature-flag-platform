@@ -9,7 +9,7 @@ import (
 	"github.com/nazifbara/feature-flag-platform/admin-api/internal/database"
 	"github.com/nazifbara/feature-flag-platform/admin-api/internal/ffserrors"
 	"github.com/nazifbara/feature-flag-platform/admin-api/internal/store"
-	auth "github.com/nazifbara/feature-flag-platform/gen/go/flagsvc/auth/v1"
+	authv1 "github.com/nazifbara/feature-flag-platform/gen/go/flagsvc/auth/v1"
 )
 
 type Service struct {
@@ -27,8 +27,8 @@ func New(store *store.Store) *Service {
 // without the other.
 func (s *Service) SignUp(
 	ctx context.Context,
-	req *auth.SignUpRequest,
-) (*auth.SignUpResponse, error) {
+	req *authv1.SignUpRequest,
+) (*authv1.SignUpResponse, error) {
 	err := s.store.ExecTx(ctx, func(q *database.Queries) error {
 		passwordHash, err := hashPassword(req.Password)
 		if err != nil {
@@ -65,7 +65,7 @@ func (s *Service) SignUp(
 		return nil, err
 	}
 
-	return &auth.SignUpResponse{}, nil
+	return &authv1.SignUpResponse{}, nil
 }
 
 // hashPassword hashes password with argon2id's default parameters.

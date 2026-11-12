@@ -16,18 +16,18 @@ import (
 	connect "connectrpc.com/connect/v2"
 	"connectrpc.com/connect/v2/connecthttp"
 	"github.com/google/go-cmp/cmp"
-	"github.com/nazifbara/feature-flag-platform/gen/go/flagsvc/ping/v1"
-	"github.com/nazifbara/feature-flag-platform/gen/go/flagsvc/ping/v1/pingconnect"
+	pingv1 "github.com/nazifbara/feature-flag-platform/gen/go/flagsvc/ping/v1"
+	"github.com/nazifbara/feature-flag-platform/gen/go/flagsvc/ping/v1/pingv1connect"
 )
 
 // failingPing answers every call with err, or with a response if err is nil.
 type failingPing struct{ err error }
 
-func (p failingPing) Ping(ctx context.Context, req *ping.PingRequest) (*ping.PingResponse, error) {
+func (p failingPing) Ping(ctx context.Context, req *pingv1.PingRequest) (*pingv1.PingResponse, error) {
 	if p.err != nil {
 		return nil, p.err
 	}
-	return &ping.PingResponse{Message: req.Message}, nil
+	return &pingv1.PingResponse{Message: req.Message}, nil
 }
 
 // call sends a ping through a real server with the interceptor, and returns
@@ -40,13 +40,13 @@ func call(t *testing.T, err error) (status int, body string, logs []map[string]a
 	t.Cleanup(func() { slog.SetDefault(previous) })
 
 	server := connect.NewServer(NewLoggingInterceptor())
-	pingconnect.RegisterPingServiceHandler(server, failingPing{err: err})
+	pingv1connect.RegisterPingServiceHandler(server, failingPing{err: err})
 	mux := http.NewServeMux()
 	connecthttp.Mount(mux, server)
 	ts := httptest.NewServer(mux)
 	defer ts.Close()
 
-	res, postErr := http.Post(ts.URL+pingconnect.PingServicePingProcedure, "application/json", strings.NewReader(`{"message":"hi"}`))
+	res, postErr := http.Post(ts.URL+pingv1connect.PingServicePingProcedure, "application/json", strings.NewReader(`{"message":"hi"}`))
 	if postErr != nil {
 		t.Fatalf("calling the server: %v", postErr)
 	}
@@ -137,8 +137,8 @@ func TestLoggingInterceptorLogsFailures(t *testing.T) {
 			if test.wantCause != "" && got != test.wantCause {
 				t.Errorf("cause = %v, want %q", got, test.wantCause)
 			}
-			if entry["procedure"] != pingconnect.PingServicePingProcedure {
-				t.Errorf("procedure = %v, want %q", entry["procedure"], pingconnect.PingServicePingProcedure)
+			if entry["procedure"] != pingv1connect.PingServicePingProcedure {
+				t.Errorf("procedure = %v, want %q", entry["procedure"], pingv1connect.PingServicePingProcedure)
 			}
 			if addr, _ := entry["caller-address"].(string); addr == "" {
 				t.Errorf("caller-address = %v, want an address", entry["caller-address"])
