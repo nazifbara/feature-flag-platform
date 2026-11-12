@@ -129,3 +129,19 @@ func TestParseIDRejectsBadIDs(t *testing.T) {
 		}
 	}
 }
+
+func TestGenerateSalt(t *testing.T) {
+	for _, length := range []int{0, 1, 16} {
+		salt := GenerateSalt(length)
+		if len(salt) != 2*length {
+			t.Errorf("GenerateSalt(%d) = %q, want %d characters", length, salt, 2*length)
+		}
+		if strings.Trim(salt, "0123456789abcdef") != "" {
+			t.Errorf("GenerateSalt(%d) = %q, want lowercase hex", length, salt)
+		}
+	}
+	// Salts are random: two of 16 bytes matching would mean they aren't.
+	if a, b := GenerateSalt(16), GenerateSalt(16); a == b {
+		t.Errorf("GenerateSalt(16) gave %q twice", a)
+	}
+}
