@@ -25,10 +25,7 @@ message Flag {
 }
 
 message CreateRequest {
-  string key = 1 [(buf.validate.field).string = {
-    min_len: 1
-    max_len: 100
-  }];
+  string key = 1 [(buf.validate.field).string = {min_len: 1}];
 }
 
 message CreateResponse {
@@ -37,10 +34,7 @@ message CreateResponse {
 
 message UpdateRequest {
   string id = 1 [(buf.validate.field).string.uuid = true];
-  string key = 2 [(buf.validate.field).string = {
-    min_len: 1
-    max_len: 100
-  }];
+  string key = 2 [(buf.validate.field).string = {min_len: 1}];
 }
 
 message UpdateResponse {
