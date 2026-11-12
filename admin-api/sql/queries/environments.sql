@@ -20,8 +20,16 @@ SELECT * FROM environments
 WHERE id = $1;
 
 -- name: ListEnvs :many
+-- Oldest first, ordered by created_at then id, starting after the environment
+-- created at created_at with id, or at the first one for a NULL created_at, and
+-- stopping at limit environments. The id breaks ties between environments
+-- created at the same instant.
 SELECT * FROM environments
-ORDER BY created_at ASC;
+WHERE
+    sqlc.narg('created_at')::timestamptz IS NULL
+    OR (created_at, id) > (sqlc.narg('created_at')::timestamptz, sqlc.narg('id')::uuid)
+ORDER BY created_at ASC, id ASC
+LIMIT sqlc.arg('limit');
 
 -- name: UpdateEnv :one
 UPDATE environments SET name = $2, updated_at = clock_timestamp()

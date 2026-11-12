@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -353,7 +355,7 @@ func TestListEnvs(t *testing.T) {
 
 	t.Run("no environments", func(t *testing.T) {
 		testutil.ResetDB(t, store.db)
-		got, err := store.ListEnvs(ctx)
+		got, _, err := store.ListEnvs(ctx, nil)
 		if err != nil {
 			t.Fatalf("ListEnvs(): %v", err)
 		}
@@ -368,7 +370,7 @@ func TestListEnvs(t *testing.T) {
 		if err != nil {
 			t.Fatalf("CreateEnv(): %v", err)
 		}
-		got, err := store.ListEnvs(ctx)
+		got, _, err := store.ListEnvs(ctx, nil)
 		if err != nil {
 			t.Fatalf("ListEnvs(): %v", err)
 		}
@@ -389,7 +391,7 @@ func TestListEnvs(t *testing.T) {
 			}
 			want = append(want, env)
 		}
-		got, err := store.ListEnvs(ctx)
+		got, _, err := store.ListEnvs(ctx, nil)
 		if err != nil {
 			t.Fatalf("ListEnvs(): %v", err)
 		}
@@ -416,7 +418,7 @@ func TestListEnvs(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ExecTx(): %v", err)
 		}
-		got, err := store.ListEnvs(ctx)
+		got, _, err := store.ListEnvs(ctx, nil)
 		if err != nil {
 			t.Fatalf("ListEnvs(): %v", err)
 		}
@@ -445,7 +447,7 @@ func TestListEnvs(t *testing.T) {
 				t.Fatalf("setting created_at of %q: %v", name, err)
 			}
 		}
-		got, err := store.ListEnvs(ctx)
+		got, _, err := store.ListEnvs(ctx, nil)
 		if err != nil {
 			t.Fatalf("ListEnvs(): %v", err)
 		}
@@ -466,7 +468,7 @@ func TestListEnvs(t *testing.T) {
 				t.Fatalf("CreateEnv(%q): %v", name, err)
 			}
 		}
-		got, err := store.ListEnvs(ctx)
+		got, _, err := store.ListEnvs(ctx, nil)
 		if err != nil {
 			t.Fatalf("ListEnvs(): %v", err)
 		}
@@ -504,12 +506,197 @@ func TestListEnvs(t *testing.T) {
 			t.Fatalf("ExecTx() error = %v, want %v", err, errBoom)
 		}
 
-		got, err := store.ListEnvs(ctx)
+		got, _, err := store.ListEnvs(ctx, nil)
 		if err != nil {
 			t.Fatalf("ListEnvs(): %v", err)
 		}
 		if diff := cmp.Diff([]database.Environment{env}, got); diff != "" {
 			t.Fatalf("ListEnvs() mismatch (-want +got):\n%s", diff)
+		}
+	})
+}
+
+// envNamesOf gives the names of envs, in order.
+func envNamesOf(envs []database.Environment) []string {
+	names := make([]string, len(envs))
+	for i, e := range envs {
+		names[i] = e.Name
+	}
+	return names
+}
+
+// mustCreateEnvs creates n environments named env-000, env-001 and so on, in
+// that order, and returns their names in it.
+func mustCreateEnvs(t *testing.T, store *Store, n int) []string {
+	t.Helper()
+	names := make([]string, n)
+	for i := range names {
+		names[i] = fmt.Sprintf("env-%03d", i)
+		mustCreateEnv(t, store, names[i])
+	}
+	return names
+}
+
+// listEnvsPage lists the page after cursor, or the first page for a nil
+// cursor, failing the test if the call fails.
+func listEnvsPage(t *testing.T, store *Store, cursor *EnvsCursor) ([]database.Environment, *EnvsCursor) {
+	t.Helper()
+	envs, next, err := store.ListEnvs(context.Background(), cursor)
+	if err != nil {
+		t.Fatalf("ListEnvs(%+v): %v", cursor, err)
+	}
+	return envs, next
+}
+
+// cursorAt is the cursor a page ending at env gives.
+func cursorAt(env database.Environment) *EnvsCursor {
+	return &EnvsCursor{CreatedAt: env.CreatedAt, ID: env.ID}
+}
+
+func TestListEnvsPages(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	t.Run("a full page is the last when nothing follows it", func(t *testing.T) {
+		testutil.ResetDB(t, store.db)
+		names := mustCreateEnvs(t, store, MaxEnvsPerPage)
+		got, next := listEnvsPage(t, store, nil)
+		if diff := cmp.Diff(names, envNamesOf(got)); diff != "" {
+			t.Fatalf("ListEnvs() names mismatch (-want +got):\n%s", diff)
+		}
+		if next != nil {
+			t.Fatalf("ListEnvs() next cursor = %+v, want nil", *next)
+		}
+	})
+
+	// The first page stops at MaxEnvsPerPage environments, and its cursor is
+	// the last one on it, so the next page starts with the one created after.
+	t.Run("one environment past a page gives a second page", func(t *testing.T) {
+		testutil.ResetDB(t, store.db)
+		names := mustCreateEnvs(t, store, MaxEnvsPerPage+1)
+
+		first, next := listEnvsPage(t, store, nil)
+		if diff := cmp.Diff(names[:MaxEnvsPerPage], envNamesOf(first)); diff != "" {
+			t.Fatalf("first page names mismatch (-want +got):\n%s", diff)
+		}
+		want := cursorAt(first[MaxEnvsPerPage-1])
+		if next == nil || !next.CreatedAt.Equal(want.CreatedAt) || next.ID != want.ID {
+			t.Fatalf("first page next cursor = %+v, want %+v", next, *want)
+		}
+
+		second, next := listEnvsPage(t, store, next)
+		if diff := cmp.Diff(names[MaxEnvsPerPage:], envNamesOf(second)); diff != "" {
+			t.Fatalf("second page names mismatch (-want +got):\n%s", diff)
+		}
+		if next != nil {
+			t.Fatalf("second page next cursor = %+v, want nil", *next)
+		}
+	})
+
+	// Following the cursors lists every environment once, oldest first.
+	t.Run("following cursors lists every environment once", func(t *testing.T) {
+		testutil.ResetDB(t, store.db)
+		names := mustCreateEnvs(t, store, 2*MaxEnvsPerPage+7)
+		var got []string
+		var cursor *EnvsCursor
+		for pages := 1; ; pages++ {
+			if pages > 4 {
+				t.Fatalf("still listing after %d pages, at %+v", pages-1, cursor)
+			}
+			page, next := listEnvsPage(t, store, cursor)
+			if len(page) > MaxEnvsPerPage {
+				t.Fatalf("page %d has %d environments, want at most %d", pages, len(page), MaxEnvsPerPage)
+			}
+			got = append(got, envNamesOf(page)...)
+			if next == nil {
+				break
+			}
+			cursor = next
+		}
+		if diff := cmp.Diff(names, got); diff != "" {
+			t.Fatalf("listed names mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	// A zero cursor, as a decoded token can hold, has nothing to start after.
+	t.Run("a zero cursor starts at the oldest environment", func(t *testing.T) {
+		testutil.ResetDB(t, store.db)
+		names := mustCreateEnvs(t, store, 2)
+		got, next := listEnvsPage(t, store, &EnvsCursor{})
+		if diff := cmp.Diff(names, envNamesOf(got)); diff != "" {
+			t.Fatalf("ListEnvs() names mismatch (-want +got):\n%s", diff)
+		}
+		if next != nil {
+			t.Fatalf("ListEnvs() next cursor = %+v, want nil", *next)
+		}
+	})
+
+	t.Run("starts after the cursor's environment", func(t *testing.T) {
+		testutil.ResetDB(t, store.db)
+		a := mustCreateEnv(t, store, "staging")
+		mustCreateEnv(t, store, "production")
+		mustCreateEnv(t, store, "development")
+		got, next := listEnvsPage(t, store, cursorAt(a))
+		if diff := cmp.Diff([]string{"production", "development"}, envNamesOf(got)); diff != "" {
+			t.Fatalf("ListEnvs() names mismatch (-want +got):\n%s", diff)
+		}
+		if next != nil {
+			t.Fatalf("ListEnvs() next cursor = %+v, want nil", *next)
+		}
+	})
+
+	// Environments created at the same instant are ordered by id, and a
+	// cursor at the first of them still reaches the others.
+	t.Run("ties on created_at go by id", func(t *testing.T) {
+		testutil.ResetDB(t, store.db)
+		var tied []database.Environment
+		for _, name := range []string{"staging", "production", "development"} {
+			tied = append(tied, mustCreateEnv(t, store, name))
+		}
+		at := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+		if _, err := store.db.ExecContext(ctx, "UPDATE environments SET created_at = $1", at); err != nil {
+			t.Fatalf("setting created_at: %v", err)
+		}
+		sort.Slice(tied, func(i, j int) bool { return tied[i].ID.String() < tied[j].ID.String() })
+		var want []string
+		for _, e := range tied {
+			want = append(want, e.Name)
+		}
+		got, _ := listEnvsPage(t, store, nil)
+		if diff := cmp.Diff(want, envNamesOf(got)); diff != "" {
+			t.Fatalf("ListEnvs() names mismatch (-want +got):\n%s", diff)
+		}
+		got, _ = listEnvsPage(t, store, &EnvsCursor{CreatedAt: at, ID: tied[0].ID})
+		if diff := cmp.Diff(want[1:], envNamesOf(got)); diff != "" {
+			t.Fatalf("ListEnvs() after %s names mismatch (-want +got):\n%s", want[0], diff)
+		}
+	})
+
+	// The cursor's environment can be deleted between pages; the next page
+	// still starts at the first one created after it.
+	t.Run("a cursor whose environment is gone still works", func(t *testing.T) {
+		testutil.ResetDB(t, store.db)
+		mustCreateEnv(t, store, "staging")
+		b := mustCreateEnv(t, store, "production")
+		mustCreateEnv(t, store, "development")
+		if _, err := store.DeleteEnv(ctx, b.ID); err != nil {
+			t.Fatalf("DeleteEnv(): %v", err)
+		}
+		got, _ := listEnvsPage(t, store, cursorAt(b))
+		if diff := cmp.Diff([]string{"development"}, envNamesOf(got)); diff != "" {
+			t.Fatalf("ListEnvs() names mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("a cursor past the newest environment gives an empty last page", func(t *testing.T) {
+		testutil.ResetDB(t, store.db)
+		e := mustCreateEnv(t, store, "staging")
+		got, next := listEnvsPage(t, store, &EnvsCursor{CreatedAt: e.CreatedAt.Add(time.Hour), ID: e.ID})
+		if len(got) != 0 {
+			t.Fatalf("ListEnvs() = %+v, want no environments", got)
+		}
+		if next != nil {
+			t.Fatalf("ListEnvs() next cursor = %+v, want nil", *next)
 		}
 	})
 }
@@ -540,7 +727,7 @@ func TestListEnvsReportsErrors(t *testing.T) {
 	}
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			got, err := store.ListEnvs(test.ctx)
+			got, _, err := store.ListEnvs(test.ctx, nil)
 			wantConnectErr(t, err, test.want)
 			if got != nil {
 				t.Fatalf("ListEnvs() = %+v on error, want nil", got)
@@ -553,7 +740,7 @@ func TestListEnvsReportsErrors(t *testing.T) {
 		if err := store.db.Close(); err != nil {
 			t.Fatalf("closing the database: %v", err)
 		}
-		got, err := store.ListEnvs(context.Background())
+		got, _, err := store.ListEnvs(context.Background(), nil)
 		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, "can't list environments"))
 		if got != nil {
 			t.Fatalf("ListEnvs() = %+v on error, want nil", got)
@@ -631,7 +818,7 @@ func TestUpdateEnv(t *testing.T) {
 		if _, err := store.UpdateEnv(ctx, staging.ID, "aaa"); err != nil {
 			t.Fatalf("UpdateEnv(): %v", err)
 		}
-		got, err := store.ListEnvs(ctx)
+		got, _, err := store.ListEnvs(ctx, nil)
 		if err != nil {
 			t.Fatalf("ListEnvs(): %v", err)
 		}
@@ -895,7 +1082,7 @@ func TestDeleteEnv(t *testing.T) {
 	// names gives the names ListEnvs returns, in order.
 	names := func(t *testing.T) []string {
 		t.Helper()
-		envs, err := store.ListEnvs(ctx)
+		envs, _, err := store.ListEnvs(ctx, nil)
 		if err != nil {
 			t.Fatalf("ListEnvs(): %v", err)
 		}

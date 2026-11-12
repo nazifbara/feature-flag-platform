@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"strings"
+	"time"
 	"unicode/utf8"
 	"uuid"
 
@@ -75,13 +77,39 @@ func (s *Store) UpdateEnv(ctx context.Context, id uuid.UUID, name string) (datab
 	return env, nil
 }
 
-// ListEnvs gets every environment, oldest first.
-func (s *Store) ListEnvs(ctx context.Context) ([]database.Environment, error) {
-	envs, err := s.Queries.ListEnvs(ctx)
-	if err != nil {
-		return nil, ffserrors.FromDBErr(err, "can't list environments")
+// EnvsCursor marks where a page of ListEnvs ended: the next page starts at
+// the first environment created after the one created at CreatedAt with ID.
+// The zero cursor starts at the oldest environment.
+type EnvsCursor struct {
+	CreatedAt time.Time `json:"created_at"`
+	ID        uuid.UUID `json:"id"`
+}
+
+// MaxEnvsPerPage is the most environments a page of ListEnvs holds.
+const MaxEnvsPerPage = 50
+
+// ListEnvs gives a page of environments, oldest first, starting after cursor,
+// and the cursor for the next page, or nil when this page is the last.
+func (s *Store) ListEnvs(ctx context.Context, cursor *EnvsCursor) ([]database.Environment, *EnvsCursor, error) {
+	params := database.ListEnvsParams{
+		Limit: MaxEnvsPerPage + 1,
 	}
-	return envs, nil
+	if cursor != nil && !cursor.CreatedAt.IsZero() {
+		params.CreatedAt = sql.NullTime{Time: cursor.CreatedAt, Valid: true}
+		params.ID = &cursor.ID
+	}
+	envs, err := s.Queries.ListEnvs(ctx, params)
+	if err != nil {
+		return nil, nil, ffserrors.FromDBErr(err, "can't list environments")
+	}
+	var next *EnvsCursor
+	// The query asks for one more than a page to know whether another follows.
+	if len(envs) > MaxEnvsPerPage {
+		last := envs[MaxEnvsPerPage-1]
+		next = &EnvsCursor{CreatedAt: last.CreatedAt, ID: last.ID}
+		envs = envs[:MaxEnvsPerPage]
+	}
+	return envs, next, nil
 }
 
 // DeleteEnv deletes the environment with the given id, along with its settings
