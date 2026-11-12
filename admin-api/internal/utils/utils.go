@@ -6,6 +6,9 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"uuid"
+
+	"connectrpc.com/connect/v2"
 )
 
 // GenerateSalt returns length random bytes in hex, so twice as many characters.
@@ -38,4 +41,15 @@ func DecodePageCursor[T any](token string) (*T, error) {
 		return &cursor, err
 	}
 	return &cursor, nil
+}
+
+// ParseID parses a request's id for the handlers. The proto's uuid rules
+// already reject ids that aren't UUIDs; this guards against a caller without
+// them, with InvalidArgument "invalid <what> id".
+func ParseID(id, what string) (uuid.UUID, error) {
+	parsed, err := uuid.Parse(id)
+	if err != nil {
+		return uuid.UUID{}, connect.NewError(connect.CodeInvalidArgument, "invalid "+what+" id").WithCause(err)
+	}
+	return parsed, nil
 }
