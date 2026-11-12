@@ -9,7 +9,7 @@ import (
 	"github.com/nazifbara/feature-flag-platform/admin-api/internal/database"
 	"github.com/nazifbara/feature-flag-platform/admin-api/internal/store"
 	"github.com/nazifbara/feature-flag-platform/admin-api/internal/utils"
-	flagv1 "github.com/nazifbara/feature-flag-platform/gen/go/flagsvc/flag/v1"
+	flagv1 "github.com/nazifbara/feature-flag-platform/gen/go/ffp/flag/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 

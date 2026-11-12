@@ -3,7 +3,7 @@ package pingservice
 import (
 	"context"
 
-	pingv1 "github.com/nazifbara/feature-flag-platform/gen/go/flagsvc/ping/v1"
+	pingv1 "github.com/nazifbara/feature-flag-platform/gen/go/ffp/ping/v1"
 )
 
 type PingService struct{}

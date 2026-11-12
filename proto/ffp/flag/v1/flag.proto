@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package flagsvc.flag.v1;
+package ffp.flag.v1;
 
 import "buf/validate/validate.proto";
 import "google/protobuf/timestamp.proto";

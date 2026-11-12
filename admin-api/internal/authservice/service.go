@@ -9,7 +9,7 @@ import (
 	"github.com/nazifbara/feature-flag-platform/admin-api/internal/database"
 	"github.com/nazifbara/feature-flag-platform/admin-api/internal/ffserrors"
 	"github.com/nazifbara/feature-flag-platform/admin-api/internal/store"
-	authv1 "github.com/nazifbara/feature-flag-platform/gen/go/flagsvc/auth/v1"
+	authv1 "github.com/nazifbara/feature-flag-platform/gen/go/ffp/auth/v1"
 )
 
 type Service struct {

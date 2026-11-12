@@ -2,7 +2,7 @@
 // versions:
 // 	protoc-gen-go v1.36.12
 // 	protoc        (unknown)
-// source: flagsvc/flag/v1/flag.proto
+// source: ffp/flag/v1/flag.proto
 
 package flagv1
 
@@ -37,7 +37,7 @@ type Flag struct {
 
 func (x *Flag) Reset() {
 	*x = Flag{}
-	mi := &file_flagsvc_flag_v1_flag_proto_msgTypes[0]
+	mi := &file_ffp_flag_v1_flag_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -49,7 +49,7 @@ func (x *Flag) String() string {
 func (*Flag) ProtoMessage() {}
 
 func (x *Flag) ProtoReflect() protoreflect.Message {
-	mi := &file_flagsvc_flag_v1_flag_proto_msgTypes[0]
+	mi := &file_ffp_flag_v1_flag_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -62,7 +62,7 @@ func (x *Flag) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Flag.ProtoReflect.Descriptor instead.
 func (*Flag) Descriptor() ([]byte, []int) {
-	return file_flagsvc_flag_v1_flag_proto_rawDescGZIP(), []int{0}
+	return file_ffp_flag_v1_flag_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *Flag) GetId() string {
@@ -116,7 +116,7 @@ type CreateRequest struct {
 
 func (x *CreateRequest) Reset() {
 	*x = CreateRequest{}
-	mi := &file_flagsvc_flag_v1_flag_proto_msgTypes[1]
+	mi := &file_ffp_flag_v1_flag_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -128,7 +128,7 @@ func (x *CreateRequest) String() string {
 func (*CreateRequest) ProtoMessage() {}
 
 func (x *CreateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_flagsvc_flag_v1_flag_proto_msgTypes[1]
+	mi := &file_ffp_flag_v1_flag_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -141,7 +141,7 @@ func (x *CreateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateRequest.ProtoReflect.Descriptor instead.
 func (*CreateRequest) Descriptor() ([]byte, []int) {
-	return file_flagsvc_flag_v1_flag_proto_rawDescGZIP(), []int{1}
+	return file_ffp_flag_v1_flag_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *CreateRequest) GetKey() string {
@@ -160,7 +160,7 @@ type CreateResponse struct {
 
 func (x *CreateResponse) Reset() {
 	*x = CreateResponse{}
-	mi := &file_flagsvc_flag_v1_flag_proto_msgTypes[2]
+	mi := &file_ffp_flag_v1_flag_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -172,7 +172,7 @@ func (x *CreateResponse) String() string {
 func (*CreateResponse) ProtoMessage() {}
 
 func (x *CreateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_flagsvc_flag_v1_flag_proto_msgTypes[2]
+	mi := &file_ffp_flag_v1_flag_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -185,7 +185,7 @@ func (x *CreateResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateResponse.ProtoReflect.Descriptor instead.
 func (*CreateResponse) Descriptor() ([]byte, []int) {
-	return file_flagsvc_flag_v1_flag_proto_rawDescGZIP(), []int{2}
+	return file_ffp_flag_v1_flag_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *CreateResponse) GetFlag() *Flag {
@@ -205,7 +205,7 @@ type UpdateRequest struct {
 
 func (x *UpdateRequest) Reset() {
 	*x = UpdateRequest{}
-	mi := &file_flagsvc_flag_v1_flag_proto_msgTypes[3]
+	mi := &file_ffp_flag_v1_flag_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -217,7 +217,7 @@ func (x *UpdateRequest) String() string {
 func (*UpdateRequest) ProtoMessage() {}
 
 func (x *UpdateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_flagsvc_flag_v1_flag_proto_msgTypes[3]
+	mi := &file_ffp_flag_v1_flag_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -230,7 +230,7 @@ func (x *UpdateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateRequest.ProtoReflect.Descriptor instead.
 func (*UpdateRequest) Descriptor() ([]byte, []int) {
-	return file_flagsvc_flag_v1_flag_proto_rawDescGZIP(), []int{3}
+	return file_ffp_flag_v1_flag_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *UpdateRequest) GetId() string {
@@ -256,7 +256,7 @@ type UpdateResponse struct {
 
 func (x *UpdateResponse) Reset() {
 	*x = UpdateResponse{}
-	mi := &file_flagsvc_flag_v1_flag_proto_msgTypes[4]
+	mi := &file_ffp_flag_v1_flag_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -268,7 +268,7 @@ func (x *UpdateResponse) String() string {
 func (*UpdateResponse) ProtoMessage() {}
 
 func (x *UpdateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_flagsvc_flag_v1_flag_proto_msgTypes[4]
+	mi := &file_ffp_flag_v1_flag_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -281,7 +281,7 @@ func (x *UpdateResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateResponse.ProtoReflect.Descriptor instead.
 func (*UpdateResponse) Descriptor() ([]byte, []int) {
-	return file_flagsvc_flag_v1_flag_proto_rawDescGZIP(), []int{4}
+	return file_ffp_flag_v1_flag_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *UpdateResponse) GetFlag() *Flag {
@@ -300,7 +300,7 @@ type GetRequest struct {
 
 func (x *GetRequest) Reset() {
 	*x = GetRequest{}
-	mi := &file_flagsvc_flag_v1_flag_proto_msgTypes[5]
+	mi := &file_ffp_flag_v1_flag_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -312,7 +312,7 @@ func (x *GetRequest) String() string {
 func (*GetRequest) ProtoMessage() {}
 
 func (x *GetRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_flagsvc_flag_v1_flag_proto_msgTypes[5]
+	mi := &file_ffp_flag_v1_flag_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -325,7 +325,7 @@ func (x *GetRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetRequest.ProtoReflect.Descriptor instead.
 func (*GetRequest) Descriptor() ([]byte, []int) {
-	return file_flagsvc_flag_v1_flag_proto_rawDescGZIP(), []int{5}
+	return file_ffp_flag_v1_flag_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *GetRequest) GetId() string {
@@ -344,7 +344,7 @@ type GetResponse struct {
 
 func (x *GetResponse) Reset() {
 	*x = GetResponse{}
-	mi := &file_flagsvc_flag_v1_flag_proto_msgTypes[6]
+	mi := &file_ffp_flag_v1_flag_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -356,7 +356,7 @@ func (x *GetResponse) String() string {
 func (*GetResponse) ProtoMessage() {}
 
 func (x *GetResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_flagsvc_flag_v1_flag_proto_msgTypes[6]
+	mi := &file_ffp_flag_v1_flag_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -369,7 +369,7 @@ func (x *GetResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetResponse.ProtoReflect.Descriptor instead.
 func (*GetResponse) Descriptor() ([]byte, []int) {
-	return file_flagsvc_flag_v1_flag_proto_rawDescGZIP(), []int{6}
+	return file_ffp_flag_v1_flag_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *GetResponse) GetFlag() *Flag {
@@ -388,7 +388,7 @@ type DeleteRequest struct {
 
 func (x *DeleteRequest) Reset() {
 	*x = DeleteRequest{}
-	mi := &file_flagsvc_flag_v1_flag_proto_msgTypes[7]
+	mi := &file_ffp_flag_v1_flag_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -400,7 +400,7 @@ func (x *DeleteRequest) String() string {
 func (*DeleteRequest) ProtoMessage() {}
 
 func (x *DeleteRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_flagsvc_flag_v1_flag_proto_msgTypes[7]
+	mi := &file_ffp_flag_v1_flag_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -413,7 +413,7 @@ func (x *DeleteRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteRequest.ProtoReflect.Descriptor instead.
 func (*DeleteRequest) Descriptor() ([]byte, []int) {
-	return file_flagsvc_flag_v1_flag_proto_rawDescGZIP(), []int{7}
+	return file_ffp_flag_v1_flag_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *DeleteRequest) GetId() string {
@@ -432,7 +432,7 @@ type DeleteResponse struct {
 
 func (x *DeleteResponse) Reset() {
 	*x = DeleteResponse{}
-	mi := &file_flagsvc_flag_v1_flag_proto_msgTypes[8]
+	mi := &file_ffp_flag_v1_flag_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -444,7 +444,7 @@ func (x *DeleteResponse) String() string {
 func (*DeleteResponse) ProtoMessage() {}
 
 func (x *DeleteResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_flagsvc_flag_v1_flag_proto_msgTypes[8]
+	mi := &file_ffp_flag_v1_flag_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -457,7 +457,7 @@ func (x *DeleteResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteResponse.ProtoReflect.Descriptor instead.
 func (*DeleteResponse) Descriptor() ([]byte, []int) {
-	return file_flagsvc_flag_v1_flag_proto_rawDescGZIP(), []int{8}
+	return file_ffp_flag_v1_flag_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *DeleteResponse) GetFlag() *Flag {
@@ -476,7 +476,7 @@ type ListRequest struct {
 
 func (x *ListRequest) Reset() {
 	*x = ListRequest{}
-	mi := &file_flagsvc_flag_v1_flag_proto_msgTypes[9]
+	mi := &file_ffp_flag_v1_flag_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -488,7 +488,7 @@ func (x *ListRequest) String() string {
 func (*ListRequest) ProtoMessage() {}
 
 func (x *ListRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_flagsvc_flag_v1_flag_proto_msgTypes[9]
+	mi := &file_ffp_flag_v1_flag_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -501,7 +501,7 @@ func (x *ListRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListRequest.ProtoReflect.Descriptor instead.
 func (*ListRequest) Descriptor() ([]byte, []int) {
-	return file_flagsvc_flag_v1_flag_proto_rawDescGZIP(), []int{9}
+	return file_ffp_flag_v1_flag_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ListRequest) GetPageToken() string {
@@ -521,7 +521,7 @@ type ListResponse struct {
 
 func (x *ListResponse) Reset() {
 	*x = ListResponse{}
-	mi := &file_flagsvc_flag_v1_flag_proto_msgTypes[10]
+	mi := &file_ffp_flag_v1_flag_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -533,7 +533,7 @@ func (x *ListResponse) String() string {
 func (*ListResponse) ProtoMessage() {}
 
 func (x *ListResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_flagsvc_flag_v1_flag_proto_msgTypes[10]
+	mi := &file_ffp_flag_v1_flag_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -546,7 +546,7 @@ func (x *ListResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListResponse.ProtoReflect.Descriptor instead.
 func (*ListResponse) Descriptor() ([]byte, []int) {
-	return file_flagsvc_flag_v1_flag_proto_rawDescGZIP(), []int{10}
+	return file_ffp_flag_v1_flag_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ListResponse) GetFlags() []*Flag {
@@ -572,7 +572,7 @@ type ArchiveRequest struct {
 
 func (x *ArchiveRequest) Reset() {
 	*x = ArchiveRequest{}
-	mi := &file_flagsvc_flag_v1_flag_proto_msgTypes[11]
+	mi := &file_ffp_flag_v1_flag_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -584,7 +584,7 @@ func (x *ArchiveRequest) String() string {
 func (*ArchiveRequest) ProtoMessage() {}
 
 func (x *ArchiveRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_flagsvc_flag_v1_flag_proto_msgTypes[11]
+	mi := &file_ffp_flag_v1_flag_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -597,7 +597,7 @@ func (x *ArchiveRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ArchiveRequest.ProtoReflect.Descriptor instead.
 func (*ArchiveRequest) Descriptor() ([]byte, []int) {
-	return file_flagsvc_flag_v1_flag_proto_rawDescGZIP(), []int{11}
+	return file_ffp_flag_v1_flag_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ArchiveRequest) GetId() string {
@@ -616,7 +616,7 @@ type ArchiveResponse struct {
 
 func (x *ArchiveResponse) Reset() {
 	*x = ArchiveResponse{}
-	mi := &file_flagsvc_flag_v1_flag_proto_msgTypes[12]
+	mi := &file_ffp_flag_v1_flag_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -628,7 +628,7 @@ func (x *ArchiveResponse) String() string {
 func (*ArchiveResponse) ProtoMessage() {}
 
 func (x *ArchiveResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_flagsvc_flag_v1_flag_proto_msgTypes[12]
+	mi := &file_ffp_flag_v1_flag_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -641,7 +641,7 @@ func (x *ArchiveResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ArchiveResponse.ProtoReflect.Descriptor instead.
 func (*ArchiveResponse) Descriptor() ([]byte, []int) {
-	return file_flagsvc_flag_v1_flag_proto_rawDescGZIP(), []int{12}
+	return file_ffp_flag_v1_flag_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ArchiveResponse) GetFlag() *Flag {
@@ -660,7 +660,7 @@ type UnarchiveRequest struct {
 
 func (x *UnarchiveRequest) Reset() {
 	*x = UnarchiveRequest{}
-	mi := &file_flagsvc_flag_v1_flag_proto_msgTypes[13]
+	mi := &file_ffp_flag_v1_flag_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -672,7 +672,7 @@ func (x *UnarchiveRequest) String() string {
 func (*UnarchiveRequest) ProtoMessage() {}
 
 func (x *UnarchiveRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_flagsvc_flag_v1_flag_proto_msgTypes[13]
+	mi := &file_ffp_flag_v1_flag_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -685,7 +685,7 @@ func (x *UnarchiveRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnarchiveRequest.ProtoReflect.Descriptor instead.
 func (*UnarchiveRequest) Descriptor() ([]byte, []int) {
-	return file_flagsvc_flag_v1_flag_proto_rawDescGZIP(), []int{13}
+	return file_ffp_flag_v1_flag_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *UnarchiveRequest) GetId() string {
@@ -704,7 +704,7 @@ type UnarchiveResponse struct {
 
 func (x *UnarchiveResponse) Reset() {
 	*x = UnarchiveResponse{}
-	mi := &file_flagsvc_flag_v1_flag_proto_msgTypes[14]
+	mi := &file_ffp_flag_v1_flag_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -716,7 +716,7 @@ func (x *UnarchiveResponse) String() string {
 func (*UnarchiveResponse) ProtoMessage() {}
 
 func (x *UnarchiveResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_flagsvc_flag_v1_flag_proto_msgTypes[14]
+	mi := &file_ffp_flag_v1_flag_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -729,7 +729,7 @@ func (x *UnarchiveResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnarchiveResponse.ProtoReflect.Descriptor instead.
 func (*UnarchiveResponse) Descriptor() ([]byte, []int) {
-	return file_flagsvc_flag_v1_flag_proto_rawDescGZIP(), []int{14}
+	return file_ffp_flag_v1_flag_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *UnarchiveResponse) GetFlag() *Flag {
@@ -739,11 +739,11 @@ func (x *UnarchiveResponse) GetFlag() *Flag {
 	return nil
 }
 
-var File_flagsvc_flag_v1_flag_proto protoreflect.FileDescriptor
+var File_ffp_flag_v1_flag_proto protoreflect.FileDescriptor
 
-const file_flagsvc_flag_v1_flag_proto_rawDesc = "" +
+const file_ffp_flag_v1_flag_proto_rawDesc = "" +
 	"\n" +
-	"\x1aflagsvc/flag/v1/flag.proto\x12\x0fflagsvc.flag.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xce\x01\n" +
+	"\x16ffp/flag/v1/flag.proto\x12\vffp.flag.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xce\x01\n" +
 	"\x04Flag\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x10\n" +
 	"\x03key\x18\x02 \x01(\tR\x03key\x12\x12\n" +
@@ -754,104 +754,104 @@ const file_flagsvc_flag_v1_flag_proto_rawDesc = "" +
 	"updated_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12\x1a\n" +
 	"\barchived\x18\x06 \x01(\bR\barchived\",\n" +
 	"\rCreateRequest\x12\x1b\n" +
-	"\x03key\x18\x01 \x01(\tB\t\xbaH\x06r\x04\x10\x01\x18dR\x03key\";\n" +
-	"\x0eCreateResponse\x12)\n" +
-	"\x04flag\x18\x01 \x01(\v2\x15.flagsvc.flag.v1.FlagR\x04flag\"F\n" +
+	"\x03key\x18\x01 \x01(\tB\t\xbaH\x06r\x04\x10\x01\x18dR\x03key\"7\n" +
+	"\x0eCreateResponse\x12%\n" +
+	"\x04flag\x18\x01 \x01(\v2\x11.ffp.flag.v1.FlagR\x04flag\"F\n" +
 	"\rUpdateRequest\x12\x18\n" +
 	"\x02id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x02id\x12\x1b\n" +
-	"\x03key\x18\x02 \x01(\tB\t\xbaH\x06r\x04\x10\x01\x18dR\x03key\";\n" +
-	"\x0eUpdateResponse\x12)\n" +
-	"\x04flag\x18\x01 \x01(\v2\x15.flagsvc.flag.v1.FlagR\x04flag\"&\n" +
+	"\x03key\x18\x02 \x01(\tB\t\xbaH\x06r\x04\x10\x01\x18dR\x03key\"7\n" +
+	"\x0eUpdateResponse\x12%\n" +
+	"\x04flag\x18\x01 \x01(\v2\x11.ffp.flag.v1.FlagR\x04flag\"&\n" +
 	"\n" +
 	"GetRequest\x12\x18\n" +
-	"\x02id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x02id\"8\n" +
-	"\vGetResponse\x12)\n" +
-	"\x04flag\x18\x01 \x01(\v2\x15.flagsvc.flag.v1.FlagR\x04flag\")\n" +
+	"\x02id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x02id\"4\n" +
+	"\vGetResponse\x12%\n" +
+	"\x04flag\x18\x01 \x01(\v2\x11.ffp.flag.v1.FlagR\x04flag\")\n" +
 	"\rDeleteRequest\x12\x18\n" +
-	"\x02id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x02id\";\n" +
-	"\x0eDeleteResponse\x12)\n" +
-	"\x04flag\x18\x01 \x01(\v2\x15.flagsvc.flag.v1.FlagR\x04flag\"I\n" +
+	"\x02id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x02id\"7\n" +
+	"\x0eDeleteResponse\x12%\n" +
+	"\x04flag\x18\x01 \x01(\v2\x11.ffp.flag.v1.FlagR\x04flag\"I\n" +
 	"\vListRequest\x12+\n" +
 	"\n" +
 	"page_token\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01H\x00R\tpageToken\x88\x01\x01B\r\n" +
-	"\v_page_token\"|\n" +
-	"\fListResponse\x12+\n" +
-	"\x05flags\x18\x01 \x03(\v2\x15.flagsvc.flag.v1.FlagR\x05flags\x12+\n" +
+	"\v_page_token\"x\n" +
+	"\fListResponse\x12'\n" +
+	"\x05flags\x18\x01 \x03(\v2\x11.ffp.flag.v1.FlagR\x05flags\x12+\n" +
 	"\x0fnext_page_token\x18\x02 \x01(\tH\x00R\rnextPageToken\x88\x01\x01B\x12\n" +
 	"\x10_next_page_token\"*\n" +
 	"\x0eArchiveRequest\x12\x18\n" +
-	"\x02id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x02id\"<\n" +
-	"\x0fArchiveResponse\x12)\n" +
-	"\x04flag\x18\x01 \x01(\v2\x15.flagsvc.flag.v1.FlagR\x04flag\",\n" +
+	"\x02id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x02id\"8\n" +
+	"\x0fArchiveResponse\x12%\n" +
+	"\x04flag\x18\x01 \x01(\v2\x11.ffp.flag.v1.FlagR\x04flag\",\n" +
 	"\x10UnarchiveRequest\x12\x18\n" +
-	"\x02id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x02id\">\n" +
-	"\x11UnarchiveResponse\x12)\n" +
-	"\x04flag\x18\x01 \x01(\v2\x15.flagsvc.flag.v1.FlagR\x04flag2\xa5\x04\n" +
-	"\vFlagService\x12K\n" +
-	"\x06Create\x12\x1e.flagsvc.flag.v1.CreateRequest\x1a\x1f.flagsvc.flag.v1.CreateResponse\"\x00\x12K\n" +
-	"\x06Update\x12\x1e.flagsvc.flag.v1.UpdateRequest\x1a\x1f.flagsvc.flag.v1.UpdateResponse\"\x00\x12B\n" +
-	"\x03Get\x12\x1b.flagsvc.flag.v1.GetRequest\x1a\x1c.flagsvc.flag.v1.GetResponse\"\x00\x12K\n" +
-	"\x06Delete\x12\x1e.flagsvc.flag.v1.DeleteRequest\x1a\x1f.flagsvc.flag.v1.DeleteResponse\"\x00\x12E\n" +
-	"\x04List\x12\x1c.flagsvc.flag.v1.ListRequest\x1a\x1d.flagsvc.flag.v1.ListResponse\"\x00\x12N\n" +
-	"\aArchive\x12\x1f.flagsvc.flag.v1.ArchiveRequest\x1a .flagsvc.flag.v1.ArchiveResponse\"\x00\x12T\n" +
-	"\tUnarchive\x12!.flagsvc.flag.v1.UnarchiveRequest\x1a\".flagsvc.flag.v1.UnarchiveResponse\"\x00B\xc8\x01\n" +
-	"\x13com.flagsvc.flag.v1B\tFlagProtoP\x01ZHgithub.com/nazifbara/feature-flag-platform/gen/go/flagsvc/flag/v1;flagv1\xa2\x02\x03FFX\xaa\x02\x0fFlagsvc.Flag.V1\xca\x02\x0fFlagsvc\\Flag\\V1\xe2\x02\x1bFlagsvc\\Flag\\V1\\GPBMetadata\xea\x02\x11Flagsvc::Flag::V1b\x06proto3"
+	"\x02id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x02id\":\n" +
+	"\x11UnarchiveResponse\x12%\n" +
+	"\x04flag\x18\x01 \x01(\v2\x11.ffp.flag.v1.FlagR\x04flag2\xed\x03\n" +
+	"\vFlagService\x12C\n" +
+	"\x06Create\x12\x1a.ffp.flag.v1.CreateRequest\x1a\x1b.ffp.flag.v1.CreateResponse\"\x00\x12C\n" +
+	"\x06Update\x12\x1a.ffp.flag.v1.UpdateRequest\x1a\x1b.ffp.flag.v1.UpdateResponse\"\x00\x12:\n" +
+	"\x03Get\x12\x17.ffp.flag.v1.GetRequest\x1a\x18.ffp.flag.v1.GetResponse\"\x00\x12C\n" +
+	"\x06Delete\x12\x1a.ffp.flag.v1.DeleteRequest\x1a\x1b.ffp.flag.v1.DeleteResponse\"\x00\x12=\n" +
+	"\x04List\x12\x18.ffp.flag.v1.ListRequest\x1a\x19.ffp.flag.v1.ListResponse\"\x00\x12F\n" +
+	"\aArchive\x12\x1b.ffp.flag.v1.ArchiveRequest\x1a\x1c.ffp.flag.v1.ArchiveResponse\"\x00\x12L\n" +
+	"\tUnarchive\x12\x1d.ffp.flag.v1.UnarchiveRequest\x1a\x1e.ffp.flag.v1.UnarchiveResponse\"\x00B\xb0\x01\n" +
+	"\x0fcom.ffp.flag.v1B\tFlagProtoP\x01ZDgithub.com/nazifbara/feature-flag-platform/gen/go/ffp/flag/v1;flagv1\xa2\x02\x03FFX\xaa\x02\vFfp.Flag.V1\xca\x02\vFfp\\Flag\\V1\xe2\x02\x17Ffp\\Flag\\V1\\GPBMetadata\xea\x02\rFfp::Flag::V1b\x06proto3"
 
 var (
-	file_flagsvc_flag_v1_flag_proto_rawDescOnce sync.Once
-	file_flagsvc_flag_v1_flag_proto_rawDescData []byte
+	file_ffp_flag_v1_flag_proto_rawDescOnce sync.Once
+	file_ffp_flag_v1_flag_proto_rawDescData []byte
 )
 
-func file_flagsvc_flag_v1_flag_proto_rawDescGZIP() []byte {
-	file_flagsvc_flag_v1_flag_proto_rawDescOnce.Do(func() {
-		file_flagsvc_flag_v1_flag_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_flagsvc_flag_v1_flag_proto_rawDesc), len(file_flagsvc_flag_v1_flag_proto_rawDesc)))
+func file_ffp_flag_v1_flag_proto_rawDescGZIP() []byte {
+	file_ffp_flag_v1_flag_proto_rawDescOnce.Do(func() {
+		file_ffp_flag_v1_flag_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_ffp_flag_v1_flag_proto_rawDesc), len(file_ffp_flag_v1_flag_proto_rawDesc)))
 	})
-	return file_flagsvc_flag_v1_flag_proto_rawDescData
+	return file_ffp_flag_v1_flag_proto_rawDescData
 }
 
-var file_flagsvc_flag_v1_flag_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
-var file_flagsvc_flag_v1_flag_proto_goTypes = []any{
-	(*Flag)(nil),                  // 0: flagsvc.flag.v1.Flag
-	(*CreateRequest)(nil),         // 1: flagsvc.flag.v1.CreateRequest
-	(*CreateResponse)(nil),        // 2: flagsvc.flag.v1.CreateResponse
-	(*UpdateRequest)(nil),         // 3: flagsvc.flag.v1.UpdateRequest
-	(*UpdateResponse)(nil),        // 4: flagsvc.flag.v1.UpdateResponse
-	(*GetRequest)(nil),            // 5: flagsvc.flag.v1.GetRequest
-	(*GetResponse)(nil),           // 6: flagsvc.flag.v1.GetResponse
-	(*DeleteRequest)(nil),         // 7: flagsvc.flag.v1.DeleteRequest
-	(*DeleteResponse)(nil),        // 8: flagsvc.flag.v1.DeleteResponse
-	(*ListRequest)(nil),           // 9: flagsvc.flag.v1.ListRequest
-	(*ListResponse)(nil),          // 10: flagsvc.flag.v1.ListResponse
-	(*ArchiveRequest)(nil),        // 11: flagsvc.flag.v1.ArchiveRequest
-	(*ArchiveResponse)(nil),       // 12: flagsvc.flag.v1.ArchiveResponse
-	(*UnarchiveRequest)(nil),      // 13: flagsvc.flag.v1.UnarchiveRequest
-	(*UnarchiveResponse)(nil),     // 14: flagsvc.flag.v1.UnarchiveResponse
+var file_ffp_flag_v1_flag_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_ffp_flag_v1_flag_proto_goTypes = []any{
+	(*Flag)(nil),                  // 0: ffp.flag.v1.Flag
+	(*CreateRequest)(nil),         // 1: ffp.flag.v1.CreateRequest
+	(*CreateResponse)(nil),        // 2: ffp.flag.v1.CreateResponse
+	(*UpdateRequest)(nil),         // 3: ffp.flag.v1.UpdateRequest
+	(*UpdateResponse)(nil),        // 4: ffp.flag.v1.UpdateResponse
+	(*GetRequest)(nil),            // 5: ffp.flag.v1.GetRequest
+	(*GetResponse)(nil),           // 6: ffp.flag.v1.GetResponse
+	(*DeleteRequest)(nil),         // 7: ffp.flag.v1.DeleteRequest
+	(*DeleteResponse)(nil),        // 8: ffp.flag.v1.DeleteResponse
+	(*ListRequest)(nil),           // 9: ffp.flag.v1.ListRequest
+	(*ListResponse)(nil),          // 10: ffp.flag.v1.ListResponse
+	(*ArchiveRequest)(nil),        // 11: ffp.flag.v1.ArchiveRequest
+	(*ArchiveResponse)(nil),       // 12: ffp.flag.v1.ArchiveResponse
+	(*UnarchiveRequest)(nil),      // 13: ffp.flag.v1.UnarchiveRequest
+	(*UnarchiveResponse)(nil),     // 14: ffp.flag.v1.UnarchiveResponse
 	(*timestamppb.Timestamp)(nil), // 15: google.protobuf.Timestamp
 }
-var file_flagsvc_flag_v1_flag_proto_depIdxs = []int32{
-	15, // 0: flagsvc.flag.v1.Flag.created_at:type_name -> google.protobuf.Timestamp
-	15, // 1: flagsvc.flag.v1.Flag.updated_at:type_name -> google.protobuf.Timestamp
-	0,  // 2: flagsvc.flag.v1.CreateResponse.flag:type_name -> flagsvc.flag.v1.Flag
-	0,  // 3: flagsvc.flag.v1.UpdateResponse.flag:type_name -> flagsvc.flag.v1.Flag
-	0,  // 4: flagsvc.flag.v1.GetResponse.flag:type_name -> flagsvc.flag.v1.Flag
-	0,  // 5: flagsvc.flag.v1.DeleteResponse.flag:type_name -> flagsvc.flag.v1.Flag
-	0,  // 6: flagsvc.flag.v1.ListResponse.flags:type_name -> flagsvc.flag.v1.Flag
-	0,  // 7: flagsvc.flag.v1.ArchiveResponse.flag:type_name -> flagsvc.flag.v1.Flag
-	0,  // 8: flagsvc.flag.v1.UnarchiveResponse.flag:type_name -> flagsvc.flag.v1.Flag
-	1,  // 9: flagsvc.flag.v1.FlagService.Create:input_type -> flagsvc.flag.v1.CreateRequest
-	3,  // 10: flagsvc.flag.v1.FlagService.Update:input_type -> flagsvc.flag.v1.UpdateRequest
-	5,  // 11: flagsvc.flag.v1.FlagService.Get:input_type -> flagsvc.flag.v1.GetRequest
-	7,  // 12: flagsvc.flag.v1.FlagService.Delete:input_type -> flagsvc.flag.v1.DeleteRequest
-	9,  // 13: flagsvc.flag.v1.FlagService.List:input_type -> flagsvc.flag.v1.ListRequest
-	11, // 14: flagsvc.flag.v1.FlagService.Archive:input_type -> flagsvc.flag.v1.ArchiveRequest
-	13, // 15: flagsvc.flag.v1.FlagService.Unarchive:input_type -> flagsvc.flag.v1.UnarchiveRequest
-	2,  // 16: flagsvc.flag.v1.FlagService.Create:output_type -> flagsvc.flag.v1.CreateResponse
-	4,  // 17: flagsvc.flag.v1.FlagService.Update:output_type -> flagsvc.flag.v1.UpdateResponse
-	6,  // 18: flagsvc.flag.v1.FlagService.Get:output_type -> flagsvc.flag.v1.GetResponse
-	8,  // 19: flagsvc.flag.v1.FlagService.Delete:output_type -> flagsvc.flag.v1.DeleteResponse
-	10, // 20: flagsvc.flag.v1.FlagService.List:output_type -> flagsvc.flag.v1.ListResponse
-	12, // 21: flagsvc.flag.v1.FlagService.Archive:output_type -> flagsvc.flag.v1.ArchiveResponse
-	14, // 22: flagsvc.flag.v1.FlagService.Unarchive:output_type -> flagsvc.flag.v1.UnarchiveResponse
+var file_ffp_flag_v1_flag_proto_depIdxs = []int32{
+	15, // 0: ffp.flag.v1.Flag.created_at:type_name -> google.protobuf.Timestamp
+	15, // 1: ffp.flag.v1.Flag.updated_at:type_name -> google.protobuf.Timestamp
+	0,  // 2: ffp.flag.v1.CreateResponse.flag:type_name -> ffp.flag.v1.Flag
+	0,  // 3: ffp.flag.v1.UpdateResponse.flag:type_name -> ffp.flag.v1.Flag
+	0,  // 4: ffp.flag.v1.GetResponse.flag:type_name -> ffp.flag.v1.Flag
+	0,  // 5: ffp.flag.v1.DeleteResponse.flag:type_name -> ffp.flag.v1.Flag
+	0,  // 6: ffp.flag.v1.ListResponse.flags:type_name -> ffp.flag.v1.Flag
+	0,  // 7: ffp.flag.v1.ArchiveResponse.flag:type_name -> ffp.flag.v1.Flag
+	0,  // 8: ffp.flag.v1.UnarchiveResponse.flag:type_name -> ffp.flag.v1.Flag
+	1,  // 9: ffp.flag.v1.FlagService.Create:input_type -> ffp.flag.v1.CreateRequest
+	3,  // 10: ffp.flag.v1.FlagService.Update:input_type -> ffp.flag.v1.UpdateRequest
+	5,  // 11: ffp.flag.v1.FlagService.Get:input_type -> ffp.flag.v1.GetRequest
+	7,  // 12: ffp.flag.v1.FlagService.Delete:input_type -> ffp.flag.v1.DeleteRequest
+	9,  // 13: ffp.flag.v1.FlagService.List:input_type -> ffp.flag.v1.ListRequest
+	11, // 14: ffp.flag.v1.FlagService.Archive:input_type -> ffp.flag.v1.ArchiveRequest
+	13, // 15: ffp.flag.v1.FlagService.Unarchive:input_type -> ffp.flag.v1.UnarchiveRequest
+	2,  // 16: ffp.flag.v1.FlagService.Create:output_type -> ffp.flag.v1.CreateResponse
+	4,  // 17: ffp.flag.v1.FlagService.Update:output_type -> ffp.flag.v1.UpdateResponse
+	6,  // 18: ffp.flag.v1.FlagService.Get:output_type -> ffp.flag.v1.GetResponse
+	8,  // 19: ffp.flag.v1.FlagService.Delete:output_type -> ffp.flag.v1.DeleteResponse
+	10, // 20: ffp.flag.v1.FlagService.List:output_type -> ffp.flag.v1.ListResponse
+	12, // 21: ffp.flag.v1.FlagService.Archive:output_type -> ffp.flag.v1.ArchiveResponse
+	14, // 22: ffp.flag.v1.FlagService.Unarchive:output_type -> ffp.flag.v1.UnarchiveResponse
 	16, // [16:23] is the sub-list for method output_type
 	9,  // [9:16] is the sub-list for method input_type
 	9,  // [9:9] is the sub-list for extension type_name
@@ -859,28 +859,28 @@ var file_flagsvc_flag_v1_flag_proto_depIdxs = []int32{
 	0,  // [0:9] is the sub-list for field type_name
 }
 
-func init() { file_flagsvc_flag_v1_flag_proto_init() }
-func file_flagsvc_flag_v1_flag_proto_init() {
-	if File_flagsvc_flag_v1_flag_proto != nil {
+func init() { file_ffp_flag_v1_flag_proto_init() }
+func file_ffp_flag_v1_flag_proto_init() {
+	if File_ffp_flag_v1_flag_proto != nil {
 		return
 	}
-	file_flagsvc_flag_v1_flag_proto_msgTypes[9].OneofWrappers = []any{}
-	file_flagsvc_flag_v1_flag_proto_msgTypes[10].OneofWrappers = []any{}
+	file_ffp_flag_v1_flag_proto_msgTypes[9].OneofWrappers = []any{}
+	file_ffp_flag_v1_flag_proto_msgTypes[10].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_flagsvc_flag_v1_flag_proto_rawDesc), len(file_flagsvc_flag_v1_flag_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_ffp_flag_v1_flag_proto_rawDesc), len(file_ffp_flag_v1_flag_proto_rawDesc)),
 			NumEnums:      0,
 			NumMessages:   15,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
-		GoTypes:           file_flagsvc_flag_v1_flag_proto_goTypes,
-		DependencyIndexes: file_flagsvc_flag_v1_flag_proto_depIdxs,
-		MessageInfos:      file_flagsvc_flag_v1_flag_proto_msgTypes,
+		GoTypes:           file_ffp_flag_v1_flag_proto_goTypes,
+		DependencyIndexes: file_ffp_flag_v1_flag_proto_depIdxs,
+		MessageInfos:      file_ffp_flag_v1_flag_proto_msgTypes,
 	}.Build()
-	File_flagsvc_flag_v1_flag_proto = out.File
-	file_flagsvc_flag_v1_flag_proto_goTypes = nil
-	file_flagsvc_flag_v1_flag_proto_depIdxs = nil
+	File_ffp_flag_v1_flag_proto = out.File
+	file_ffp_flag_v1_flag_proto_goTypes = nil
+	file_ffp_flag_v1_flag_proto_depIdxs = nil
 }

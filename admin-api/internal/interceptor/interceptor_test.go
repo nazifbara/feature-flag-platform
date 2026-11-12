@@ -16,8 +16,8 @@ import (
 	connect "connectrpc.com/connect/v2"
 	"connectrpc.com/connect/v2/connecthttp"
 	"github.com/google/go-cmp/cmp"
-	pingv1 "github.com/nazifbara/feature-flag-platform/gen/go/flagsvc/ping/v1"
-	"github.com/nazifbara/feature-flag-platform/gen/go/flagsvc/ping/v1/pingv1connect"
+	pingv1 "github.com/nazifbara/feature-flag-platform/gen/go/ffp/ping/v1"
+	"github.com/nazifbara/feature-flag-platform/gen/go/ffp/ping/v1/pingv1connect"
 )
 
 // failingPing answers every call with err, or with a response if err is nil.

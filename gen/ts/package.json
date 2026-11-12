@@ -1,5 +1,5 @@
 {
-	"name": "@flagsvc/proto",
+	"name": "@ffp/proto",
 	"private": true,
 	"version": "0.0.0",
 	"type": "module",

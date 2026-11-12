@@ -39,7 +39,7 @@ importers:
       '@connectrpc/connect-web':
         specifier: ^1.4.0
         version: 1.7.0(@bufbuild/protobuf@1.10.1)(@connectrpc/connect@1.7.0(@bufbuild/protobuf@1.10.1))
-      '@flagsvc/proto':
+      '@ffp/proto':
         specifier: workspace:*
         version: link:../gen/ts
       axios:
