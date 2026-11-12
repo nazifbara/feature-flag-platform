@@ -20,6 +20,7 @@ import (
 	"github.com/nazifbara/feature-flag-platform/admin-api/internal/store"
 	envv1 "github.com/nazifbara/feature-flag-platform/gen/go/ffp/env/v1"
 	"github.com/nazifbara/feature-flag-platform/gen/go/ffp/env/v1/envv1connect"
+	"google.golang.org/protobuf/proto"
 
 	_ "github.com/lib/pq"
 )
@@ -409,4 +410,152 @@ func TestCreate(t *testing.T) {
 		_, err := unreachable.Create(ctx, &envv1.CreateRequest{Name: "production"})
 		wantCode(t, err, connect.CodeInternal, "can't create the environment")
 	})
+}
+
+// badIDs are environment ids the proto's uuid rule rejects, with the message
+// the client gets. The rule takes only the dashed form, unlike uuid.Parse.
+var badIDs = map[string]struct {
+	id      string
+	message string
+}{
+	"an empty id": {
+		id:      "",
+		message: "validation error: id: value is empty, which is not a valid UUID",
+	},
+	"an id that isn't a UUID": {
+		id:      "not-a-uuid",
+		message: "validation error: id: must be a valid UUID",
+	},
+	"an id with surrounding spaces": {
+		id:      " 6ba7b810-9dad-11d1-80b4-00c04fd430c8 ",
+		message: "validation error: id: must be a valid UUID",
+	},
+	"an id in braces": {
+		id:      "{6ba7b810-9dad-11d1-80b4-00c04fd430c8}",
+		message: "validation error: id: must be a valid UUID",
+	},
+	"an id as a URN": {
+		id:      "urn:uuid:6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+		message: "validation error: id: must be a valid UUID",
+	},
+	"an id without dashes": {
+		id:      "6ba7b8109dad11d180b400c04fd430c8",
+		message: "validation error: id: must be a valid UUID",
+	},
+}
+
+// mustGet gets the environment with id and returns the response's
+// environment, failing the test if the call fails or the response carries
+// none.
+func mustGet(t *testing.T, client envv1connect.EnvServiceClient, id string) *envv1.Environment {
+	t.Helper()
+	res, err := client.Get(context.Background(), &envv1.GetRequest{Id: id})
+	if err != nil {
+		t.Fatalf("Get(%s): %v", id, err)
+	}
+	if res.GetEnvironment() == nil {
+		t.Fatalf("Get(%s) returned no environment", id)
+	}
+	return res.GetEnvironment()
+}
+
+func TestGet(t *testing.T) {
+	db := testDB(t)
+	st := newStore(t, os.Getenv("TEST_DB_URL"))
+	client := newClient(t, st)
+	ctx := context.Background()
+
+	t.Run("returns the stored environment", func(t *testing.T) {
+		resetDB(t, db)
+		created := mustCreate(t, client, "production")
+		if got := mustGet(t, client, created.Id); !proto.Equal(got, created) {
+			t.Fatalf("Get() = %v, want the created environment %v", got, created)
+		}
+	})
+
+	// Every flag created bumps every environment, so Get shows the version
+	// SDKs sync to, past the 1 that Create returned.
+	t.Run("returns the current version", func(t *testing.T) {
+		resetDB(t, db)
+		created := mustCreate(t, client, "production")
+		for _, key := range []string{"new-checkout", "dark-mode"} {
+			if _, err := st.CreateFlag(ctx, key); err != nil {
+				t.Fatalf("CreateFlag(%q): %v", key, err)
+			}
+		}
+		var version int64
+		if err := db.QueryRow("SELECT version FROM environments WHERE id = $1", created.Id).Scan(&version); err != nil {
+			t.Fatalf("reading the version: %v", err)
+		}
+		if version == created.Version {
+			t.Fatalf("version still %d after creating flags; the case needs it to have moved", version)
+		}
+		got := mustGet(t, client, created.Id)
+		if got.Version != version {
+			t.Errorf("version = %d, want the stored %d", got.Version, version)
+		}
+		if got.Id != created.Id || got.Name != created.Name || !proto.Equal(got.CreatedAt, created.CreatedAt) {
+			t.Errorf("Get() = %v, want %v but for its version and updated_at", got, created)
+		}
+	})
+
+	t.Run("returns the environment asked for among others", func(t *testing.T) {
+		resetDB(t, db)
+		mustCreate(t, client, "staging")
+		production := mustCreate(t, client, "production")
+		mustCreate(t, client, "development")
+		if got := mustGet(t, client, production.Id); !proto.Equal(got, production) {
+			t.Fatalf("Get() = %v, want %v", got, production)
+		}
+	})
+
+	t.Run("accepts the id in upper case", func(t *testing.T) {
+		resetDB(t, db)
+		created := mustCreate(t, client, "production")
+		if got := mustGet(t, client, strings.ToUpper(created.Id)); got.Id != created.Id {
+			t.Fatalf("id = %s, want %s", got.Id, created.Id)
+		}
+	})
+
+	for name, tc := range badIDs {
+		t.Run("rejects "+name, func(t *testing.T) {
+			_, err := client.Get(ctx, &envv1.GetRequest{Id: tc.id})
+			wantCode(t, err, connect.CodeInvalidArgument, tc.message)
+		})
+	}
+
+	t.Run("rejects an id no environment has", func(t *testing.T) {
+		resetDB(t, db)
+		mustCreate(t, client, "production")
+		_, err := client.Get(ctx, &envv1.GetRequest{Id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"})
+		wantCode(t, err, connect.CodeNotFound, "can't get the environment")
+	})
+
+	// The client gets the store's message, never the database's error.
+	t.Run("hides database failures", func(t *testing.T) {
+		unreachable := newClient(t, newStore(t, unreachableDB))
+		_, err := unreachable.Get(ctx, &envv1.GetRequest{Id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"})
+		wantCode(t, err, connect.CodeInternal, "can't get the environment")
+	})
+}
+
+// Without the validation interceptor, as for a direct caller, each handler's
+// own parsing still rejects an id that isn't a UUID, before reaching the
+// store: the store here can't reach a database, and would answer Internal.
+func TestHandlersWithoutValidationRejectBadIDs(t *testing.T) {
+	svc := New(newStore(t, unreachableDB))
+	ctx := context.Background()
+	calls := map[string]func(id string) error{
+		"Get": func(id string) error {
+			_, err := svc.Get(ctx, &envv1.GetRequest{Id: id})
+			return err
+		},
+	}
+	for rpc, call := range calls {
+		for _, id := range []string{"", "not-a-uuid", " 6ba7b810-9dad-11d1-80b4-00c04fd430c8 "} {
+			t.Run(fmt.Sprintf("%s %q", rpc, id), func(t *testing.T) {
+				wantCode(t, call(id), connect.CodeInvalidArgument, "invalid environment id")
+			})
+		}
+	}
 }

@@ -26,6 +26,8 @@ const (
 const (
 	// EnvServiceCreateProcedure is the procedure name of the EnvService's Create RPC.
 	EnvServiceCreateProcedure = "/ffp.env.v1.EnvService/Create"
+	// EnvServiceGetProcedure is the procedure name of the EnvService's Get RPC.
+	EnvServiceGetProcedure = "/ffp.env.v1.EnvService/Get"
 )
 
 var (
@@ -36,11 +38,19 @@ var (
 			Procedure:  EnvServiceCreateProcedure,
 		}
 	})
+	envServiceGetSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_ffp_env_v1_env_proto.Services().ByName("EnvService").Methods().ByName("Get"),
+			Procedure:  EnvServiceGetProcedure,
+		}
+	})
 )
 
 // EnvServiceClient is a client for the ffp.env.v1.EnvService service.
 type EnvServiceClient interface {
 	Create(context.Context, *v1.CreateRequest) (*v1.CreateResponse, error)
+	Get(context.Context, *v1.GetRequest) (*v1.GetResponse, error)
 }
 
 // NewEnvServiceClient constructs a client for the ffp.env.v1.EnvService service. Multiple service
@@ -52,6 +62,7 @@ func NewEnvServiceClient(client *connect.Client) EnvServiceClient {
 // EnvServiceHandler is an implementation of the ffp.env.v1.EnvService service.
 type EnvServiceHandler interface {
 	Create(context.Context, *v1.CreateRequest) (*v1.CreateResponse, error)
+	Get(context.Context, *v1.GetRequest) (*v1.GetResponse, error)
 }
 
 // RegisterEnvServiceHandler registers svc as the ffp.env.v1.EnvService implementation on server.
@@ -59,6 +70,7 @@ func RegisterEnvServiceHandler(server *connect.Server, svc EnvServiceHandler) {
 	adapter := envServiceHandler{svc: svc}
 	server.Register(
 		connect.Method{Spec: envServiceCreateSpec(), Handler: adapter.create},
+		connect.Method{Spec: envServiceGetSpec(), Handler: adapter.get},
 	)
 }
 
@@ -67,6 +79,10 @@ type UnimplementedEnvServiceHandler struct{}
 
 func (UnimplementedEnvServiceHandler) Create(context.Context, *v1.CreateRequest) (*v1.CreateResponse, error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, "ffp.env.v1.EnvService.Create is not implemented")
+}
+
+func (UnimplementedEnvServiceHandler) Get(context.Context, *v1.GetRequest) (*v1.GetResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "ffp.env.v1.EnvService.Get is not implemented")
 }
 
 type envServiceClient struct {
@@ -81,6 +97,14 @@ func (c *envServiceClient) Create(ctx context.Context, req *v1.CreateRequest) (*
 	return &res, nil
 }
 
+func (c *envServiceClient) Get(ctx context.Context, req *v1.GetRequest) (*v1.GetResponse, error) {
+	var res v1.GetResponse
+	if err := c.client.CallUnary(ctx, envServiceGetSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
 type envServiceHandler struct{ svc EnvServiceHandler }
 
 func (h envServiceHandler) create(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
@@ -89,6 +113,18 @@ func (h envServiceHandler) create(ctx context.Context, _ connect.Spec, stream co
 		return err
 	}
 	res, err := h.svc.Create(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h envServiceHandler) get(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.GetRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.Get(ctx, &req)
 	if err != nil {
 		return err
 	}
