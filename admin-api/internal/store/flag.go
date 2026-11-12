@@ -79,7 +79,7 @@ func (s *Store) CreateFlag(ctx context.Context, key string) (database.Flag, erro
 		if err := q.IncrementAllEnvVersions(ctx); err != nil {
 			return err
 		}
-		return q.CreateChangeLogsForFlag(ctx, f.ID)
+		return q.ChangeLogFlagCreated(ctx, f.ID)
 	})
 	if err != nil {
 		return database.Flag{}, ffserrors.FromDBErr(err, "can't create the flag")
@@ -126,7 +126,7 @@ func (s *Store) UpdateFlag(ctx context.Context, id uuid.UUID, key string) (datab
 		if err := q.IncrementAllEnvVersions(ctx); err != nil {
 			return err
 		}
-		return q.CreateChangeLogsForFlagUpdate(ctx, database.CreateChangeLogsForFlagUpdateParams{OldKey: currentFlag.Key, FlagID: f.ID})
+		return q.ChangeLogFlagUpdated(ctx, database.ChangeLogFlagUpdatedParams{OldKey: currentFlag.Key, FlagID: f.ID})
 	})
 	if err != nil {
 		return database.Flag{}, ffserrors.FromDBErr(err, "can't update the flag")
@@ -151,7 +151,7 @@ func (s *Store) DeleteFlag(ctx context.Context, id uuid.UUID) (database.Flag, er
 		if err := q.IncrementAllEnvVersions(ctx); err != nil {
 			return err
 		}
-		return q.CreateChangeLogsForFlagDelete(ctx, f.Key)
+		return q.ChangeLogFlagDeleted(ctx, f.Key)
 	})
 	if err != nil {
 		return database.Flag{}, ffserrors.FromDBErr(err, "can't delete the flag")
@@ -209,7 +209,7 @@ func (s *Store) ArchiveFlag(ctx context.Context, id uuid.UUID) (database.Flag, e
 		if err := q.IncrementAllEnvVersions(ctx); err != nil {
 			return err
 		}
-		if err := q.CreateChangeLogsForFlagArchive(ctx, id); err != nil {
+		if err := q.ChangeLogFlagArchived(ctx, id); err != nil {
 			return err
 		}
 		flag = f
@@ -245,7 +245,7 @@ func (s *Store) UnarchiveFlag(ctx context.Context, id uuid.UUID) (database.Flag,
 		if err := q.IncrementAllEnvVersions(ctx); err != nil {
 			return err
 		}
-		if err := q.CreateChangeLogsForFlagUnarchive(ctx, id); err != nil {
+		if err := q.ChangeLogFlagUnarchived(ctx, id); err != nil {
 			return err
 		}
 		flag = f

@@ -4,7 +4,7 @@ SELECT * FROM change_logs
 WHERE environment_id = sqlc.arg('environment_id') AND target_version > sqlc.arg('version')
 ORDER BY target_version ASC;
 
--- name: CreateChangeLogsForEnvDelete :exec
+-- name: ChangeLogEnvironmentDeleted :exec
 -- Logs an environment's deletion, with the version after the one it was at, so
 -- SDKs syncing it see a newer version. The environment is gone by then, so its
 -- id and the version are passed in.
@@ -22,7 +22,7 @@ INSERT INTO change_logs (
     clock_timestamp()
 );
 
--- name: CreateChangeLogsForFlag :exec
+-- name: ChangeLogFlagCreated :exec
 -- Logs a new flag in every environment, with the flag's id and salt, which
 -- evaluating it takes, the setting it starts with there and the environment's
 -- version. It reads them all, so it runs after the settings are created and
@@ -59,7 +59,7 @@ INNER JOIN flags AS f ON fs.flag_id = f.id
 CROSS JOIN now
 WHERE fs.flag_id = sqlc.arg('flag_id');
 
--- name: CreateChangeLogsForFlagUpdate :exec
+-- name: ChangeLogFlagUpdated :exec
 -- Logs a flag's new key in every environment, next to the key it replaced,
 -- with the environment's version. It reads the new key and the versions, so it
 -- runs after the flag is updated and the versions bumped. The clock is read
@@ -88,7 +88,7 @@ CROSS JOIN flags AS f
 CROSS JOIN now
 WHERE f.id = sqlc.arg('flag_id');
 
--- name: CreateChangeLogsForFlagDelete :exec
+-- name: ChangeLogFlagDeleted :exec
 -- Logs a flag's deletion in every environment, with the flag's key and the
 -- environment's version. The flag is gone by then, so its key is passed in;
 -- the versions are read, so it runs after they're bumped. The clock is read
@@ -113,7 +113,7 @@ SELECT
 FROM environments AS e
 CROSS JOIN now;
 
--- name: CreateChangeLogsForFlagArchive :exec
+-- name: ChangeLogFlagArchived :exec
 -- Logs a flag's archiving in every environment, with the flag's key and the
 -- environment's version. It reads the versions, so it runs after they're
 -- bumped. The clock is read once so all the entries for one archiving share a
@@ -140,7 +140,7 @@ CROSS JOIN flags AS f
 CROSS JOIN now
 WHERE f.id = sqlc.arg('flag_id');
 
--- name: CreateChangeLogsForFlagUnarchive :exec
+-- name: ChangeLogFlagUnarchived :exec
 -- Logs a flag's unarchiving in every environment, with the flag's key and the
 -- environment's version. It reads the versions, so it runs after they're
 -- bumped. The clock is read once so all the entries for one unarchiving share
@@ -167,7 +167,7 @@ CROSS JOIN flags AS f
 CROSS JOIN now
 WHERE f.id = sqlc.arg('flag_id');
 
--- name: CreateChangeLogsForSettingUpdate :exec
+-- name: ChangeLogSettingUpdated :exec
 -- Logs a flag's new setting in one environment, with the flag's key and the
 -- environment's version. It reads both, so it runs after the setting is
 -- updated and the version bumped.
@@ -201,7 +201,7 @@ WHERE
     AND f.id = fs.flag_id
     AND fs.id = sqlc.arg('flag_setting_id');
 
--- name: CreateChangeLogsForRuleCreate :exec
+-- name: ChangeLogRuleCreated :exec
 -- Logs a new rule in its setting's environment, with the flag's key, the rule's
 -- id, which evaluating it takes, its serve, clauses and position, and the
 -- environment's version. It reads them all, so it runs after the rule is
@@ -242,7 +242,7 @@ WHERE
     AND f.id = fs.flag_id
     AND e.id = fs.environment_id;
 
--- name: CreateChangeLogsForRuleUpdate :exec
+-- name: ChangeLogRuleUpdated :exec
 -- Logs a rule's new serve and clauses in its setting's environment, with the
 -- flag's key, the rule's position and the environment's version. It reads them
 -- all, so it runs after the rule is updated and the version bumped.
@@ -281,7 +281,7 @@ WHERE
     AND e.id = fs.environment_id;
 
 
--- name: CreateChangeLogsForRulePositionChange :exec
+-- name: ChangeLogRulePositionChanged :exec
 -- Logs a rule's move in its setting's environment, with the flag's key, the
 -- position it left and the one it took, and the environment's version. The old
 -- position is gone by then, so it's passed in; the new one and the version are
@@ -319,7 +319,7 @@ WHERE
     AND e.id = fs.environment_id;
 
 
--- name: CreateChangeLogsForRuleDelete :exec
+-- name: ChangeLogRuleDeleted :exec
 -- Logs a rule's deletion in its setting's environment, with the flag's key, the
 -- position the rule had and the environment's version. The rule is gone by then,
 -- so its setting and position are passed in; the version is read, so it runs
