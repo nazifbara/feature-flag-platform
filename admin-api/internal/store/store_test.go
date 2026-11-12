@@ -10,7 +10,7 @@ import (
 	"time"
 	"uuid"
 
-	"github.com/nazifbara/flagsvc/api/internal/database"
+	"github.com/nazifbara/flagsvc/admin-api/internal/database"
 )
 
 // testDBLock is the session advisory lock every package testing against

@@ -4,8 +4,8 @@ import (
 	"context"
 
 	"connectrpc.com/connect/v2"
-	"github.com/nazifbara/flagsvc/api/internal/database"
-	"github.com/nazifbara/flagsvc/api/internal/ffserrors"
+	"github.com/nazifbara/flagsvc/admin-api/internal/database"
+	"github.com/nazifbara/flagsvc/admin-api/internal/ffserrors"
 )
 
 // maxChangesBehind is the furthest an SDK can be behind and still catch up from

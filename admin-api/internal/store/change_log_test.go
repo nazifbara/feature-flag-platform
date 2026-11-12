@@ -11,7 +11,7 @@ import (
 	"connectrpc.com/connect/v2"
 	"github.com/google/go-cmp/cmp"
 	"github.com/lib/pq"
-	"github.com/nazifbara/flagsvc/api/internal/database"
+	"github.com/nazifbara/flagsvc/admin-api/internal/database"
 )
 
 // mustChangeSetting changes the flag's setting in env n times, each change

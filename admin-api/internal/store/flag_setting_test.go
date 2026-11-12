@@ -14,7 +14,7 @@ import (
 	"connectrpc.com/connect/v2"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	"github.com/nazifbara/flagsvc/api/internal/database"
+	"github.com/nazifbara/flagsvc/admin-api/internal/database"
 )
 
 // flagSettingCount gives the number of committed flag settings.

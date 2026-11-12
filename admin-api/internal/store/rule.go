@@ -13,8 +13,8 @@ import (
 	"uuid"
 
 	"connectrpc.com/connect/v2"
-	"github.com/nazifbara/flagsvc/api/internal/database"
-	"github.com/nazifbara/flagsvc/api/internal/ffserrors"
+	"github.com/nazifbara/flagsvc/admin-api/internal/database"
+	"github.com/nazifbara/flagsvc/admin-api/internal/ffserrors"
 	"github.com/nazifbara/flagsvc/evaluator"
 )
 
