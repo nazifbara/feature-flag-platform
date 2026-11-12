@@ -18,7 +18,7 @@ INSERT INTO change_logs (
     gen_random_uuid(),
     sqlc.arg('version'),
     sqlc.arg('environment_id'),
-    'env-deleted',
+    'environment-deleted',
     clock_timestamp()
 );
 

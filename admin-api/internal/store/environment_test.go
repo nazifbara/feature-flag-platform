@@ -1038,10 +1038,10 @@ func TestDeleteEnvLogsChange(t *testing.T) {
 		want := []database.ChangeLog{{
 			TargetVersion: env.Version + 1,
 			EnvironmentID: env.ID,
-			Action:        "env-deleted",
+			Action:        "environment-deleted",
 		}}
 		ignore := cmpopts.IgnoreFields(database.ChangeLog{}, "ID", "CreatedAt")
-		if diff := cmp.Diff(want, storedChangeLogsFor(t, store, "env-deleted"), ignore); diff != "" {
+		if diff := cmp.Diff(want, storedChangeLogsFor(t, store, "environment-deleted"), ignore); diff != "" {
 			t.Fatalf("change logs mismatch (-want +got):\n%s", diff)
 		}
 		if got, want := changeLogCount(t, store), before+1; got != want {
@@ -1071,8 +1071,8 @@ func TestDeleteEnvLogsChange(t *testing.T) {
 			t.Errorf("earlier entries changed (-want +got):\n%s", diff)
 		}
 		last := logs[len(logs)-1]
-		if last.Action != "env-deleted" {
-			t.Fatalf("last entry is %q, want env-deleted", last.Action)
+		if last.Action != "environment-deleted" {
+			t.Fatalf("last entry is %q, want environment-deleted", last.Action)
 		}
 		if prev := earlier[len(earlier)-1].TargetVersion; last.TargetVersion != prev+1 {
 			t.Errorf("logged version %d, want %d, one after the last entry", last.TargetVersion, prev+1)
@@ -1115,8 +1115,8 @@ func TestDeleteEnvLogsChange(t *testing.T) {
 			}
 			logs := queryChangeLogs(t, store, "environment_id = $1", setting.EnvironmentID)
 			last := logs[len(logs)-1]
-			if last.Action != "env-deleted" {
-				t.Fatalf("last entry is %q at version %d, want env-deleted", last.Action, last.TargetVersion)
+			if last.Action != "environment-deleted" {
+				t.Fatalf("last entry is %q at version %d, want environment-deleted", last.Action, last.TargetVersion)
 			}
 			for i, l := range logs[1:] {
 				if l.TargetVersion != logs[i].TargetVersion+1 {
@@ -1142,7 +1142,7 @@ func TestDeleteEnvLogsChange(t *testing.T) {
 		for range racers {
 			<-errs
 		}
-		if n := len(storedChangeLogsFor(t, store, "env-deleted")); n != 1 {
+		if n := len(storedChangeLogsFor(t, store, "environment-deleted")); n != 1 {
 			t.Fatalf("%d entries, want 1", n)
 		}
 	})
