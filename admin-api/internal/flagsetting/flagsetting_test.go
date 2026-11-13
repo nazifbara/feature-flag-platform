@@ -140,6 +140,141 @@ func mustUpdate(t *testing.T, client flagsettingv1connect.FlagSettingServiceClie
 	return res.GetFlagSetting()
 }
 
+// mustGet gets the flag setting with id and returns the response's setting,
+// failing the test if the call fails or the response carries none.
+func mustGet(t *testing.T, client flagsettingv1connect.FlagSettingServiceClient, id string) *flagsettingv1.FlagSetting {
+	t.Helper()
+	res, err := client.Get(context.Background(), &flagsettingv1.GetRequest{Id: id})
+	if err != nil {
+		t.Fatalf("Get(%s): %v", id, err)
+	}
+	if res.GetFlagSetting() == nil {
+		t.Fatalf("Get(%s) returned no flag setting", id)
+	}
+	return res.GetFlagSetting()
+}
+
+func TestGet(t *testing.T) {
+	db := testutil.OpenDB(t)
+	st := newStore(t, os.Getenv("TEST_DB_URL"))
+	client := newClient(t, st)
+	ctx := context.Background()
+
+	t.Run("returns the stored setting", func(t *testing.T) {
+		testutil.ResetDB(t, db)
+		f := mustSetUp(t, st, "new-checkout", "production")
+		got := mustGet(t, client, f.setting.ID.String())
+		if !proto.Equal(got, settingToProto(f.setting)) {
+			t.Fatalf("Get() = %v, want %v", got, settingToProto(f.setting))
+		}
+		stored := readSetting(t, db, got.Id)
+		if stored.flagID != got.FlagId || stored.envID != got.EnvironmentId || stored.enabled != got.Enabled ||
+			stored.fallthroughValue != got.Fallthrough || !stored.created.Equal(got.CreatedAt.AsTime()) || !stored.updated.Equal(got.UpdatedAt.AsTime()) {
+			t.Errorf("Get() = %v, want the stored %+v", got, stored)
+		}
+	})
+
+	// Each setting of a flag in two environments, and of two flags in one,
+	// has its own values, so a lookup that returns the wrong row is caught.
+	t.Run("returns the setting asked for", func(t *testing.T) {
+		testutil.ResetDB(t, db)
+		f := mustSetUp(t, st, "new-checkout", "production")
+		other := mustSetUp(t, st, "dark-mode", "staging")
+		var settings []*flagsettingv1.FlagSetting
+		for i, pair := range [][2]string{
+			{f.flag.ID.String(), f.env.ID.String()},
+			{f.flag.ID.String(), other.env.ID.String()},
+			{other.flag.ID.String(), f.env.ID.String()},
+			{other.flag.ID.String(), other.env.ID.String()},
+		} {
+			var id string
+			if err := db.QueryRow("SELECT id FROM flag_settings WHERE flag_id = $1 AND environment_id = $2", pair[0], pair[1]).Scan(&id); err != nil {
+				t.Fatalf("finding the setting of %s in %s: %v", pair[0], pair[1], err)
+			}
+			settings = append(settings, mustUpdate(t, client, &flagsettingv1.UpdateRequest{
+				Id:          id,
+				Enabled:     i%2 == 0,
+				Fallthrough: float32(i+1) / 4,
+				UpdateMask:  mask("enabled", "fallthrough"),
+			}))
+		}
+		for _, want := range settings {
+			if got := mustGet(t, client, want.Id); !proto.Equal(got, want) {
+				t.Errorf("Get(%s) = %v, want %v", want.Id, got, want)
+			}
+		}
+	})
+
+	// Get gives what Update returned, not a stale copy.
+	t.Run("returns the setting as updated", func(t *testing.T) {
+		testutil.ResetDB(t, db)
+		f := mustSetUp(t, st, "new-checkout", "production")
+		updated := mustUpdate(t, client, &flagsettingv1.UpdateRequest{Id: f.setting.ID.String(), Enabled: true, Fallthrough: 0.1, UpdateMask: mask("enabled", "fallthrough")})
+		if got := mustGet(t, client, f.setting.ID.String()); !proto.Equal(got, updated) {
+			t.Fatalf("Get() = %v, want the updated %v", got, updated)
+		}
+	})
+
+	// An archived flag's settings are frozen, not hidden.
+	t.Run("returns a setting of an archived flag", func(t *testing.T) {
+		testutil.ResetDB(t, db)
+		f := mustSetUp(t, st, "new-checkout", "production")
+		if _, err := st.ArchiveFlag(ctx, f.flag.ID); err != nil {
+			t.Fatalf("ArchiveFlag(): %v", err)
+		}
+		if got := mustGet(t, client, f.setting.ID.String()); !proto.Equal(got, settingToProto(f.setting)) {
+			t.Fatalf("Get() = %v, want %v", got, settingToProto(f.setting))
+		}
+	})
+
+	t.Run("accepts the id in upper case", func(t *testing.T) {
+		testutil.ResetDB(t, db)
+		f := mustSetUp(t, st, "new-checkout", "production")
+		if got := mustGet(t, client, strings.ToUpper(f.setting.ID.String())); got.Id != f.setting.ID.String() {
+			t.Fatalf("id = %s, want %s", got.Id, f.setting.ID)
+		}
+	})
+
+	notFound := map[string]func(t *testing.T) string{
+		"an id no setting has": func(t *testing.T) string {
+			return "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+		},
+		// A flag's id isn't a setting's.
+		"a flag's id": func(t *testing.T) string {
+			return mustSetUp(t, st, "new-checkout", "production").flag.ID.String()
+		},
+		// Settings go with their environment.
+		"a setting of a deleted environment": func(t *testing.T) string {
+			f := mustSetUp(t, st, "new-checkout", "production")
+			if _, err := st.DeleteEnv(ctx, f.env.ID); err != nil {
+				t.Fatalf("DeleteEnv(): %v", err)
+			}
+			return f.setting.ID.String()
+		},
+	}
+	for name, id := range notFound {
+		t.Run("rejects "+name, func(t *testing.T) {
+			testutil.ResetDB(t, db)
+			_, err := client.Get(ctx, &flagsettingv1.GetRequest{Id: id(t)})
+			testutil.WantCode(t, err, connect.CodeNotFound, "can't get the flag setting")
+		})
+	}
+
+	for name, tc := range testutil.BadIDs {
+		t.Run("rejects "+name, func(t *testing.T) {
+			_, err := client.Get(ctx, &flagsettingv1.GetRequest{Id: tc.ID})
+			testutil.WantCode(t, err, connect.CodeInvalidArgument, tc.Message)
+		})
+	}
+
+	// The client gets the store's message, never the database's error.
+	t.Run("hides database failures", func(t *testing.T) {
+		unreachable := newClient(t, newStore(t, testutil.UnreachableDB))
+		_, err := unreachable.Get(ctx, &flagsettingv1.GetRequest{Id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"})
+		testutil.WantCode(t, err, connect.CodeInternal, "can't get the flag setting")
+	})
+}
+
 func TestUpdate(t *testing.T) {
 	db := testutil.OpenDB(t)
 	st := newStore(t, os.Getenv("TEST_DB_URL"))
@@ -525,6 +660,10 @@ func TestHandlersWithoutValidationRejectBadIDs(t *testing.T) {
 	svc := New(newStore(t, testutil.UnreachableDB))
 	ctx := context.Background()
 	calls := map[string]func(id string) error{
+		"Get": func(id string) error {
+			_, err := svc.Get(ctx, &flagsettingv1.GetRequest{Id: id})
+			return err
+		},
 		"Update": func(id string) error {
 			_, err := svc.Update(ctx, &flagsettingv1.UpdateRequest{Id: id, Enabled: true, UpdateMask: mask("enabled")})
 			return err

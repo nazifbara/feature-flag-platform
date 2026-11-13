@@ -24,11 +24,20 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
+	// FlagSettingServiceGetProcedure is the procedure name of the FlagSettingService's Get RPC.
+	FlagSettingServiceGetProcedure = "/ffp.flagsetting.v1.FlagSettingService/Get"
 	// FlagSettingServiceUpdateProcedure is the procedure name of the FlagSettingService's Update RPC.
 	FlagSettingServiceUpdateProcedure = "/ffp.flagsetting.v1.FlagSettingService/Update"
 )
 
 var (
+	flagSettingServiceGetSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_ffp_flagsetting_v1_flagsetting_proto.Services().ByName("FlagSettingService").Methods().ByName("Get"),
+			Procedure:  FlagSettingServiceGetProcedure,
+		}
+	})
 	flagSettingServiceUpdateSpec = sync.OnceValue(func() connect.Spec {
 		return connect.Spec{
 			StreamType: connect.StreamTypeUnary,
@@ -40,6 +49,7 @@ var (
 
 // FlagSettingServiceClient is a client for the ffp.flagsetting.v1.FlagSettingService service.
 type FlagSettingServiceClient interface {
+	Get(context.Context, *v1.GetRequest) (*v1.GetResponse, error)
 	Update(context.Context, *v1.UpdateRequest) (*v1.UpdateResponse, error)
 }
 
@@ -52,6 +62,7 @@ func NewFlagSettingServiceClient(client *connect.Client) FlagSettingServiceClien
 // FlagSettingServiceHandler is an implementation of the ffp.flagsetting.v1.FlagSettingService
 // service.
 type FlagSettingServiceHandler interface {
+	Get(context.Context, *v1.GetRequest) (*v1.GetResponse, error)
 	Update(context.Context, *v1.UpdateRequest) (*v1.UpdateResponse, error)
 }
 
@@ -60,6 +71,7 @@ type FlagSettingServiceHandler interface {
 func RegisterFlagSettingServiceHandler(server *connect.Server, svc FlagSettingServiceHandler) {
 	adapter := flagSettingServiceHandler{svc: svc}
 	server.Register(
+		connect.Method{Spec: flagSettingServiceGetSpec(), Handler: adapter.get},
 		connect.Method{Spec: flagSettingServiceUpdateSpec(), Handler: adapter.update},
 	)
 }
@@ -67,12 +79,24 @@ func RegisterFlagSettingServiceHandler(server *connect.Server, svc FlagSettingSe
 // UnimplementedFlagSettingServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedFlagSettingServiceHandler struct{}
 
+func (UnimplementedFlagSettingServiceHandler) Get(context.Context, *v1.GetRequest) (*v1.GetResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "ffp.flagsetting.v1.FlagSettingService.Get is not implemented")
+}
+
 func (UnimplementedFlagSettingServiceHandler) Update(context.Context, *v1.UpdateRequest) (*v1.UpdateResponse, error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, "ffp.flagsetting.v1.FlagSettingService.Update is not implemented")
 }
 
 type flagSettingServiceClient struct {
 	client *connect.Client
+}
+
+func (c *flagSettingServiceClient) Get(ctx context.Context, req *v1.GetRequest) (*v1.GetResponse, error) {
+	var res v1.GetResponse
+	if err := c.client.CallUnary(ctx, flagSettingServiceGetSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
 }
 
 func (c *flagSettingServiceClient) Update(ctx context.Context, req *v1.UpdateRequest) (*v1.UpdateResponse, error) {
@@ -84,6 +108,18 @@ func (c *flagSettingServiceClient) Update(ctx context.Context, req *v1.UpdateReq
 }
 
 type flagSettingServiceHandler struct{ svc FlagSettingServiceHandler }
+
+func (h flagSettingServiceHandler) get(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.GetRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.Get(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
 
 func (h flagSettingServiceHandler) update(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
 	var req v1.UpdateRequest
