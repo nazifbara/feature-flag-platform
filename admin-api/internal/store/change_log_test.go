@@ -20,7 +20,7 @@ import (
 func mustChangeSetting(t *testing.T, store *Store, flag database.Flag, env database.Environment, n int) {
 	t.Helper()
 	for i := range n {
-		mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{
+		mustUpdateFlagSetting(t, store, pairSetting{
 			FlagID:        flag.ID,
 			EnvironmentID: env.ID,
 			Enabled:       i%2 == 0,
@@ -258,7 +258,7 @@ func TestWriteLoggingATakenVersionFails(t *testing.T) {
 	}
 	want := matrixState(t, store)
 
-	got, err := store.UpdateFlagSetting(ctx, database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: 1})
+	got, err := store.UpdateFlagSetting(ctx, FlagSettingUpdate{ID: mustSettingID(t, store, flag.ID, env.ID), Enabled: new(true), Fallthrough: new(float32(1))})
 	wantConnectErr(t, err, connect.NewError(connect.CodeInternal, "can't update the flag setting"))
 	if got != (database.FlagSetting{}) {
 		t.Fatalf("UpdateFlagSetting() = %+v on error, want the zero FlagSetting", got)

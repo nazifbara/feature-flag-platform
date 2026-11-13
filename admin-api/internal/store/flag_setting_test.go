@@ -41,11 +41,39 @@ func storedFlagSetting(t *testing.T, store *Store, id uuid.UUID) database.FlagSe
 	return s
 }
 
+// pairSetting names a setting by its flag and environment, with the values to
+// give it, so tests can set up a pair without looking up its setting's ID.
+type pairSetting struct {
+	FlagID        uuid.UUID
+	EnvironmentID uuid.UUID
+	Enabled       bool
+	Fallthrough   float32
+}
+
+// mustSettingID gives the ID of the setting CreateFlag or CreateEnv made for
+// the pair, read straight from the table so tests don't depend on a
+// GetFlagSetting.
+func mustSettingID(t *testing.T, store *Store, flagID, environmentID uuid.UUID) uuid.UUID {
+	t.Helper()
+	var id uuid.UUID
+	err := store.db.QueryRow("SELECT id FROM flag_settings WHERE flag_id = $1 AND environment_id = $2", flagID, environmentID).Scan(&id)
+	if err != nil {
+		t.Fatalf("finding the setting of flag %v in environment %v: %v", flagID, environmentID, err)
+	}
+	return id
+}
+
 // mustUpdateFlagSetting gives the setting CreateFlag or CreateEnv made for the
 // pair the values in arg.
-func mustUpdateFlagSetting(t *testing.T, store *Store, arg database.UpdateFlagSettingParams) database.FlagSetting {
+func mustUpdateFlagSetting(t *testing.T, store *Store, arg pairSetting) database.FlagSetting {
 	t.Helper()
-	s, err := store.UpdateFlagSetting(context.Background(), arg)
+	// Both values are always set, so the pair ends up with exactly arg's.
+	update := FlagSettingUpdate{
+		ID:          mustSettingID(t, store, arg.FlagID, arg.EnvironmentID),
+		Enabled:     &arg.Enabled,
+		Fallthrough: &arg.Fallthrough,
+	}
+	s, err := store.UpdateFlagSetting(context.Background(), update)
 	if err != nil {
 		t.Fatalf("UpdateFlagSetting(%+v): %v", arg, err)
 	}
@@ -124,7 +152,7 @@ func TestGetFlagSetting(t *testing.T) {
 	var created []database.FlagSetting
 	for i, f := range flags {
 		for j, e := range envs {
-			created = append(created, mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{
+			created = append(created, mustUpdateFlagSetting(t, store, pairSetting{
 				FlagID:        f.ID,
 				EnvironmentID: e.ID,
 				Enabled:       (i+j)%2 == 0,
@@ -244,13 +272,8 @@ func TestUpdateFlagSetting(t *testing.T) {
 		testutil.ResetDB(t, store.db)
 		flag := mustCreateFlag(t, store, "new-checkout")
 		env := mustCreateEnv(t, store, "production")
-		s := mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Fallthrough: 0.25})
-		got, err := store.UpdateFlagSetting(ctx, database.UpdateFlagSettingParams{
-			FlagID:        flag.ID,
-			EnvironmentID: env.ID,
-			Enabled:       true,
-			Fallthrough:   0.75,
-		})
+		s := mustUpdateFlagSetting(t, store, pairSetting{FlagID: flag.ID, EnvironmentID: env.ID, Fallthrough: 0.25})
+		got, err := store.UpdateFlagSetting(ctx, FlagSettingUpdate{ID: s.ID, Enabled: new(true), Fallthrough: new(float32(0.75))})
 		if err != nil {
 			t.Fatalf("UpdateFlagSetting(): %v", err)
 		}
@@ -287,13 +310,8 @@ func TestUpdateFlagSetting(t *testing.T) {
 				testutil.ResetDB(t, store.db)
 				flag := mustCreateFlag(t, store, "new-checkout")
 				env := mustCreateEnv(t, store, "production")
-				s := mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: !test.enabled, Fallthrough: 0.3})
-				got, err := store.UpdateFlagSetting(ctx, database.UpdateFlagSettingParams{
-					FlagID:        flag.ID,
-					EnvironmentID: env.ID,
-					Enabled:       test.enabled,
-					Fallthrough:   test.fraction,
-				})
+				s := mustUpdateFlagSetting(t, store, pairSetting{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: !test.enabled, Fallthrough: 0.3})
+				got, err := store.UpdateFlagSetting(ctx, FlagSettingUpdate{ID: s.ID, Enabled: new(test.enabled), Fallthrough: new(test.fraction)})
 				if err != nil {
 					t.Fatalf("UpdateFlagSetting(): %v", err)
 				}
@@ -315,13 +333,13 @@ func TestUpdateFlagSetting(t *testing.T) {
 		var others []database.FlagSetting
 		for i, f := range flags {
 			for j, e := range envs {
-				s := mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: f.ID, EnvironmentID: e.ID, Fallthrough: 0.5})
+				s := mustUpdateFlagSetting(t, store, pairSetting{FlagID: f.ID, EnvironmentID: e.ID, Fallthrough: 0.5})
 				if i != 0 || j != 0 {
 					others = append(others, s)
 				}
 			}
 		}
-		if _, err := store.UpdateFlagSetting(ctx, database.UpdateFlagSettingParams{FlagID: flags[0].ID, EnvironmentID: envs[0].ID, Enabled: true, Fallthrough: 1}); err != nil {
+		if _, err := store.UpdateFlagSetting(ctx, FlagSettingUpdate{ID: mustSettingID(t, store, flags[0].ID, envs[0].ID), Enabled: new(true), Fallthrough: new(float32(1))}); err != nil {
 			t.Fatalf("UpdateFlagSetting(): %v", err)
 		}
 		for _, want := range others {
@@ -337,8 +355,8 @@ func TestUpdateFlagSetting(t *testing.T) {
 		testutil.ResetDB(t, store.db)
 		flag := mustCreateFlag(t, store, "new-checkout")
 		env := mustCreateEnv(t, store, "production")
-		s := mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: 0.5})
-		got, err := store.UpdateFlagSetting(ctx, database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: 0.5})
+		s := mustUpdateFlagSetting(t, store, pairSetting{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: 0.5})
+		got, err := store.UpdateFlagSetting(ctx, FlagSettingUpdate{ID: s.ID, Enabled: new(true), Fallthrough: new(float32(0.5))})
 		if err != nil {
 			t.Fatalf("UpdateFlagSetting(): %v", err)
 		}
@@ -350,16 +368,98 @@ func TestUpdateFlagSetting(t *testing.T) {
 		}
 	})
 
+	// A nil value keeps the one the setting has; a value set to false or 0
+	// is still set.
+	t.Run("keeps the values left unset", func(t *testing.T) {
+		testutil.ResetDB(t, store.db)
+		flag := mustCreateFlag(t, store, "new-checkout")
+		env := mustCreateEnv(t, store, "production")
+		s := mustUpdateFlagSetting(t, store, pairSetting{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: 0.5})
+		steps := []struct {
+			name     string
+			arg      FlagSettingUpdate
+			enabled  bool
+			fraction float32
+		}{
+			{"only fallthrough", FlagSettingUpdate{ID: s.ID, Fallthrough: new(float32(0.25))}, true, 0.25},
+			{"only enabled", FlagSettingUpdate{ID: s.ID, Enabled: new(false)}, false, 0.25},
+			{"fallthrough of 0", FlagSettingUpdate{ID: s.ID, Fallthrough: new(float32(0))}, false, 0},
+		}
+		for _, step := range steps {
+			got, err := store.UpdateFlagSetting(ctx, step.arg)
+			if err != nil {
+				t.Fatalf("%s: UpdateFlagSetting(): %v", step.name, err)
+			}
+			if got.Enabled != step.enabled || got.Fallthrough != step.fraction {
+				t.Errorf("after %s: enabled, fallthrough = %v, %v, want %v, %v", step.name, got.Enabled, got.Fallthrough, step.enabled, step.fraction)
+			}
+			if diff := cmp.Diff(got, storedFlagSetting(t, store, s.ID)); diff != "" {
+				t.Errorf("after %s: stored setting mismatch (-returned +stored):\n%s", step.name, diff)
+			}
+		}
+	})
+
+	// With nothing to change, the setting comes back as it is, with nothing
+	// bumped or logged.
+	t.Run("setting nothing changes nothing", func(t *testing.T) {
+		testutil.ResetDB(t, store.db)
+		flag := mustCreateFlag(t, store, "new-checkout")
+		env := mustCreateEnv(t, store, "production")
+		s := mustUpdateFlagSetting(t, store, pairSetting{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: 0.5})
+		want := matrixState(t, store)
+		got, err := store.UpdateFlagSetting(ctx, FlagSettingUpdate{ID: s.ID})
+		if err != nil {
+			t.Fatalf("UpdateFlagSetting(): %v", err)
+		}
+		if diff := cmp.Diff(s, got); diff != "" {
+			t.Errorf("UpdateFlagSetting() mismatch (-want +got):\n%s", diff)
+		}
+		if got := matrixState(t, store); got != want {
+			t.Errorf("state = %s, want %s", got, want)
+		}
+	})
+
+	// The values left unset are read under the lock, so racing updates of
+	// different values both land instead of one undoing the other.
+	t.Run("racing updates of different values both land", func(t *testing.T) {
+		for range 20 {
+			testutil.ResetDB(t, store.db)
+			flag := mustCreateFlag(t, store, "new-checkout")
+			env := mustCreateEnv(t, store, "production")
+			// Looked up before the racers start: a goroutine can't fail the test.
+			id := mustSettingID(t, store, flag.ID, env.ID)
+			errs := make(chan error, 2)
+			for _, arg := range []FlagSettingUpdate{
+				{ID: id, Enabled: new(true)},
+				{ID: id, Fallthrough: new(float32(0.5))},
+			} {
+				go func() {
+					_, err := store.UpdateFlagSetting(ctx, arg)
+					errs <- err
+				}()
+			}
+			for range 2 {
+				if err := <-errs; err != nil {
+					t.Fatalf("UpdateFlagSetting(): %v", err)
+				}
+			}
+			if s := storedFlagSetting(t, store, id); !s.Enabled || s.Fallthrough != 0.5 {
+				t.Fatalf("enabled, fallthrough = %v, %v, want true, 0.5", s.Enabled, s.Fallthrough)
+			}
+		}
+	})
+
 	// The clock is read per statement, not per transaction, so each update
 	// in one transaction gets a later time.
 	t.Run("updates in one transaction get increasing times", func(t *testing.T) {
 		testutil.ResetDB(t, store.db)
 		flag := mustCreateFlag(t, store, "new-checkout")
 		env := mustCreateEnv(t, store, "production")
+		id := mustSettingID(t, store, flag.ID, env.ID)
 		var updates []database.FlagSetting
 		err := store.ExecTx(ctx, func(q *database.Queries) error {
 			for _, f := range []float32{0.25, 0.5, 0.75} {
-				u, err := q.UpdateFlagSetting(ctx, database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: f})
+				u, err := q.UpdateFlagSetting(ctx, database.UpdateFlagSettingParams{ID: id, Enabled: true, Fallthrough: f})
 				if err != nil {
 					return err
 				}
@@ -397,13 +497,8 @@ func TestUpdateFlagSettingRejectsInvalidFallthrough(t *testing.T) {
 			testutil.ResetDB(t, store.db)
 			flag := mustCreateFlag(t, store, "new-checkout")
 			env := mustCreateEnv(t, store, "production")
-			s := mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Fallthrough: 0.5})
-			got, err := store.UpdateFlagSetting(ctx, database.UpdateFlagSettingParams{
-				FlagID:        flag.ID,
-				EnvironmentID: env.ID,
-				Enabled:       true,
-				Fallthrough:   fraction,
-			})
+			s := mustUpdateFlagSetting(t, store, pairSetting{FlagID: flag.ID, EnvironmentID: env.ID, Fallthrough: 0.5})
+			got, err := store.UpdateFlagSetting(ctx, FlagSettingUpdate{ID: s.ID, Enabled: new(true), Fallthrough: new(fraction)})
 			wantConnectErr(t, err, outside)
 			if got != (database.FlagSetting{}) {
 				t.Fatalf("UpdateFlagSetting() = %+v on error, want the zero FlagSetting", got)
@@ -415,11 +510,11 @@ func TestUpdateFlagSettingRejectsInvalidFallthrough(t *testing.T) {
 		})
 	}
 
-	// Validation comes first, so a bad fallthrough is reported even for a
-	// pair with no setting.
-	t.Run("fallthrough checked before the IDs", func(t *testing.T) {
+	// Validation comes first, so a bad fallthrough is reported even for an
+	// ID no setting has.
+	t.Run("fallthrough checked before the ID", func(t *testing.T) {
 		testutil.ResetDB(t, store.db)
-		_, err := store.UpdateFlagSetting(ctx, database.UpdateFlagSettingParams{FlagID: uuid.New(), EnvironmentID: uuid.New(), Fallthrough: 2})
+		_, err := store.UpdateFlagSetting(ctx, FlagSettingUpdate{ID: uuid.New(), Enabled: new(false), Fallthrough: new(float32(2))})
 		wantConnectErr(t, err, outside)
 	})
 }
@@ -431,24 +526,25 @@ func TestUpdateFlagSettingNotFound(t *testing.T) {
 
 	flag := mustCreateFlag(t, store, "new-checkout")
 	env := mustCreateEnv(t, store, "production")
-	s := mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Fallthrough: 0.5})
-	// Both exist, but have no setting together.
+	s := mustUpdateFlagSetting(t, store, pairSetting{FlagID: flag.ID, EnvironmentID: env.ID, Fallthrough: 0.5})
+	// A setting that existed once, so its ID is a real one.
 	lonely := mustCreateFlag(t, store, "beta-banner")
+	removed := mustSettingID(t, store, lonely.ID, env.ID)
 	mustRemoveFlagSetting(t, store, lonely.ID, env.ID)
 
-	tests := map[string]database.UpdateFlagSettingParams{
-		"unknown flag":        {FlagID: uuid.New(), EnvironmentID: env.ID},
-		"unknown environment": {FlagID: flag.ID, EnvironmentID: uuid.New()},
-		"zero IDs":            {},
-		"no setting yet":      {FlagID: lonely.ID, EnvironmentID: env.ID},
-		"setting ID as flag":  {FlagID: s.ID, EnvironmentID: env.ID},
-		// Easy to do with two fields of the same type.
-		"IDs swapped": {FlagID: env.ID, EnvironmentID: flag.ID},
+	tests := map[string]uuid.UUID{
+		"unknown ID":       uuid.New(),
+		"zero ID":          {},
+		"removed setting":  removed,
+		"flag's ID":        flag.ID,
+		"environment's ID": env.ID,
 	}
-	for name, arg := range tests {
+	for name, id := range tests {
 		t.Run(name, func(t *testing.T) {
-			arg.Enabled, arg.Fallthrough = true, 1
-			got, err := store.UpdateFlagSetting(ctx, arg)
+			got, err := store.UpdateFlagSetting(ctx, FlagSettingUpdate{ID: id, Enabled: new(true), Fallthrough: new(float32(1))})
+			wantConnectErr(t, err, notFound)
+			// Setting nothing is still looked up.
+			_, err = store.UpdateFlagSetting(ctx, FlagSettingUpdate{ID: id})
 			wantConnectErr(t, err, notFound)
 			if got != (database.FlagSetting{}) {
 				t.Fatalf("UpdateFlagSetting() = %+v on error, want the zero FlagSetting", got)
@@ -470,11 +566,11 @@ func TestUpdateFlagSettingRolledBack(t *testing.T) {
 	ctx := context.Background()
 	flag := mustCreateFlag(t, store, "new-checkout")
 	env := mustCreateEnv(t, store, "production")
-	s := mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Fallthrough: 0.5})
+	s := mustUpdateFlagSetting(t, store, pairSetting{FlagID: flag.ID, EnvironmentID: env.ID, Fallthrough: 0.5})
 
 	errBoom := errors.New("boom")
 	err := store.ExecTx(ctx, func(q *database.Queries) error {
-		if _, err := q.UpdateFlagSetting(ctx, database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: 1}); err != nil {
+		if _, err := q.UpdateFlagSetting(ctx, database.UpdateFlagSettingParams{ID: s.ID, Enabled: true, Fallthrough: 1}); err != nil {
 			return err
 		}
 		return errBoom
@@ -494,7 +590,7 @@ func TestUpdateFlagSettingFailedWrite(t *testing.T) {
 	ctx := context.Background()
 	flag := mustCreateFlag(t, store, "new-checkout")
 	env := mustCreateEnv(t, store, "production")
-	s := mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Fallthrough: 0.5})
+	s := mustUpdateFlagSetting(t, store, pairSetting{FlagID: flag.ID, EnvironmentID: env.ID, Fallthrough: 0.5})
 	want := matrixState(t, store)
 	if _, err := store.db.Exec("ALTER TABLE flag_settings ADD CONSTRAINT reject_full CHECK (fallthrough < 1) NOT VALID"); err != nil {
 		t.Fatalf("adding the constraint: %v", err)
@@ -505,7 +601,7 @@ func TestUpdateFlagSettingFailedWrite(t *testing.T) {
 		}
 	})
 
-	got, err := store.UpdateFlagSetting(ctx, database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: 1})
+	got, err := store.UpdateFlagSetting(ctx, FlagSettingUpdate{ID: s.ID, Enabled: new(true), Fallthrough: new(float32(1))})
 	wantConnectErr(t, err, connect.NewError(connect.CodeInternal, "can't update the flag setting"))
 	if got != (database.FlagSetting{}) {
 		t.Fatalf("UpdateFlagSetting() = %+v on error, want the zero FlagSetting", got)
@@ -522,8 +618,8 @@ func TestUpdateFlagSettingReportsErrors(t *testing.T) {
 	store := newTestStore(t)
 	flag := mustCreateFlag(t, store, "new-checkout")
 	env := mustCreateEnv(t, store, "production")
-	s := mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Fallthrough: 0.5})
-	arg := database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: 1}
+	s := mustUpdateFlagSetting(t, store, pairSetting{FlagID: flag.ID, EnvironmentID: env.ID, Fallthrough: 0.5})
+	arg := FlagSettingUpdate{ID: s.ID, Enabled: new(true), Fallthrough: new(float32(1))}
 
 	canceled, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -601,8 +697,8 @@ func TestListSettingsByFlag(t *testing.T) {
 		staging := mustCreateEnv(t, store, "staging")
 		prod := mustCreateEnv(t, store, "production")
 		want := []database.FlagSetting{
-			mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: staging.ID, Enabled: true, Fallthrough: 1}),
-			mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: prod.ID, Fallthrough: 0.25}),
+			mustUpdateFlagSetting(t, store, pairSetting{FlagID: flag.ID, EnvironmentID: staging.ID, Enabled: true, Fallthrough: 1}),
+			mustUpdateFlagSetting(t, store, pairSetting{FlagID: flag.ID, EnvironmentID: prod.ID, Fallthrough: 0.25}),
 		}
 		if diff := cmp.Diff(want, list(t, flag.ID)); diff != "" {
 			t.Fatalf("ListSettingsByFlag() mismatch (-want +got):\n%s", diff)
@@ -620,7 +716,7 @@ func TestListSettingsByFlag(t *testing.T) {
 			mustCreateEnv(t, store, "production"),
 		}
 		for _, i := range []int{2, 0, 1} {
-			mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: envs[i].ID})
+			mustUpdateFlagSetting(t, store, pairSetting{FlagID: flag.ID, EnvironmentID: envs[i].ID})
 		}
 		if diff := cmp.Diff([]string{"development", "staging", "production"}, envNames(t, list(t, flag.ID), envs)); diff != "" {
 			t.Fatalf("ListSettingsByFlag() order mismatch (-want +got):\n%s", diff)
@@ -699,7 +795,7 @@ func TestListSettingsByFlag(t *testing.T) {
 		other := mustCreateFlag(t, store, "dark-mode")
 		env := mustCreateEnv(t, store, "production")
 		mustRemoveFlagSetting(t, store, flag.ID, env.ID)
-		s := mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: other.ID, EnvironmentID: env.ID})
+		s := mustUpdateFlagSetting(t, store, pairSetting{FlagID: other.ID, EnvironmentID: env.ID})
 		tests := map[string]uuid.UUID{
 			"flag without settings": flag.ID,
 			"unknown flag":          uuid.New(),
@@ -790,8 +886,8 @@ func TestListSettingsByEnv(t *testing.T) {
 		a := mustCreateFlag(t, store, "a")
 		b := mustCreateFlag(t, store, "b")
 		want := []database.ListSettingsByEnvRow{
-			{FlagSetting: mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: a.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: 1}), Key: "a"},
-			{FlagSetting: mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: b.ID, EnvironmentID: env.ID, Fallthrough: 0.25}), Key: "b"},
+			{FlagSetting: mustUpdateFlagSetting(t, store, pairSetting{FlagID: a.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: 1}), Key: "a"},
+			{FlagSetting: mustUpdateFlagSetting(t, store, pairSetting{FlagID: b.ID, EnvironmentID: env.ID, Fallthrough: 0.25}), Key: "b"},
 		}
 		if diff := cmp.Diff(want, list(t, env.ID)); diff != "" {
 			t.Fatalf("ListSettingsByEnv() mismatch (-want +got):\n%s", diff)
@@ -867,7 +963,7 @@ func TestListSettingsByEnv(t *testing.T) {
 		other := mustCreateEnv(t, store, "production")
 		flag := mustCreateFlag(t, store, "new-checkout")
 		mustRemoveFlagSetting(t, store, flag.ID, env.ID)
-		s := mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: other.ID})
+		s := mustUpdateFlagSetting(t, store, pairSetting{FlagID: flag.ID, EnvironmentID: other.ID})
 		tests := map[string]uuid.UUID{
 			"environment without settings": env.ID,
 			"unknown environment":          uuid.New(),
@@ -1039,7 +1135,7 @@ func TestCreateFlagCreatesSettings(t *testing.T) {
 		testutil.ResetDB(t, store.db)
 		env := mustCreateEnv(t, store, "production")
 		other := mustCreateFlag(t, store, "dark-mode")
-		want := mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: other.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: 0.5})
+		want := mustUpdateFlagSetting(t, store, pairSetting{FlagID: other.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: 0.5})
 		mustCreateFlag(t, store, "new-checkout")
 		if diff := cmp.Diff(want, storedFlagSetting(t, store, want.ID)); diff != "" {
 			t.Fatalf("other flag's setting changed (-want +got):\n%s", diff)
@@ -1101,7 +1197,7 @@ func TestCreateEnvCreatesSettings(t *testing.T) {
 		testutil.ResetDB(t, store.db)
 		flag := mustCreateFlag(t, store, "new-checkout")
 		other := mustCreateEnv(t, store, "staging")
-		want := mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: other.ID, Enabled: true, Fallthrough: 0.5})
+		want := mustUpdateFlagSetting(t, store, pairSetting{FlagID: flag.ID, EnvironmentID: other.ID, Enabled: true, Fallthrough: 0.5})
 		mustCreateEnv(t, store, "production")
 		if diff := cmp.Diff(want, storedFlagSetting(t, store, want.ID)); diff != "" {
 			t.Fatalf("other environment's setting changed (-want +got):\n%s", diff)
@@ -1346,7 +1442,13 @@ func TestWritesWaitForMatrixLock(t *testing.T) {
 			return err
 		},
 		"UpdateFlagSetting": func(flag database.Flag, env database.Environment) error {
-			_, err := store.UpdateFlagSetting(ctx, database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: 1})
+			// Runs while the test waits, so it reports errors instead of
+			// failing the test. GetFlagSetting doesn't take the lock.
+			setting, err := store.GetFlagSetting(ctx, database.GetFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID})
+			if err != nil {
+				return err
+			}
+			_, err = store.UpdateFlagSetting(ctx, FlagSettingUpdate{ID: setting.ID, Enabled: new(true), Fallthrough: new(float32(1))})
 			return err
 		},
 	}
@@ -1420,7 +1522,7 @@ func TestWritesCanceledWhileWaitingForMatrixLock(t *testing.T) {
 			return err
 		}, "can't delete the flag"},
 		"UpdateFlagSetting": {func(ctx context.Context, f fixture) error {
-			_, err := store.UpdateFlagSetting(ctx, database.UpdateFlagSettingParams{FlagID: f.flag.ID, EnvironmentID: f.env.ID, Enabled: true, Fallthrough: 1})
+			_, err := store.UpdateFlagSetting(ctx, FlagSettingUpdate{ID: f.rules[0].FlagSettingID, Enabled: new(true), Fallthrough: new(float32(1))})
 			return err
 		}, "can't update the flag setting"},
 		"CreateRule": {func(ctx context.Context, f fixture) error {
@@ -1511,7 +1613,7 @@ func TestUpdateFlagSettingBumpsEnvVersion(t *testing.T) {
 		flag := mustCreateFlag(t, store, "new-checkout")
 		env := mustCreateEnv(t, store, "production")
 		other := mustCreateEnv(t, store, "staging")
-		mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: 0.5})
+		mustUpdateFlagSetting(t, store, pairSetting{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: 0.5})
 		got := mustGetEnv(t, store, env.ID)
 		if !got.UpdatedAt.After(env.UpdatedAt) {
 			t.Errorf("updated_at = %v, want it after %v", got.UpdatedAt, env.UpdatedAt)
@@ -1538,7 +1640,7 @@ func TestUpdateFlagSettingBumpsEnvVersion(t *testing.T) {
 			fraction float32
 		}{{true, 0}, {true, 0.5}, {false, 0.5}}
 		for i, c := range changes {
-			s := mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: c.enabled, Fallthrough: c.fraction})
+			s := mustUpdateFlagSetting(t, store, pairSetting{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: c.enabled, Fallthrough: c.fraction})
 			if s.Enabled != c.enabled || s.Fallthrough != c.fraction {
 				t.Errorf("enabled, fallthrough = %v, %v, want %v, %v", s.Enabled, s.Fallthrough, c.enabled, c.fraction)
 			}
@@ -1552,7 +1654,7 @@ func TestUpdateFlagSettingBumpsEnvVersion(t *testing.T) {
 	// binary form, so it also has to survive the trip to the database and back
 	// to compare equal.
 	t.Run("same values leave the version alone", func(t *testing.T) {
-		tests := map[string]database.UpdateFlagSettingParams{
+		tests := map[string]pairSetting{
 			"the values a new setting starts with": {},
 			"values set earlier":                   {Enabled: true, Fallthrough: 0.5},
 			"a fraction with no exact binary form": {Enabled: true, Fallthrough: 0.1},
@@ -1562,13 +1664,9 @@ func TestUpdateFlagSettingBumpsEnvVersion(t *testing.T) {
 				testutil.ResetDB(t, store.db)
 				arg.FlagID = mustCreateFlag(t, store, "new-checkout").ID
 				arg.EnvironmentID = mustCreateEnv(t, store, "production").ID
-				if _, err := store.UpdateFlagSetting(ctx, arg); err != nil {
-					t.Fatalf("UpdateFlagSetting(): %v", err)
-				}
+				mustUpdateFlagSetting(t, store, arg)
 				want := mustGetEnv(t, store, arg.EnvironmentID)
-				if _, err := store.UpdateFlagSetting(ctx, arg); err != nil {
-					t.Fatalf("UpdateFlagSetting(): %v", err)
-				}
+				mustUpdateFlagSetting(t, store, arg)
 				if diff := cmp.Diff(want, mustGetEnv(t, store, arg.EnvironmentID)); diff != "" {
 					t.Fatalf("environment changed (-want +got):\n%s", diff)
 				}
@@ -1582,11 +1680,13 @@ func TestUpdateFlagSettingBumpsEnvVersion(t *testing.T) {
 		testutil.ResetDB(t, store.db)
 		flag := mustCreateFlag(t, store, "new-checkout")
 		env := mustCreateEnv(t, store, "production")
+		// Looked up before the racers start: a goroutine can't fail the test.
+		id := mustSettingID(t, store, flag.ID, env.ID)
 		const racers = 8
 		errs := make(chan error, racers)
 		for i := range racers {
 			go func() {
-				_, err := store.UpdateFlagSetting(ctx, database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: float32(i+1) / racers})
+				_, err := store.UpdateFlagSetting(ctx, FlagSettingUpdate{ID: id, Enabled: new(true), Fallthrough: new(float32(float32(i+1) / racers))})
 				errs <- err
 			}()
 		}
@@ -1606,11 +1706,13 @@ func TestUpdateFlagSettingBumpsEnvVersion(t *testing.T) {
 		testutil.ResetDB(t, store.db)
 		flag := mustCreateFlag(t, store, "new-checkout")
 		env := mustCreateEnv(t, store, "production")
+		// Looked up before the racers start: a goroutine can't fail the test.
+		id := mustSettingID(t, store, flag.ID, env.ID)
 		const racers = 8
 		errs := make(chan error, racers)
 		for range racers {
 			go func() {
-				_, err := store.UpdateFlagSetting(ctx, database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: 0.5})
+				_, err := store.UpdateFlagSetting(ctx, FlagSettingUpdate{ID: id, Enabled: new(true), Fallthrough: new(float32(0.5))})
 				errs <- err
 			}()
 		}
@@ -1629,10 +1731,9 @@ func TestUpdateFlagSettingBumpsEnvVersion(t *testing.T) {
 		testutil.ResetDB(t, store.db)
 		flag := mustCreateFlag(t, store, "new-checkout")
 		env := mustCreateEnv(t, store, "production")
-		tests := map[string]database.UpdateFlagSettingParams{
-			"bad fallthrough":     {FlagID: flag.ID, EnvironmentID: env.ID, Fallthrough: 2},
-			"unknown flag":        {FlagID: uuid.New(), EnvironmentID: env.ID},
-			"unknown environment": {FlagID: flag.ID, EnvironmentID: uuid.New()},
+		tests := map[string]FlagSettingUpdate{
+			"bad fallthrough": {ID: mustSettingID(t, store, flag.ID, env.ID), Fallthrough: new(float32(2))},
+			"unknown setting": {ID: uuid.New(), Enabled: new(true)},
 		}
 		for name, arg := range tests {
 			t.Run(name, func(t *testing.T) {
@@ -1657,7 +1758,7 @@ func TestUpdateFlagSettingBumpsEnvVersion(t *testing.T) {
 			t.Fatalf("GetFlagSetting(): %v", err)
 		}
 		rejectEnvBumps(t, store)
-		got, err := store.UpdateFlagSetting(ctx, database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: 1})
+		got, err := store.UpdateFlagSetting(ctx, FlagSettingUpdate{ID: want.ID, Enabled: new(true), Fallthrough: new(float32(1))})
 		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, "can't update the flag setting"))
 		if got != (database.FlagSetting{}) {
 			t.Fatalf("UpdateFlagSetting() = %+v on error, want the zero FlagSetting", got)
@@ -1687,7 +1788,7 @@ func TestUpdateFlagSettingBumpsEnvVersion(t *testing.T) {
 		}
 
 		done := wantWaits(t, func() error {
-			_, err := store.UpdateFlagSetting(ctx, database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: 1})
+			_, err := store.UpdateFlagSetting(ctx, FlagSettingUpdate{ID: want.ID, Enabled: new(true), Fallthrough: new(float32(1))})
 			return err
 		})
 		if diff := cmp.Diff(want, storedFlagSetting(t, store, want.ID)); diff != "" {
@@ -1723,7 +1824,7 @@ func TestUpdateFlagSettingLogsChange(t *testing.T) {
 		mustCreateEnv(t, store, "staging")
 		env := mustCreateEnv(t, store, "production")
 		before := changeLogCount(t, store)
-		mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: 0.5})
+		mustUpdateFlagSetting(t, store, pairSetting{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: 0.5})
 		want := []database.ChangeLog{{
 			TargetVersion: mustGetEnv(t, store, env.ID).Version,
 			EnvironmentID: env.ID,
@@ -1747,7 +1848,7 @@ func TestUpdateFlagSettingLogsChange(t *testing.T) {
 		testutil.ResetDB(t, store.db)
 		flag := mustCreateFlag(t, store, "new-checkout")
 		env := mustCreateEnv(t, store, "production")
-		s := mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: 0.1})
+		s := mustUpdateFlagSetting(t, store, pairSetting{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: 0.1})
 		logs := storedChangeLogsFor(t, store, "setting-updated")
 		if len(logs) != 1 {
 			t.Fatalf("%d entries, want 1", len(logs))
@@ -1770,7 +1871,7 @@ func TestUpdateFlagSettingLogsChange(t *testing.T) {
 		if _, err := store.UpdateFlag(ctx, flag.ID, "checkout-v2"); err != nil {
 			t.Fatalf("UpdateFlag(): %v", err)
 		}
-		mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: true})
+		mustUpdateFlagSetting(t, store, pairSetting{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: true})
 		logs := storedChangeLogsFor(t, store, "setting-updated")
 		if len(logs) != 1 {
 			t.Fatalf("%d entries, want 1", len(logs))
@@ -1791,7 +1892,7 @@ func TestUpdateFlagSettingLogsChange(t *testing.T) {
 			fraction float32
 		}{{true, 0}, {true, 0.5}, {false, 0.5}}
 		for _, c := range changes {
-			mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: c.enabled, Fallthrough: c.fraction})
+			mustUpdateFlagSetting(t, store, pairSetting{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: c.enabled, Fallthrough: c.fraction})
 		}
 		logs := storedChangeLogsFor(t, store, "setting-updated")
 		if len(logs) != len(changes) {
@@ -1811,7 +1912,7 @@ func TestUpdateFlagSettingLogsChange(t *testing.T) {
 	// Nothing changed, so there is nothing to log.
 	t.Run("same values log nothing", func(t *testing.T) {
 		testutil.ResetDB(t, store.db)
-		arg := database.UpdateFlagSettingParams{
+		arg := pairSetting{
 			FlagID:        mustCreateFlag(t, store, "new-checkout").ID,
 			EnvironmentID: mustCreateEnv(t, store, "production").ID,
 			Enabled:       true,
@@ -1832,11 +1933,13 @@ func TestUpdateFlagSettingLogsChange(t *testing.T) {
 		testutil.ResetDB(t, store.db)
 		flag := mustCreateFlag(t, store, "new-checkout")
 		env := mustCreateEnv(t, store, "production")
+		// Looked up before the racers start: a goroutine can't fail the test.
+		id := mustSettingID(t, store, flag.ID, env.ID)
 		const racers = 8
 		errs := make(chan error, racers)
 		for i := range racers {
 			go func() {
-				_, err := store.UpdateFlagSetting(ctx, database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: float32(i+1) / racers})
+				_, err := store.UpdateFlagSetting(ctx, FlagSettingUpdate{ID: id, Enabled: new(true), Fallthrough: new(float32(float32(i+1) / racers))})
 				errs <- err
 			}()
 		}
@@ -1876,13 +1979,13 @@ func TestUpdateFlagSettingLogsChange(t *testing.T) {
 		flag := mustCreateFlag(t, store, "new-checkout")
 		env := mustCreateEnv(t, store, "production")
 		lonely := mustCreateFlag(t, store, "beta-banner")
+		removed := mustSettingID(t, store, lonely.ID, env.ID)
 		mustRemoveFlagSetting(t, store, lonely.ID, env.ID)
 		before := changeLogCount(t, store)
-		tests := map[string]database.UpdateFlagSettingParams{
-			"bad fallthrough":     {FlagID: flag.ID, EnvironmentID: env.ID, Fallthrough: 2},
-			"unknown flag":        {FlagID: uuid.New(), EnvironmentID: env.ID, Enabled: true},
-			"unknown environment": {FlagID: flag.ID, EnvironmentID: uuid.New(), Enabled: true},
-			"no setting":          {FlagID: lonely.ID, EnvironmentID: env.ID, Enabled: true},
+		tests := map[string]FlagSettingUpdate{
+			"bad fallthrough": {ID: mustSettingID(t, store, flag.ID, env.ID), Fallthrough: new(float32(2))},
+			"unknown setting": {ID: uuid.New(), Enabled: new(true)},
+			"removed setting": {ID: removed, Enabled: new(true)},
 		}
 		for name, arg := range tests {
 			t.Run(name, func(t *testing.T) {
@@ -1901,7 +2004,7 @@ func TestUpdateFlagSettingLogsChange(t *testing.T) {
 		flag := mustCreateFlag(t, store, "new-checkout")
 		env := mustCreateEnv(t, store, "production")
 		rejectEnvBumps(t, store)
-		if _, err := store.UpdateFlagSetting(ctx, database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: true}); err == nil {
+		if _, err := store.UpdateFlagSetting(ctx, FlagSettingUpdate{ID: mustSettingID(t, store, flag.ID, env.ID), Enabled: new(true), Fallthrough: new(float32(0))}); err == nil {
 			t.Fatal("UpdateFlagSetting() = nil error, want it to fail")
 		}
 		if n := len(storedChangeLogsFor(t, store, "setting-updated")); n != 0 {
@@ -1920,7 +2023,7 @@ func TestUpdateFlagSettingLogsChange(t *testing.T) {
 			t.Fatalf("GetFlagSetting(): %v", err)
 		}
 		rejectNewChangeLogs(t, store)
-		got, err := store.UpdateFlagSetting(ctx, database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: 1})
+		got, err := store.UpdateFlagSetting(ctx, FlagSettingUpdate{ID: want.ID, Enabled: new(true), Fallthrough: new(float32(1))})
 		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, "can't update the flag setting"))
 		if got != (database.FlagSetting{}) {
 			t.Fatalf("UpdateFlagSetting() = %+v on error, want the zero FlagSetting", got)
@@ -1956,11 +2059,13 @@ func TestUpdateFlagSettingWhileOwnerIsDeleted(t *testing.T) {
 				testutil.ResetDB(t, store.db)
 				flag := mustCreateFlag(t, store, "new-checkout")
 				env := mustCreateEnv(t, store, "production")
+				// Looked up before the racers start: a goroutine can't fail the test.
+				id := mustSettingID(t, store, flag.ID, env.ID)
 				mustCreateEnv(t, store, "staging")
 
 				updated, deleted := make(chan error, 1), make(chan error, 1)
 				go func() {
-					_, err := store.UpdateFlagSetting(ctx, database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: 1})
+					_, err := store.UpdateFlagSetting(ctx, FlagSettingUpdate{ID: id, Enabled: new(true), Fallthrough: new(float32(1))})
 					updated <- err
 				}()
 				go func() { deleted <- del(flag, env) }()
@@ -1980,8 +2085,8 @@ func TestUpdateFlagSettingWhileOwnerIsDeleted(t *testing.T) {
 func TestUpdateFlagSettingOfArchivedFlag(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
-	update := func(f database.Flag, env database.Environment) database.UpdateFlagSettingParams {
-		return database.UpdateFlagSettingParams{FlagID: f.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: 0.5}
+	update := func(f database.Flag, env database.Environment) pairSetting {
+		return pairSetting{FlagID: f.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: 0.5}
 	}
 
 	t.Run("is rejected", func(t *testing.T) {
@@ -1996,7 +2101,7 @@ func TestUpdateFlagSettingOfArchivedFlag(t *testing.T) {
 		envBefore := mustGetEnv(t, store, env.ID)
 		logsBefore := changeLogCount(t, store)
 
-		got, err := store.UpdateFlagSetting(ctx, update(f, env))
+		got, err := store.UpdateFlagSetting(ctx, FlagSettingUpdate{ID: before.ID, Enabled: new(true), Fallthrough: new(float32(0.5))})
 		wantConnectErr(t, err, connect.NewError(connect.CodeFailedPrecondition, "can't update archived flag"))
 		if got != (database.FlagSetting{}) {
 			t.Errorf("UpdateFlagSetting() = %+v on error, want the zero FlagSetting", got)
@@ -2010,6 +2115,17 @@ func TestUpdateFlagSettingOfArchivedFlag(t *testing.T) {
 		if got := changeLogCount(t, store); got != logsBefore {
 			t.Errorf("%d entries, want %d", got, logsBefore)
 		}
+	})
+
+	// Setting nothing is still an update, so the flag's state is checked
+	// before finding there's nothing to change.
+	t.Run("is rejected setting nothing", func(t *testing.T) {
+		testutil.ResetDB(t, store.db)
+		env := mustCreateEnv(t, store, "production")
+		f := mustCreateFlag(t, store, "new-checkout")
+		mustArchiveFlag(t, store, f.ID)
+		_, err := store.UpdateFlagSetting(ctx, FlagSettingUpdate{ID: mustSettingID(t, store, f.ID, env.ID)})
+		wantConnectErr(t, err, connect.NewError(connect.CodeFailedPrecondition, "can't update archived flag"))
 	})
 
 	t.Run("works again once unarchived", func(t *testing.T) {
