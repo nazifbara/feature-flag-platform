@@ -12,12 +12,14 @@ import (
 	"github.com/nazifbara/feature-flag-platform/admin-api/internal/authservice"
 	"github.com/nazifbara/feature-flag-platform/admin-api/internal/envservice"
 	"github.com/nazifbara/feature-flag-platform/admin-api/internal/flagservice"
+	"github.com/nazifbara/feature-flag-platform/admin-api/internal/flagsetting"
 	"github.com/nazifbara/feature-flag-platform/admin-api/internal/interceptor"
 	"github.com/nazifbara/feature-flag-platform/admin-api/internal/pingservice"
 	"github.com/nazifbara/feature-flag-platform/admin-api/internal/store"
 	"github.com/nazifbara/feature-flag-platform/gen/go/ffp/auth/v1/authv1connect"
 	"github.com/nazifbara/feature-flag-platform/gen/go/ffp/environment/v1/environmentv1connect"
 	"github.com/nazifbara/feature-flag-platform/gen/go/ffp/flag/v1/flagv1connect"
+	"github.com/nazifbara/feature-flag-platform/gen/go/ffp/flagsetting/v1/flagsettingv1connect"
 	"github.com/nazifbara/feature-flag-platform/gen/go/ffp/ping/v1/pingv1connect"
 
 	connect "connectrpc.com/connect/v2"
@@ -68,6 +70,7 @@ func newServer(port int, store *store.Store, cancel context.CancelFunc) *server 
 	)
 	flagv1connect.RegisterFlagServiceHandler(connectServer, flagservice.New(store))
 	environmentv1connect.RegisterEnvironmentServiceHandler(connectServer, envservice.New(store))
+	flagsettingv1connect.RegisterFlagSettingServiceHandler(connectServer, flagsetting.New(store))
 
 	mux := http.NewServeMux()
 	connecthttp.Mount(mux, connectServer)
