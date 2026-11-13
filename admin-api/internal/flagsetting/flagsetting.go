@@ -37,6 +37,21 @@ func settingToProto(storedSetting database.FlagSetting) *flagsettingv1.FlagSetti
 	}
 }
 
+// Get returns the flag setting with the requested id. The proto's rules reject
+// an id that isn't a UUID; parsing it again here only guards against a caller
+// without them. An id no setting has gives NotFound.
+func (s *Service) Get(ctx context.Context, req *flagsettingv1.GetRequest) (*flagsettingv1.GetResponse, error) {
+	settingID, err := utils.ParseID(req.Id, "flag setting")
+	if err != nil {
+		return nil, err
+	}
+	setting, err := s.store.GetFlagSettingByID(ctx, settingID)
+	if err != nil {
+		return nil, err
+	}
+	return &flagsettingv1.GetResponse{FlagSetting: settingToProto(setting)}, nil
+}
+
 // Update gives the flag setting with the requested id the values its update
 // mask names, checked by the store, keeping the others whatever the request
 // holds for them, and returns the setting as stored. An empty mask changes

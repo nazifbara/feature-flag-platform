@@ -7,6 +7,7 @@ import "google/protobuf/field_mask.proto";
 import "google/protobuf/timestamp.proto";
 
 service FlagSettingService {
+  rpc Get(GetRequest) returns (GetResponse) {}
   rpc Update(UpdateRequest) returns (UpdateResponse) {}
 }
 
@@ -18,6 +19,14 @@ message FlagSetting {
   float fallthrough = 5;
   google.protobuf.Timestamp created_at = 6;
   google.protobuf.Timestamp updated_at = 7;
+}
+
+message GetRequest {
+  string id = 1 [(buf.validate.field).string.uuid = true];
+}
+
+message GetResponse {
+  FlagSetting flag_setting = 1;
 }
 
 message UpdateRequest {

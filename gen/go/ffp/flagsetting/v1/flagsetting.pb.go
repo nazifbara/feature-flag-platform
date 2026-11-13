@@ -116,6 +116,94 @@ func (x *FlagSetting) GetUpdatedAt() *timestamppb.Timestamp {
 	return nil
 }
 
+type GetRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetRequest) Reset() {
+	*x = GetRequest{}
+	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetRequest) ProtoMessage() {}
+
+func (x *GetRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetRequest.ProtoReflect.Descriptor instead.
+func (*GetRequest) Descriptor() ([]byte, []int) {
+	return file_ffp_flagsetting_v1_flagsetting_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *GetRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+type GetResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	FlagSetting   *FlagSetting           `protobuf:"bytes,1,opt,name=flag_setting,json=flagSetting,proto3" json:"flag_setting,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetResponse) Reset() {
+	*x = GetResponse{}
+	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetResponse) ProtoMessage() {}
+
+func (x *GetResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetResponse.ProtoReflect.Descriptor instead.
+func (*GetResponse) Descriptor() ([]byte, []int) {
+	return file_ffp_flagsetting_v1_flagsetting_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *GetResponse) GetFlagSetting() *FlagSetting {
+	if x != nil {
+		return x.FlagSetting
+	}
+	return nil
+}
+
 type UpdateRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -128,7 +216,7 @@ type UpdateRequest struct {
 
 func (x *UpdateRequest) Reset() {
 	*x = UpdateRequest{}
-	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[1]
+	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -140,7 +228,7 @@ func (x *UpdateRequest) String() string {
 func (*UpdateRequest) ProtoMessage() {}
 
 func (x *UpdateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[1]
+	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -153,7 +241,7 @@ func (x *UpdateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateRequest.ProtoReflect.Descriptor instead.
 func (*UpdateRequest) Descriptor() ([]byte, []int) {
-	return file_ffp_flagsetting_v1_flagsetting_proto_rawDescGZIP(), []int{1}
+	return file_ffp_flagsetting_v1_flagsetting_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *UpdateRequest) GetId() string {
@@ -193,7 +281,7 @@ type UpdateResponse struct {
 
 func (x *UpdateResponse) Reset() {
 	*x = UpdateResponse{}
-	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[2]
+	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -205,7 +293,7 @@ func (x *UpdateResponse) String() string {
 func (*UpdateResponse) ProtoMessage() {}
 
 func (x *UpdateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[2]
+	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -218,7 +306,7 @@ func (x *UpdateResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateResponse.ProtoReflect.Descriptor instead.
 func (*UpdateResponse) Descriptor() ([]byte, []int) {
-	return file_ffp_flagsetting_v1_flagsetting_proto_rawDescGZIP(), []int{2}
+	return file_ffp_flagsetting_v1_flagsetting_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *UpdateResponse) GetFlagSetting() *FlagSetting {
@@ -242,7 +330,12 @@ const file_ffp_flagsetting_v1_flagsetting_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
-	"updated_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"\xc3\x01\n" +
+	"updated_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"&\n" +
+	"\n" +
+	"GetRequest\x12\x18\n" +
+	"\x02id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x02id\"Q\n" +
+	"\vGetResponse\x12B\n" +
+	"\fflag_setting\x18\x01 \x01(\v2\x1f.ffp.flagsetting.v1.FlagSettingR\vflagSetting\"\xc3\x01\n" +
 	"\rUpdateRequest\x12\x18\n" +
 	"\x02id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x02id\x12\x18\n" +
 	"\aenabled\x18\x02 \x01(\bR\aenabled\x12 \n" +
@@ -250,8 +343,9 @@ const file_ffp_flagsetting_v1_flagsetting_proto_rawDesc = "" +
 	"\vupdate_mask\x18\x04 \x01(\v2\x1a.google.protobuf.FieldMaskB\x1f\xbaH\x1c\xc8\x01\x01\xe2\x01\x16\x12\aenabled\x12\vfallthroughR\n" +
 	"updateMask\"T\n" +
 	"\x0eUpdateResponse\x12B\n" +
-	"\fflag_setting\x18\x01 \x01(\v2\x1f.ffp.flagsetting.v1.FlagSettingR\vflagSetting2g\n" +
-	"\x12FlagSettingService\x12Q\n" +
+	"\fflag_setting\x18\x01 \x01(\v2\x1f.ffp.flagsetting.v1.FlagSettingR\vflagSetting2\xb1\x01\n" +
+	"\x12FlagSettingService\x12H\n" +
+	"\x03Get\x12\x1e.ffp.flagsetting.v1.GetRequest\x1a\x1f.ffp.flagsetting.v1.GetResponse\"\x00\x12Q\n" +
 	"\x06Update\x12!.ffp.flagsetting.v1.UpdateRequest\x1a\".ffp.flagsetting.v1.UpdateResponse\"\x00B\xe8\x01\n" +
 	"\x16com.ffp.flagsetting.v1B\x10FlagsettingProtoP\x01ZRgithub.com/nazifbara/feature-flag-platform/gen/go/ffp/flagsetting/v1;flagsettingv1\xa2\x02\x03FFX\xaa\x02\x12Ffp.Flagsetting.V1\xca\x02\x12Ffp\\Flagsetting\\V1\xe2\x02\x1eFfp\\Flagsetting\\V1\\GPBMetadata\xea\x02\x14Ffp::Flagsetting::V1b\x06proto3"
 
@@ -267,26 +361,31 @@ func file_ffp_flagsetting_v1_flagsetting_proto_rawDescGZIP() []byte {
 	return file_ffp_flagsetting_v1_flagsetting_proto_rawDescData
 }
 
-var file_ffp_flagsetting_v1_flagsetting_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_ffp_flagsetting_v1_flagsetting_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
 var file_ffp_flagsetting_v1_flagsetting_proto_goTypes = []any{
 	(*FlagSetting)(nil),           // 0: ffp.flagsetting.v1.FlagSetting
-	(*UpdateRequest)(nil),         // 1: ffp.flagsetting.v1.UpdateRequest
-	(*UpdateResponse)(nil),        // 2: ffp.flagsetting.v1.UpdateResponse
-	(*timestamppb.Timestamp)(nil), // 3: google.protobuf.Timestamp
-	(*fieldmaskpb.FieldMask)(nil), // 4: google.protobuf.FieldMask
+	(*GetRequest)(nil),            // 1: ffp.flagsetting.v1.GetRequest
+	(*GetResponse)(nil),           // 2: ffp.flagsetting.v1.GetResponse
+	(*UpdateRequest)(nil),         // 3: ffp.flagsetting.v1.UpdateRequest
+	(*UpdateResponse)(nil),        // 4: ffp.flagsetting.v1.UpdateResponse
+	(*timestamppb.Timestamp)(nil), // 5: google.protobuf.Timestamp
+	(*fieldmaskpb.FieldMask)(nil), // 6: google.protobuf.FieldMask
 }
 var file_ffp_flagsetting_v1_flagsetting_proto_depIdxs = []int32{
-	3, // 0: ffp.flagsetting.v1.FlagSetting.created_at:type_name -> google.protobuf.Timestamp
-	3, // 1: ffp.flagsetting.v1.FlagSetting.updated_at:type_name -> google.protobuf.Timestamp
-	4, // 2: ffp.flagsetting.v1.UpdateRequest.update_mask:type_name -> google.protobuf.FieldMask
-	0, // 3: ffp.flagsetting.v1.UpdateResponse.flag_setting:type_name -> ffp.flagsetting.v1.FlagSetting
-	1, // 4: ffp.flagsetting.v1.FlagSettingService.Update:input_type -> ffp.flagsetting.v1.UpdateRequest
-	2, // 5: ffp.flagsetting.v1.FlagSettingService.Update:output_type -> ffp.flagsetting.v1.UpdateResponse
-	5, // [5:6] is the sub-list for method output_type
-	4, // [4:5] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	5, // 0: ffp.flagsetting.v1.FlagSetting.created_at:type_name -> google.protobuf.Timestamp
+	5, // 1: ffp.flagsetting.v1.FlagSetting.updated_at:type_name -> google.protobuf.Timestamp
+	0, // 2: ffp.flagsetting.v1.GetResponse.flag_setting:type_name -> ffp.flagsetting.v1.FlagSetting
+	6, // 3: ffp.flagsetting.v1.UpdateRequest.update_mask:type_name -> google.protobuf.FieldMask
+	0, // 4: ffp.flagsetting.v1.UpdateResponse.flag_setting:type_name -> ffp.flagsetting.v1.FlagSetting
+	1, // 5: ffp.flagsetting.v1.FlagSettingService.Get:input_type -> ffp.flagsetting.v1.GetRequest
+	3, // 6: ffp.flagsetting.v1.FlagSettingService.Update:input_type -> ffp.flagsetting.v1.UpdateRequest
+	2, // 7: ffp.flagsetting.v1.FlagSettingService.Get:output_type -> ffp.flagsetting.v1.GetResponse
+	4, // 8: ffp.flagsetting.v1.FlagSettingService.Update:output_type -> ffp.flagsetting.v1.UpdateResponse
+	7, // [7:9] is the sub-list for method output_type
+	5, // [5:7] is the sub-list for method input_type
+	5, // [5:5] is the sub-list for extension type_name
+	5, // [5:5] is the sub-list for extension extendee
+	0, // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_ffp_flagsetting_v1_flagsetting_proto_init() }
@@ -300,7 +399,7 @@ func file_ffp_flagsetting_v1_flagsetting_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_ffp_flagsetting_v1_flagsetting_proto_rawDesc), len(file_ffp_flagsetting_v1_flagsetting_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   3,
+			NumMessages:   5,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
