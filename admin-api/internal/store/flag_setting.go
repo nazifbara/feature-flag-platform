@@ -35,6 +35,16 @@ type FlagSettingUpdate struct {
 	Fallthrough *float32
 }
 
+// GetFlagSettingByID gets the flag setting with id. An id no setting has gives
+// NotFound.
+func (s *Store) GetFlagSettingByID(ctx context.Context, id uuid.UUID) (database.FlagSetting, error) {
+	setting, err := s.Queries.GetFlagSettingByID(ctx, id)
+	if err != nil {
+		return database.FlagSetting{}, ffserrors.FromDBErr(err, "can't get the flag setting")
+	}
+	return setting, nil
+}
+
 // UpdateFlagSetting gives the flag setting with arg.ID the values arg sets,
 // with its fallthrough checked by checkFallthrough, and bumps its environment's
 // version. The values left unset are read in the same transaction, so a racing
