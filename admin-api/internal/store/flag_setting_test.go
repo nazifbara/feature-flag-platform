@@ -262,6 +262,134 @@ func TestGetFlagSettingReportsErrors(t *testing.T) {
 	})
 }
 
+func TestGetFlagSettingByID(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	// Two flags in two environments, each setting with its own values, so a
+	// lookup that returns the wrong row is caught.
+	flags := []database.Flag{mustCreateFlag(t, store, "new-checkout"), mustCreateFlag(t, store, "dark-mode")}
+	envs := []database.Environment{mustCreateEnv(t, store, "staging"), mustCreateEnv(t, store, "production")}
+	var created []database.FlagSetting
+	for i, f := range flags {
+		for j, e := range envs {
+			created = append(created, mustUpdateFlagSetting(t, store, pairSetting{
+				FlagID:        f.ID,
+				EnvironmentID: e.ID,
+				Enabled:       (i+j)%2 == 0,
+				Fallthrough:   float32(2*i+j) / 4,
+			}))
+		}
+	}
+
+	for _, want := range created {
+		t.Run("finds the setting with its id", func(t *testing.T) {
+			got, err := store.GetFlagSettingByID(ctx, want.ID)
+			if err != nil {
+				t.Fatalf("GetFlagSettingByID(): %v", err)
+			}
+			if diff := cmp.Diff(want, got); diff != "" {
+				t.Fatalf("GetFlagSettingByID() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+
+	notFound := connect.NewError(connect.CodeNotFound, "can't get the flag setting")
+	t.Run("not found", func(t *testing.T) {
+		removedFlag := mustCreateFlag(t, store, "beta-banner")
+		removed := mustSettingID(t, store, removedFlag.ID, envs[0].ID)
+		mustRemoveFlagSetting(t, store, removedFlag.ID, envs[0].ID)
+		tests := map[string]uuid.UUID{
+			"unknown ID":      uuid.New(),
+			"zero ID":         {},
+			"removed setting": removed,
+			// A flag's or environment's ID isn't a setting's.
+			"flag's ID":        flags[0].ID,
+			"environment's ID": envs[0].ID,
+		}
+		for name, id := range tests {
+			t.Run(name, func(t *testing.T) {
+				got, err := store.GetFlagSettingByID(ctx, id)
+				wantConnectErr(t, err, notFound)
+				if got != (database.FlagSetting{}) {
+					t.Fatalf("GetFlagSettingByID() = %+v on error, want the zero FlagSetting", got)
+				}
+			})
+		}
+	})
+
+	// Settings go with their environment, so their ids stop resolving.
+	t.Run("deleted environment", func(t *testing.T) {
+		env := mustCreateEnv(t, store, "qa")
+		id := mustSettingID(t, store, flags[0].ID, env.ID)
+		if _, err := store.DeleteEnv(ctx, env.ID); err != nil {
+			t.Fatalf("DeleteEnv(): %v", err)
+		}
+		_, err := store.GetFlagSettingByID(ctx, id)
+		wantConnectErr(t, err, notFound)
+	})
+
+	// An archived flag's settings are frozen, not hidden.
+	t.Run("archived flag", func(t *testing.T) {
+		mustArchiveFlag(t, store, flags[1].ID)
+		want := created[2]
+		got, err := store.GetFlagSettingByID(ctx, want.ID)
+		if err != nil {
+			t.Fatalf("GetFlagSettingByID(): %v", err)
+		}
+		if diff := cmp.Diff(want, got); diff != "" {
+			t.Fatalf("GetFlagSettingByID() mismatch (-want +got):\n%s", diff)
+		}
+	})
+}
+
+func TestGetFlagSettingByIDReportsErrors(t *testing.T) {
+	store := newTestStore(t)
+	flag := mustCreateFlag(t, store, "new-checkout")
+	env := mustCreateEnv(t, store, "production")
+	id := mustSettingID(t, store, flag.ID, env.ID)
+
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	expired, cancelExpired := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancelExpired()
+
+	tests := map[string]struct {
+		ctx  context.Context
+		want *connect.Error
+	}{
+		"canceled context": {
+			ctx:  canceled,
+			want: connect.NewError(connect.CodeCanceled, "can't get the flag setting"),
+		},
+		"expired deadline": {
+			ctx:  expired,
+			want: connect.NewError(connect.CodeDeadlineExceeded, "can't get the flag setting"),
+		},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			got, err := store.GetFlagSettingByID(test.ctx, id)
+			wantConnectErr(t, err, test.want)
+			if got != (database.FlagSetting{}) {
+				t.Fatalf("GetFlagSettingByID() = %+v on error, want the zero FlagSetting", got)
+			}
+		})
+	}
+
+	// Run last: it closes the connection pool the other cases use.
+	t.Run("closed database is internal", func(t *testing.T) {
+		if err := store.db.Close(); err != nil {
+			t.Fatalf("closing the database: %v", err)
+		}
+		got, err := store.GetFlagSettingByID(context.Background(), id)
+		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, "can't get the flag setting"))
+		if got != (database.FlagSetting{}) {
+			t.Fatalf("GetFlagSettingByID() = %+v on error, want the zero FlagSetting", got)
+		}
+	})
+}
+
 func TestUpdateFlagSetting(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
