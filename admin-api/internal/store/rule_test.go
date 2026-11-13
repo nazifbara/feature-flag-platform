@@ -396,7 +396,7 @@ func TestCreateRule(t *testing.T) {
 	t.Run("one rule per setting and position pair", func(t *testing.T) {
 		setting := mustCreateRuleSetting(t, store)
 		otherEnv := mustCreateEnv(t, store, "staging")
-		other := mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: setting.FlagID, EnvironmentID: otherEnv.ID})
+		other := mustUpdateFlagSetting(t, store, pairSetting{FlagID: setting.FlagID, EnvironmentID: otherEnv.ID})
 
 		tests := []struct {
 			setting  uuid.UUID
@@ -537,7 +537,7 @@ func TestCreateRuleRejectsInvalid(t *testing.T) {
 		t.Run("rules of another setting", func(t *testing.T) {
 			setting := mustCreateRuleSetting(t, store)
 			otherEnv := mustCreateEnv(t, store, "staging")
-			other := mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: setting.FlagID, EnvironmentID: otherEnv.ID})
+			other := mustUpdateFlagSetting(t, store, pairSetting{FlagID: setting.FlagID, EnvironmentID: otherEnv.ID})
 			create(t, other.ID, 0)
 			create(t, other.ID, 1)
 			wantRejected(t, setting.ID, 1, pastEnd(0))
@@ -663,7 +663,7 @@ func TestCreateRuleShiftsRules(t *testing.T) {
 	t.Run("leaves other settings' rules alone", func(t *testing.T) {
 		setting := mustCreateRuleSetting(t, store)
 		otherEnv := mustCreateEnv(t, store, "staging")
-		other := mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: setting.FlagID, EnvironmentID: otherEnv.ID})
+		other := mustUpdateFlagSetting(t, store, pairSetting{FlagID: setting.FlagID, EnvironmentID: otherEnv.ID})
 		mustCreateNamedRules(t, store, setting.ID, "a", "b")
 		want := mustCreateNamedRules(t, store, other.ID, "a", "b")
 
@@ -2673,7 +2673,7 @@ func TestRulesDeletedWithOwner(t *testing.T) {
 		setting = mustCreateRuleSetting(t, store)
 		otherFlag := mustCreateFlag(t, store, "dark-mode")
 		otherEnv := mustCreateEnv(t, store, "staging")
-		other := mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: otherFlag.ID, EnvironmentID: otherEnv.ID})
+		other := mustUpdateFlagSetting(t, store, pairSetting{FlagID: otherFlag.ID, EnvironmentID: otherEnv.ID})
 		mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: setting.ID, Clauses: json.RawMessage(validClauses)})
 		kept = mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: other.ID, Clauses: json.RawMessage(validClauses)})
 		return setting, kept
@@ -2807,7 +2807,7 @@ func TestGetRule(t *testing.T) {
 	ctx := context.Background()
 	setting := mustCreateRuleSetting(t, store)
 	otherEnv := mustCreateEnv(t, store, "staging")
-	other := mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: setting.FlagID, EnvironmentID: otherEnv.ID})
+	other := mustUpdateFlagSetting(t, store, pairSetting{FlagID: setting.FlagID, EnvironmentID: otherEnv.ID})
 
 	// Rules with their own values in two settings, including the same position
 	// in both, so a lookup that ignores the ID is caught.
@@ -3054,8 +3054,8 @@ func TestListRulesBySetting(t *testing.T) {
 		setting := mustCreateRuleSetting(t, store)
 		otherEnv := mustCreateEnv(t, store, "staging")
 		otherFlag := mustCreateFlag(t, store, "dark-mode")
-		sameFlag := mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: setting.FlagID, EnvironmentID: otherEnv.ID})
-		sameEnv := mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: otherFlag.ID, EnvironmentID: setting.EnvironmentID})
+		sameFlag := mustUpdateFlagSetting(t, store, pairSetting{FlagID: setting.FlagID, EnvironmentID: otherEnv.ID})
+		sameEnv := mustUpdateFlagSetting(t, store, pairSetting{FlagID: otherFlag.ID, EnvironmentID: setting.EnvironmentID})
 
 		want := map[uuid.UUID][]database.Rule{}
 		for _, id := range []uuid.UUID{setting.ID, sameFlag.ID, sameEnv.ID} {
@@ -3072,7 +3072,7 @@ func TestListRulesBySetting(t *testing.T) {
 	// and an unknown setting looks the same.
 	t.Run("nothing to list", func(t *testing.T) {
 		setting := mustCreateRuleSetting(t, store)
-		other := mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{
+		other := mustUpdateFlagSetting(t, store, pairSetting{
 			FlagID:        mustCreateFlag(t, store, "dark-mode").ID,
 			EnvironmentID: setting.EnvironmentID,
 		})
@@ -3191,7 +3191,7 @@ func TestDeleteRule(t *testing.T) {
 	t.Run("leaves other settings' rules alone", func(t *testing.T) {
 		setting := mustCreateRuleSetting(t, store)
 		otherEnv := mustCreateEnv(t, store, "staging")
-		other := mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: setting.FlagID, EnvironmentID: otherEnv.ID})
+		other := mustUpdateFlagSetting(t, store, pairSetting{FlagID: setting.FlagID, EnvironmentID: otherEnv.ID})
 		rule := create(t, setting.ID, 0)
 		kept := create(t, other.ID, 0)
 
@@ -3269,7 +3269,7 @@ func TestDeleteRule(t *testing.T) {
 	t.Run("other settings' rules don't move", func(t *testing.T) {
 		setting := mustCreateRuleSetting(t, store)
 		otherEnv := mustCreateEnv(t, store, "staging")
-		other := mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: setting.FlagID, EnvironmentID: otherEnv.ID})
+		other := mustUpdateFlagSetting(t, store, pairSetting{FlagID: setting.FlagID, EnvironmentID: otherEnv.ID})
 		rules := mustCreateNamedRules(t, store, setting.ID, "a", "b")
 		want := mustCreateNamedRules(t, store, other.ID, "a", "b")
 
@@ -3775,7 +3775,7 @@ func TestUpdateRule(t *testing.T) {
 	t.Run("leaves other rules alone", func(t *testing.T) {
 		setting := mustCreateRuleSetting(t, store)
 		otherEnv := mustCreateEnv(t, store, "staging")
-		other := mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: setting.FlagID, EnvironmentID: otherEnv.ID})
+		other := mustUpdateFlagSetting(t, store, pairSetting{FlagID: setting.FlagID, EnvironmentID: otherEnv.ID})
 		rule := create(t, setting.ID, 0)
 		kept := []database.Rule{create(t, setting.ID, 1), create(t, other.ID, 0)}
 
@@ -4042,8 +4042,8 @@ func TestCountRulesBySetting(t *testing.T) {
 		setting := mustCreateRuleSetting(t, store)
 		otherEnv := mustCreateEnv(t, store, "staging")
 		otherFlag := mustCreateFlag(t, store, "dark-mode")
-		sameFlag := mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: setting.FlagID, EnvironmentID: otherEnv.ID})
-		sameEnv := mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: otherFlag.ID, EnvironmentID: setting.EnvironmentID})
+		sameFlag := mustUpdateFlagSetting(t, store, pairSetting{FlagID: setting.FlagID, EnvironmentID: otherEnv.ID})
+		sameEnv := mustUpdateFlagSetting(t, store, pairSetting{FlagID: otherFlag.ID, EnvironmentID: setting.EnvironmentID})
 
 		want := map[uuid.UUID]int{setting.ID: 1, sameFlag.ID: 2, sameEnv.ID: 3}
 		for id, n := range want {
@@ -4059,7 +4059,7 @@ func TestCountRulesBySetting(t *testing.T) {
 	// None of these is an error, as with ListRulesBySetting.
 	t.Run("nothing to count", func(t *testing.T) {
 		setting := mustCreateRuleSetting(t, store)
-		other := mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{
+		other := mustUpdateFlagSetting(t, store, pairSetting{
 			FlagID:        mustCreateFlag(t, store, "dark-mode").ID,
 			EnvironmentID: setting.EnvironmentID,
 		})
@@ -4265,7 +4265,7 @@ func TestChangeRulePosition(t *testing.T) {
 	t.Run("leaves other settings' rules alone", func(t *testing.T) {
 		setting := mustCreateRuleSetting(t, store)
 		otherEnv := mustCreateEnv(t, store, "staging")
-		other := mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: setting.FlagID, EnvironmentID: otherEnv.ID})
+		other := mustUpdateFlagSetting(t, store, pairSetting{FlagID: setting.FlagID, EnvironmentID: otherEnv.ID})
 		rules := mustCreateNamedRules(t, store, setting.ID, "a", "b", "c")
 		otherRules := mustCreateNamedRules(t, store, other.ID, "x", "y", "z")
 

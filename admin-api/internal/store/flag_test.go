@@ -1626,7 +1626,7 @@ func TestDeleteFlag(t *testing.T) {
 		envs := []database.Environment{mustCreateEnv(t, store, "staging"), mustCreateEnv(t, store, "production")}
 		var kept []database.FlagSetting
 		for _, e := range envs {
-			kept = append(kept, mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: other.ID, EnvironmentID: e.ID, Fallthrough: 0.5}))
+			kept = append(kept, mustUpdateFlagSetting(t, store, pairSetting{FlagID: other.ID, EnvironmentID: e.ID, Fallthrough: 0.5}))
 		}
 		// Updating the settings bumped the environments.
 		for i, e := range envs {
@@ -1692,7 +1692,7 @@ func TestDeleteFlag(t *testing.T) {
 		testutil.ResetDB(t, store.db)
 		old := mustCreateFlag(t, store, "new-checkout")
 		env := mustCreateEnv(t, store, "production")
-		oldSetting := mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: old.ID, EnvironmentID: env.ID, Enabled: true})
+		oldSetting := mustUpdateFlagSetting(t, store, pairSetting{FlagID: old.ID, EnvironmentID: env.ID, Enabled: true})
 		if _, err := store.DeleteFlag(ctx, old.ID); err != nil {
 			t.Fatalf("DeleteFlag(): %v", err)
 		}
@@ -1722,7 +1722,7 @@ func TestDeleteFlagRolledBack(t *testing.T) {
 	ctx := context.Background()
 	f := mustCreateFlag(t, store, "new-checkout")
 	env := mustCreateEnv(t, store, "production")
-	s := mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: f.ID, EnvironmentID: env.ID, Fallthrough: 0.5})
+	s := mustUpdateFlagSetting(t, store, pairSetting{FlagID: f.ID, EnvironmentID: env.ID, Fallthrough: 0.5})
 
 	errBoom := errors.New("boom")
 	err := store.ExecTx(ctx, func(q *database.Queries) error {
@@ -1834,7 +1834,7 @@ func TestDeleteFlagBumpsEnvVersions(t *testing.T) {
 		testutil.ResetDB(t, store.db)
 		f := mustCreateFlag(t, store, "new-checkout")
 		env := mustCreateEnv(t, store, "production")
-		s := mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: f.ID, EnvironmentID: env.ID, Fallthrough: 0.5})
+		s := mustUpdateFlagSetting(t, store, pairSetting{FlagID: f.ID, EnvironmentID: env.ID, Fallthrough: 0.5})
 		rejectEnvBumps(t, store)
 		got, err := store.DeleteFlag(ctx, f.ID)
 		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, "can't delete the flag"))
@@ -2029,7 +2029,7 @@ func TestDeleteFlagLogsChange(t *testing.T) {
 		testutil.ResetDB(t, store.db)
 		env := mustCreateEnv(t, store, "production")
 		f := mustCreateFlag(t, store, "new-checkout")
-		s := mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: f.ID, EnvironmentID: env.ID, Fallthrough: 0.5})
+		s := mustUpdateFlagSetting(t, store, pairSetting{FlagID: f.ID, EnvironmentID: env.ID, Fallthrough: 0.5})
 		before := mustGetEnv(t, store, env.ID)
 		rejectNewChangeLogs(t, store)
 		got, err := store.DeleteFlag(ctx, f.ID)
@@ -2458,7 +2458,7 @@ func TestArchiveFlag(t *testing.T) {
 			testutil.ResetDB(t, store.db)
 			env := mustCreateEnv(t, store, "production")
 			f := mustCreateFlag(t, store, "new-checkout")
-			s := mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: f.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: 0.5})
+			s := mustUpdateFlagSetting(t, store, pairSetting{FlagID: f.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: 0.5})
 			r := mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: s.ID, Name: "benin", Serve: 1, Clauses: json.RawMessage(validClauses)})
 			if op.archived {
 				mustArchiveFlag(t, store, f.ID)

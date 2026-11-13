@@ -3,13 +3,15 @@ SELECT * FROM flag_settings
 WHERE flag_id = $1 AND environment_id = $2;
 
 -- name: GetFlagSettingByID :one
+-- Gets one setting by its own id, as the admin API names settings.
 SELECT * FROM flag_settings
 WHERE id = $1;
 
 -- name: UpdateFlagSetting :one
+-- Replaces the setting's values; the store checks them and logs the change.
 UPDATE flag_settings
-SET enabled = $3, fallthrough = $4, updated_at = clock_timestamp()
-WHERE flag_id = $1 AND environment_id = $2
+SET enabled = $2, fallthrough = $3, updated_at = clock_timestamp()
+WHERE id = $1
 RETURNING *;
 
 -- name: ListSettingsByFlag :many

@@ -27,37 +27,59 @@ func (s *Store) GetFlagSetting(ctx context.Context, arg database.GetFlagSettingP
 	return setting, nil
 }
 
-// UpdateFlagSetting replaces a flag's settings in one environment, with its
-// fallthrough checked by checkFallthrough, and bumps that environment's version.
-// Values the setting already has change nothing, and it comes back as it is.
-func (s *Store) UpdateFlagSetting(ctx context.Context, arg database.UpdateFlagSettingParams) (database.FlagSetting, error) {
-	if err := checkFallthrough(arg.Fallthrough); err != nil {
-		return database.FlagSetting{}, err
+// FlagSettingUpdate holds the values to give the flag setting with ID. A nil
+// field keeps the value the setting has.
+type FlagSettingUpdate struct {
+	ID          uuid.UUID
+	Enabled     *bool
+	Fallthrough *float32
+}
+
+// UpdateFlagSetting gives the flag setting with arg.ID the values arg sets,
+// with its fallthrough checked by checkFallthrough, and bumps its environment's
+// version. The values left unset are read in the same transaction, so a racing
+// update's values aren't overwritten with stale ones. Values the setting
+// already has, or none at all, change nothing, and it comes back as it is. An
+// id no setting has gives NotFound, and a setting of an archived flag gives
+// FailedPrecondition.
+func (s *Store) UpdateFlagSetting(ctx context.Context, arg FlagSettingUpdate) (database.FlagSetting, error) {
+	if arg.Fallthrough != nil {
+		if err := checkFallthrough(*arg.Fallthrough); err != nil {
+			return database.FlagSetting{}, err
+		}
 	}
 	var setting database.FlagSetting
 	err := s.ExecTx(ctx, func(q *database.Queries) error {
 		if err := q.LockFlagEnvMatrix(ctx); err != nil {
 			return err
 		}
-		flag, err := q.GetFlag(ctx, arg.FlagID)
+		currentSetting, err := q.GetFlagSettingByID(ctx, arg.ID)
+		if err != nil {
+			return err
+		}
+		flag, err := q.GetFlag(ctx, currentSetting.FlagID)
 		if err != nil {
 			return err
 		}
 		if flag.Archived {
 			return connect.NewError(connect.CodeFailedPrecondition, "can't update archived flag")
 		}
-		currentSetting, err := q.GetFlagSetting(ctx, database.GetFlagSettingParams{
-			EnvironmentID: arg.EnvironmentID,
-			FlagID:        arg.FlagID,
-		})
-		if err != nil {
-			return err
+		update := database.UpdateFlagSettingParams{
+			ID:          currentSetting.ID,
+			Enabled:     currentSetting.Enabled,
+			Fallthrough: currentSetting.Fallthrough,
 		}
-		if currentSetting.Enabled == arg.Enabled && currentSetting.Fallthrough == arg.Fallthrough {
+		if arg.Enabled != nil {
+			update.Enabled = *arg.Enabled
+		}
+		if arg.Fallthrough != nil {
+			update.Fallthrough = *arg.Fallthrough
+		}
+		if currentSetting.Enabled == update.Enabled && currentSetting.Fallthrough == update.Fallthrough {
 			setting = currentSetting
 			return nil
 		}
-		stg, err := q.UpdateFlagSetting(ctx, arg)
+		stg, err := q.UpdateFlagSetting(ctx, update)
 		if err != nil {
 			return err
 		}

@@ -1242,7 +1242,7 @@ func TestDeleteEnvLogsChange(t *testing.T) {
 	t.Run("comes after the environment's earlier entries", func(t *testing.T) {
 		setting := mustCreateRuleSetting(t, store)
 		mustCreateNamedRules(t, store, setting.ID, "a", "b")
-		mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: setting.FlagID, EnvironmentID: setting.EnvironmentID, Enabled: true})
+		mustUpdateFlagSetting(t, store, pairSetting{FlagID: setting.FlagID, EnvironmentID: setting.EnvironmentID, Enabled: true})
 		earlier := queryChangeLogs(t, store, "environment_id = $1", setting.EnvironmentID)
 		if len(earlier) == 0 {
 			t.Fatal("no earlier entries, want some")
@@ -1275,7 +1275,7 @@ func TestDeleteEnvLogsChange(t *testing.T) {
 			rules := mustCreateNamedRules(t, store, setting.ID, "a")
 			writes := []func() error{
 				func() error {
-					_, err := store.UpdateFlagSetting(ctx, database.UpdateFlagSettingParams{FlagID: setting.FlagID, EnvironmentID: setting.EnvironmentID, Enabled: true})
+					_, err := store.UpdateFlagSetting(ctx, FlagSettingUpdate{ID: setting.ID, Enabled: new(true), Fallthrough: new(float32(0))})
 					return err
 				},
 				func() error {

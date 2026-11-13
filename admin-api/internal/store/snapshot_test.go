@@ -89,7 +89,7 @@ func TestSnapshotEnv(t *testing.T) {
 		env := mustCreateEnv(t, store, "production")
 		checkout := mustCreateFlag(t, store, "new-checkout")
 		dark := mustCreateFlag(t, store, "dark-mode")
-		s := mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: checkout.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: 0.5})
+		s := mustUpdateFlagSetting(t, store, pairSetting{FlagID: checkout.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: 0.5})
 		last := mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: s.ID, Name: "last", Serve: 1, Clauses: json.RawMessage(validClauses)})
 		first := mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: s.ID, Name: "first", Position: 0, Serve: 0.25, Clauses: json.RawMessage(otherClauses)})
 
@@ -111,7 +111,7 @@ func TestSnapshotEnv(t *testing.T) {
 		env := mustCreateEnv(t, store, "production")
 		other := mustCreateEnv(t, store, "staging")
 		flag := mustCreateFlag(t, store, "new-checkout")
-		s := mustUpdateFlagSetting(t, store, database.UpdateFlagSettingParams{FlagID: flag.ID, EnvironmentID: other.ID, Enabled: true, Fallthrough: 1})
+		s := mustUpdateFlagSetting(t, store, pairSetting{FlagID: flag.ID, EnvironmentID: other.ID, Enabled: true, Fallthrough: 1})
 		mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: s.ID, Name: "a", Serve: 1, Clauses: json.RawMessage(validClauses)})
 
 		want := map[string]snapshotSetting{"new-checkout": {ID: flag.ID, Salt: flag.Salt}}
@@ -236,7 +236,7 @@ func TestSnapshotEnvAndChangeLogAgree(t *testing.T) {
 
 	writes := []func() error{
 		func() error {
-			_, err := store.UpdateFlagSetting(ctx, database.UpdateFlagSettingParams{FlagID: checkout.ID, EnvironmentID: env.ID, Enabled: true, Fallthrough: 0.75})
+			_, err := store.UpdateFlagSetting(ctx, FlagSettingUpdate{ID: setting.ID, Enabled: new(true), Fallthrough: new(float32(0.75))})
 			return err
 		},
 		func() error {
