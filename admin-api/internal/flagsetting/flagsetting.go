@@ -351,3 +351,27 @@ func (s *Service) ChangeRulePosition(ctx context.Context, req *flagsettingv1.Cha
 		Rule: ruleProto,
 	}, nil
 }
+
+// DeleteRule deletes the rule with the requested id and returns it as it was,
+// at its old position. The store moves the rules after it up by one and
+// refuses rules of archived flags. The proto's rules reject an id that isn't a
+// UUID; parsing it again here only guards against a caller without them. Store
+// errors reach the client as they are, and a deleted rule that can't be read
+// gives Internal.
+func (s *Service) DeleteRule(ctx context.Context, req *flagsettingv1.DeleteRuleRequest) (*flagsettingv1.DeleteRuleResponse, error) {
+	ruleID, err := utils.ParseID(req.Id, "rule")
+	if err != nil {
+		return nil, err
+	}
+	rule, err := s.store.DeleteRule(ctx, ruleID)
+	if err != nil {
+		return nil, err
+	}
+	ruleProto, err := ruleToProto(rule)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, connect.CodeInternal.String())
+	}
+	return &flagsettingv1.DeleteRuleResponse{
+		Rule: ruleProto,
+	}, nil
+}
