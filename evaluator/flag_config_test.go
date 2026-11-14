@@ -16,8 +16,8 @@ func TestNewFlagConfig(t *testing.T) {
 		}
 		return r
 	}
-	country := mustNewRule(1, mustNewClause(t, "country", eqOp, StringClause, "BJ"))
-	adults := mustNewRule(0.5, mustNewClause(t, "age", gteOp, NumberClause, 18.0))
+	country := mustNewRule(1, mustNewClause(t, "country", EqOp, StringClause, "BJ"))
+	adults := mustNewRule(0.5, mustNewClause(t, "age", GteOp, NumberClause, 18.0))
 	alice := "user-alice"
 	bob := "user-bob"
 	const salt = "s4lt"
@@ -215,11 +215,11 @@ func TestNewFlagConfig(t *testing.T) {
 }
 
 func TestNewFlagConfigCopiesInputs(t *testing.T) {
-	country, err := NewRule(uuid.New(), []Clause{mustNewClause(t, "country", eqOp, StringClause, "BJ")}, 1)
+	country, err := NewRule(uuid.New(), []Clause{mustNewClause(t, "country", EqOp, StringClause, "BJ")}, 1)
 	if err != nil {
 		t.Fatalf("NewRule(): %v", err)
 	}
-	adults, err := NewRule(uuid.New(), []Clause{mustNewClause(t, "age", gteOp, NumberClause, 18.0)}, 0.5)
+	adults, err := NewRule(uuid.New(), []Clause{mustNewClause(t, "age", GteOp, NumberClause, 18.0)}, 0.5)
 	if err != nil {
 		t.Fatalf("NewRule(): %v", err)
 	}

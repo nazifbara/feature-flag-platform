@@ -11,9 +11,9 @@ import (
 
 func TestNewRule(t *testing.T) {
 	ruleID := uuid.MustParse("0192e4a0-7b3c-7d4e-9f10-2a3b4c5d6e7f")
-	country := mustNewClause(t, "country", eqOp, StringClause, "BJ")
-	age := mustNewClause(t, "age", gteOp, NumberClause, 18.0)
-	isPro := mustNewClause(t, "isPro", eqOp, BooleanClause, true)
+	country := mustNewClause(t, "country", EqOp, StringClause, "BJ")
+	age := mustNewClause(t, "age", GteOp, NumberClause, 18.0)
+	isPro := mustNewClause(t, "isPro", EqOp, BooleanClause, true)
 
 	tests := map[string]struct {
 		id      uuid.UUID
@@ -137,8 +137,8 @@ func TestNewRule(t *testing.T) {
 }
 
 func TestNewRuleCopiesClauses(t *testing.T) {
-	country := mustNewClause(t, "country", eqOp, StringClause, "BJ")
-	age := mustNewClause(t, "age", gteOp, NumberClause, 18.0)
+	country := mustNewClause(t, "country", EqOp, StringClause, "BJ")
+	age := mustNewClause(t, "age", GteOp, NumberClause, 18.0)
 
 	clauses := []Clause{country}
 	rule, err := NewRule(uuid.New(), clauses, 1)
@@ -154,9 +154,9 @@ func TestNewRuleCopiesClauses(t *testing.T) {
 }
 
 func TestRuleMatch(t *testing.T) {
-	country := mustNewClause(t, "country", eqOp, StringClause, "BJ")
-	age := mustNewClause(t, "age", gteOp, NumberClause, 18.0)
-	isPro := mustNewClause(t, "isPro", eqOp, BooleanClause, true)
+	country := mustNewClause(t, "country", EqOp, StringClause, "BJ")
+	age := mustNewClause(t, "age", GteOp, NumberClause, 18.0)
+	isPro := mustNewClause(t, "isPro", EqOp, BooleanClause, true)
 	mustNewRule := func(serve float32, clauses ...Clause) Rule {
 		r, err := NewRule(uuid.New(), clauses, serve)
 		if err != nil {

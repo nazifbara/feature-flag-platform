@@ -15,17 +15,19 @@ const (
 	NumberClause
 )
 
+// The operators a clause can have, as rules store them. Each kind allows only
+// some of them, and EqOp and NeqOp take a single value.
 const (
-	eqOp  = "eq"
-	neqOp = "neq"
-	gtOp  = "gt"
-	ltOp  = "lt"
-	gteOp = "gte"
-	lteOp = "lte"
-	stwOp = "stw"
-	edwOp = "edw"
-	cntOp = "cnt"
-	ilOp  = "il"
+	EqOp  = "eq"
+	NeqOp = "neq"
+	GtOp  = "gt"
+	LtOp  = "lt"
+	GteOp = "gte"
+	LteOp = "lte"
+	StwOp = "stw"
+	EdwOp = "edw"
+	CntOp = "cnt"
+	IlOp  = "il"
 )
 
 type Clause interface {
@@ -50,12 +52,12 @@ type booleanClause struct {
 	values    []bool
 }
 
-var operators = []string{eqOp, neqOp, gtOp, ltOp, gteOp, lteOp, stwOp, edwOp, cntOp, ilOp}
+var operators = []string{EqOp, NeqOp, GtOp, LtOp, GteOp, LteOp, StwOp, EdwOp, CntOp, IlOp}
 
 var clauseOperatorMap = map[ClauseKind][]string{
-	StringClause:  {eqOp, neqOp, stwOp, edwOp, cntOp, ilOp},
-	BooleanClause: {eqOp, neqOp},
-	NumberClause:  {eqOp, neqOp, gtOp, ltOp, gteOp, lteOp, cntOp, ilOp},
+	StringClause:  {EqOp, NeqOp, StwOp, EdwOp, CntOp, IlOp},
+	BooleanClause: {EqOp, NeqOp},
+	NumberClause:  {EqOp, NeqOp, GtOp, LtOp, GteOp, LteOp, CntOp, IlOp},
 }
 
 // NewClause returns a clause of the given kind, after checking its attribute,
@@ -71,7 +73,7 @@ func NewClause(attribute, operator string, kind ClauseKind, values []any) (Claus
 	if !slices.Contains(operators, operator) {
 		return nil, fmt.Errorf("unknown operator: %s", operator)
 	}
-	if slices.Contains([]string{eqOp, neqOp}, operator) && len(values) > 1 {
+	if slices.Contains([]string{EqOp, NeqOp}, operator) && len(values) > 1 {
 		return nil, fmt.Errorf("%v operator on multi-value clause", operator)
 	}
 
@@ -132,14 +134,14 @@ func (c stringClause) Match(attributes map[string][]any) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("invalid value for attribute %q: %w", c.attribute, err)
 	}
-	if !slices.Contains([]string{ilOp, cntOp}, c.operator) && len(inputValues) > 1 {
+	if !slices.Contains([]string{IlOp, CntOp}, c.operator) && len(inputValues) > 1 {
 		return false, fmt.Errorf("multi-value attribute not supported for %s operation in string clause", c.operator)
 	}
 
 	switch c.operator {
-	case ilOp:
+	case IlOp:
 		return valueContains(c.values, inputValues), nil
-	case cntOp:
+	case CntOp:
 		return valueContains(inputValues, c.values), nil
 	case "eq":
 		return inputValues[0] == c.values[0], nil
@@ -165,25 +167,25 @@ func (c numberClause) Match(attributes map[string][]any) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("invalid value for attribute %q: %w", c.attribute, err)
 	}
-	if !slices.Contains([]string{ilOp, cntOp}, c.operator) && len(inputValues) > 1 {
+	if !slices.Contains([]string{IlOp, CntOp}, c.operator) && len(inputValues) > 1 {
 		return false, fmt.Errorf("multi-value attribute not supported for %s operation in number clause", c.operator)
 	}
 	switch c.operator {
-	case ilOp:
+	case IlOp:
 		return valueContains(c.values, inputValues), nil
-	case cntOp:
+	case CntOp:
 		return valueContains(inputValues, c.values), nil
-	case eqOp:
+	case EqOp:
 		return inputValues[0] == c.values[0], nil
-	case neqOp:
+	case NeqOp:
 		return inputValues[0] != c.values[0], nil
-	case gtOp:
+	case GtOp:
 		return inputValues[0] > c.values[0], nil
-	case gteOp:
+	case GteOp:
 		return inputValues[0] >= c.values[0], nil
-	case ltOp:
+	case LtOp:
 		return inputValues[0] < c.values[0], nil
-	case lteOp:
+	case LteOp:
 		return inputValues[0] <= c.values[0], nil
 	default:
 		return false, fmt.Errorf("number clause with invalid operator: %q", c.operator)
@@ -209,9 +211,9 @@ func (c booleanClause) Match(attributes map[string][]any) (bool, error) {
 	clauseValue := c.values[0]
 
 	switch c.operator {
-	case eqOp:
+	case EqOp:
 		return input == clauseValue, nil
-	case neqOp:
+	case NeqOp:
 		return input != clauseValue, nil
 	default:
 		return false, fmt.Errorf("boolean clause with invalid operator: %q", c.operator)

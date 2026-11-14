@@ -35,9 +35,9 @@ func TestEvaluate(t *testing.T) {
 	proID := uuid.MustParse("0192e4a0-7b3c-7d4e-9f10-000000000001")
 	countryID := uuid.MustParse("0192e4a0-7b3c-7d4e-9f10-000000000002")
 	offID := uuid.MustParse("0192e4a0-7b3c-7d4e-9f10-000000000003")
-	pro := mustNewRule(proID, 1, mustNewClause(t, "isPro", eqOp, BooleanClause, true))
-	country := mustNewRule(countryID, 0.5, mustNewClause(t, "country", eqOp, StringClause, "BJ"))
-	off := mustNewRule(offID, 0, mustNewClause(t, "country", eqOp, StringClause, "FR"))
+	pro := mustNewRule(proID, 1, mustNewClause(t, "isPro", EqOp, BooleanClause, true))
+	country := mustNewRule(countryID, 0.5, mustNewClause(t, "country", EqOp, StringClause, "BJ"))
+	off := mustNewRule(offID, 0, mustNewClause(t, "country", EqOp, StringClause, "FR"))
 
 	// Buckets for salt "s4lt" and testFlagID:
 	// carol 0.0986, bob 0.5244, minBucket 0, maxBucket 0.9999.
@@ -276,7 +276,7 @@ func TestEvaluate(t *testing.T) {
 		},
 		// A matched rule's serve decides, not fall, and the other way round.
 		"matched rule ignores fall": {
-			config:     mustNewFlagConfig(true, nil, 1, mustNewRule(countryID, 0.1, mustNewClause(t, "country", eqOp, StringClause, "BJ"))),
+			config:     mustNewFlagConfig(true, nil, 1, mustNewRule(countryID, 0.1, mustNewClause(t, "country", EqOp, StringClause, "BJ"))),
 			attributes: map[string][]any{"user_key": {bob}, "country": {"BJ"}},
 			wantOn:     false,
 			wantReason: RuleMatchReason + countryID.String(),
@@ -290,13 +290,13 @@ func TestEvaluate(t *testing.T) {
 		// Boundaries: a user whose bucket equals the rollout is off, 0 is off
 		// for everyone and 1 is on for everyone.
 		"rule serve equal to the bucket is off": {
-			config:     mustNewFlagConfig(true, nil, 1, mustNewRule(countryID, 0.5244, mustNewClause(t, "country", eqOp, StringClause, "BJ"))),
+			config:     mustNewFlagConfig(true, nil, 1, mustNewRule(countryID, 0.5244, mustNewClause(t, "country", EqOp, StringClause, "BJ"))),
 			attributes: map[string][]any{"user_key": {bob}, "country": {"BJ"}},
 			wantOn:     false,
 			wantReason: RuleMatchReason + countryID.String(),
 		},
 		"rule serve just above the bucket is on": {
-			config:     mustNewFlagConfig(true, nil, 0, mustNewRule(countryID, 0.5245, mustNewClause(t, "country", eqOp, StringClause, "BJ"))),
+			config:     mustNewFlagConfig(true, nil, 0, mustNewRule(countryID, 0.5245, mustNewClause(t, "country", EqOp, StringClause, "BJ"))),
 			attributes: map[string][]any{"user_key": {bob}, "country": {"BJ"}},
 			wantOn:     true,
 			wantReason: RuleMatchReason + countryID.String(),
