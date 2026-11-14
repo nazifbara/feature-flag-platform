@@ -12,6 +12,7 @@ import (
 	"github.com/nazifbara/feature-flag-platform/admin-api/internal/database"
 	"github.com/nazifbara/feature-flag-platform/admin-api/internal/store"
 	"github.com/nazifbara/feature-flag-platform/admin-api/internal/utils"
+	"github.com/nazifbara/feature-flag-platform/evaluator"
 	flagsettingv1 "github.com/nazifbara/feature-flag-platform/gen/go/ffp/flagsetting/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -42,16 +43,16 @@ func settingToProto(storedSetting database.FlagSetting) *flagsettingv1.FlagSetti
 // storedOperators maps the API's clause operators to the names the
 // rules.clauses column keeps.
 var storedOperators = map[flagsettingv1.Operator]string{
-	flagsettingv1.Operator_OPERATOR_EQ:  "eq",
-	flagsettingv1.Operator_OPERATOR_NEQ: "neq",
-	flagsettingv1.Operator_OPERATOR_GT:  "gt",
-	flagsettingv1.Operator_OPERATOR_LT:  "lt",
-	flagsettingv1.Operator_OPERATOR_GTE: "gte",
-	flagsettingv1.Operator_OPERATOR_LTE: "lte",
-	flagsettingv1.Operator_OPERATOR_STW: "stw",
-	flagsettingv1.Operator_OPERATOR_EDW: "edw",
-	flagsettingv1.Operator_OPERATOR_CNT: "cnt",
-	flagsettingv1.Operator_OPERATOR_IL:  "il",
+	flagsettingv1.Operator_OPERATOR_EQ:  evaluator.EqOp,
+	flagsettingv1.Operator_OPERATOR_NEQ: evaluator.NeqOp,
+	flagsettingv1.Operator_OPERATOR_GT:  evaluator.GtOp,
+	flagsettingv1.Operator_OPERATOR_LT:  evaluator.LtOp,
+	flagsettingv1.Operator_OPERATOR_GTE: evaluator.GteOp,
+	flagsettingv1.Operator_OPERATOR_LTE: evaluator.LteOp,
+	flagsettingv1.Operator_OPERATOR_STW: evaluator.StwOp,
+	flagsettingv1.Operator_OPERATOR_EDW: evaluator.EdwOp,
+	flagsettingv1.Operator_OPERATOR_CNT: evaluator.CntOp,
+	flagsettingv1.Operator_OPERATOR_IL:  evaluator.IlOp,
 }
 
 // toAny copies values into a []any, as store.StoredClause holds them. nil
