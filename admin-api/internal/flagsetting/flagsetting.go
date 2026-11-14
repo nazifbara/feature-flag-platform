@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 
+	"buf.build/go/protovalidate"
 	"connectrpc.com/connect/v2"
 	"github.com/nazifbara/feature-flag-platform/admin-api/internal/database"
 	"github.com/nazifbara/feature-flag-platform/admin-api/internal/store"
@@ -274,4 +275,52 @@ func (s *Service) CreateRule(ctx context.Context, req *flagsettingv1.CreateRuleR
 		return nil, connect.NewError(connect.CodeInternal, connect.CodeInternal.String())
 	}
 	return &flagsettingv1.CreateRuleResponse{Rule: protoRule}, nil
+}
+
+// UpdateRule gives the rule with the requested id the values its update mask
+// names, checked by the store, keeping the others whatever the request holds
+// for them, and returns the rule as stored. The proto's rules reject an id that
+// isn't a UUID; parsing it again here only guards against a caller without
+// them. Store errors reach the client as they are, and a stored rule that can't
+// be read back gives Internal.
+func (s *Service) UpdateRule(ctx context.Context, req *flagsettingv1.UpdateRuleRequest) (*flagsettingv1.UpdateRuleResponse, error) {
+	ruleID, err := utils.ParseID(req.Id, "rule")
+	if err != nil {
+		return nil, err
+	}
+	update := store.RuleUpdate{
+		ID: ruleID,
+	}
+	for _, path := range req.GetUpdateMask().Paths {
+		switch path {
+		case "name":
+			update.Name = &req.Name
+		case "serve":
+			update.Serve = &req.Serve
+		case "clauses":
+			for i, clause := range req.Clauses {
+				if err := protovalidate.Validate(clause); err != nil {
+					return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Sprintf("clause at index %d: %s", i, err.Error())).WithCause(err)
+				}
+			}
+			clausesJSON, err := clausesToJSON(req.Clauses)
+			if err != nil {
+				return nil, connect.NewError(connect.CodeInvalidArgument, "invalid clauses").WithCause(err)
+			}
+			update.Clauses = &clausesJSON
+		default:
+			return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Sprintf("invalid update mask path %q", path))
+		}
+	}
+	rule, err := s.store.UpdateRule(ctx, update)
+	if err != nil {
+		return nil, err
+	}
+	ruleProto, err := ruleToProto(rule)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, connect.CodeInternal.String())
+	}
+	return &flagsettingv1.UpdateRuleResponse{
+		Rule: ruleProto,
+	}, nil
 }
