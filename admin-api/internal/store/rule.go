@@ -18,8 +18,11 @@ import (
 	"github.com/nazifbara/feature-flag-platform/evaluator"
 )
 
-// storedClause is how a clause is kept in the rules.clauses column.
-type storedClause struct {
+// StoredClause is how a clause is kept in the rules.clauses column, which holds
+// a JSON list of them. Kind is "string", "boolean" or "number", and Values holds
+// that kind's values. Callers building the column's JSON use it, and
+// parseClauses reads it back.
+type StoredClause struct {
 	Attribute string `json:"attribute"`
 	Operator  string `json:"operator"`
 	Kind      string `json:"kind"`
@@ -40,7 +43,7 @@ var clauseKinds = map[string]evaluator.ClauseKind{
 func parseClauses(raw json.RawMessage) ([]evaluator.Clause, error) {
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.DisallowUnknownFields()
-	var stored []storedClause
+	var stored []StoredClause
 	if err := dec.Decode(&stored); err != nil {
 		return nil, fmt.Errorf("invalid clauses: %w", err)
 	}

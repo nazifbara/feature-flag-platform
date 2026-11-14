@@ -24,7 +24,7 @@ type EnvSnapshot struct {
 		Rules       []struct {
 			ID            uuid.UUID      `json:"id"`
 			Serve         float32        `json:"serve"`
-			StoredClauses []storedClause `json:"stored_clauses"`
+			StoredClauses []StoredClause `json:"stored_clauses"`
 		}
 	} `json:"flag_settings"`
 }
