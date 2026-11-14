@@ -687,12 +687,16 @@ func TestHandlersWithoutValidationRejectBadIDs(t *testing.T) {
 			_, err := svc.ChangeRulePosition(ctx, &flagsettingv1.ChangeRulePositionRequest{Id: id})
 			return err
 		},
+		"DeleteRule": func(id string) error {
+			_, err := svc.DeleteRule(ctx, &flagsettingv1.DeleteRuleRequest{Id: id})
+			return err
+		},
 	}
 	for rpc, call := range calls {
 		for _, id := range testutil.UnparsableIDs {
 			t.Run(fmt.Sprintf("%s %q", rpc, id), func(t *testing.T) {
 				want := "invalid flag setting id"
-				if rpc == "UpdateRule" || rpc == "ChangeRulePosition" {
+				if rpc == "UpdateRule" || rpc == "ChangeRulePosition" || rpc == "DeleteRule" {
 					want = "invalid rule id"
 				}
 				testutil.WantCode(t, call(id), connect.CodeInvalidArgument, want)
@@ -2214,4 +2218,186 @@ func TestChangeRulePositionWithoutValidationRejectsNegativePositions(t *testing.
 	svc := New(newStore(t, testutil.UnreachableDB))
 	_, err := svc.ChangeRulePosition(context.Background(), &flagsettingv1.ChangeRulePositionRequest{Id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8", Position: -1})
 	testutil.WantCode(t, err, connect.CodeInvalidArgument, "can't update a rule with a negative position")
+}
+
+// ruleExists reports whether a rule with id is stored.
+func ruleExists(t *testing.T, db *sql.DB, id string) bool {
+	t.Helper()
+	var exists bool
+	if err := db.QueryRow("SELECT EXISTS (SELECT 1 FROM rules WHERE id = $1)", id).Scan(&exists); err != nil {
+		t.Fatalf("looking up rule %s: %v", id, err)
+	}
+	return exists
+}
+
+// mustDeleteRule deletes the rule with id and returns the response's rule,
+// failing the test if the call fails or the response carries none.
+func mustDeleteRule(t *testing.T, client flagsettingv1connect.FlagSettingServiceClient, id string) *flagsettingv1.Rule {
+	t.Helper()
+	res, err := client.DeleteRule(context.Background(), &flagsettingv1.DeleteRuleRequest{Id: id})
+	if err != nil {
+		t.Fatalf("DeleteRule(%s): %v", id, err)
+	}
+	if res.GetRule() == nil {
+		t.Fatalf("DeleteRule(%s) returned no rule", id)
+	}
+	return res.GetRule()
+}
+
+func TestDeleteRule(t *testing.T) {
+	db := testutil.OpenDB(t)
+	st := newStore(t, os.Getenv("TEST_DB_URL"))
+	client := newClient(t, st)
+	ctx := context.Background()
+
+	// The response is the rule as it was, at its old position, and it's gone
+	// from the table.
+	t.Run("returns the deleted rule", func(t *testing.T) {
+		testutil.ResetDB(t, db)
+		f := mustSetUp(t, st, "new-checkout", "production")
+		rules := mustCreateStoredRules(t, st, f, "a", "b", "c")
+		want, err := ruleToProto(rules[1])
+		if err != nil {
+			t.Fatalf("ruleToProto(): %v", err)
+		}
+		got := mustDeleteRule(t, client, rules[1].ID.String())
+		if !proto.Equal(got, want) {
+			t.Errorf("DeleteRule() = %v, want %v", got, want)
+		}
+		if ruleExists(t, db, got.Id) {
+			t.Errorf("rule %s is still stored", got.Id)
+		}
+	})
+
+	// The rules after the deleted one move up by one, so positions stay 0 to
+	// n-1; the ones before it stay.
+	t.Run("closes the gap", func(t *testing.T) {
+		tests := map[string]struct {
+			delete string
+			want   map[string]int32
+		}{
+			"the first": {"a", map[string]int32{"b": 0, "c": 1, "d": 2}},
+			"a middle":  {"b", map[string]int32{"a": 0, "c": 1, "d": 2}},
+			"the last":  {"d", map[string]int32{"a": 0, "b": 1, "c": 2}},
+		}
+		for name, tc := range tests {
+			t.Run(name, func(t *testing.T) {
+				testutil.ResetDB(t, db)
+				f := mustSetUp(t, st, "new-checkout", "production")
+				rules := mustCreateStoredRules(t, st, f, "a", "b", "c", "d")
+				var kept []database.Rule
+				for _, r := range rules {
+					if r.Name == tc.delete {
+						mustDeleteRule(t, client, r.ID.String())
+					} else {
+						kept = append(kept, r)
+					}
+				}
+				wantPositions(t, db, kept, tc.want)
+				if n := ruleCount(t, db); n != len(kept) {
+					t.Errorf("%d rules, want %d", n, len(kept))
+				}
+			})
+		}
+	})
+
+	// A setting's only rule can go, leaving it with none.
+	t.Run("deletes the only rule", func(t *testing.T) {
+		testutil.ResetDB(t, db)
+		f := mustSetUp(t, st, "new-checkout", "production")
+		rules := mustCreateStoredRules(t, st, f, "a")
+		mustDeleteRule(t, client, rules[0].ID.String())
+		if n := ruleCount(t, db); n != 0 {
+			t.Errorf("%d rules, want none", n)
+		}
+	})
+
+	// SDKs pick the deletion up from the environment's version and its log.
+	t.Run("bumps the version and logs the deletion", func(t *testing.T) {
+		testutil.ResetDB(t, db)
+		f := mustSetUp(t, st, "new-checkout", "production")
+		rules := mustCreateStoredRules(t, st, f, "a", "b")
+		version := envVersion(t, db, f.env.ID.String())
+		mustDeleteRule(t, client, rules[0].ID.String())
+		if got := envVersion(t, db, f.env.ID.String()); got != version+1 {
+			t.Errorf("version = %d, want %d", got, version+1)
+		}
+		if got := changeLogCount(t, db, "rule-deleted"); got != 1 {
+			t.Errorf("%d rule-deleted entries, want 1", got)
+		}
+	})
+
+	// A deleted rule is gone: deleting it again finds nothing, and the rules
+	// that moved up don't move again.
+	t.Run("a second delete is not found", func(t *testing.T) {
+		testutil.ResetDB(t, db)
+		f := mustSetUp(t, st, "new-checkout", "production")
+		rules := mustCreateStoredRules(t, st, f, "a", "b", "c")
+		mustDeleteRule(t, client, rules[0].ID.String())
+		version := envVersion(t, db, f.env.ID.String())
+		_, err := client.DeleteRule(ctx, &flagsettingv1.DeleteRuleRequest{Id: rules[0].ID.String()})
+		testutil.WantCode(t, err, connect.CodeNotFound, "can't delete the rule")
+		wantPositions(t, db, rules[1:], map[string]int32{"b": 0, "c": 1})
+		if got := envVersion(t, db, f.env.ID.String()); got != version {
+			t.Errorf("version = %d, want %d unchanged", got, version)
+		}
+	})
+
+	rejected := map[string]struct {
+		id       string
+		archived bool
+		code     connect.Code
+		message  string
+	}{
+		"an id no rule has": {
+			id:      "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+			code:    connect.CodeNotFound,
+			message: "can't delete the rule",
+		},
+		"a rule of an archived flag": {
+			archived: true,
+			code:     connect.CodeFailedPrecondition,
+			message:  "can't delete rules of archived flag",
+		},
+	}
+	for name, tc := range rejected {
+		t.Run("rejects "+name, func(t *testing.T) {
+			testutil.ResetDB(t, db)
+			f := mustSetUp(t, st, "new-checkout", "production")
+			rules := mustCreateStoredRules(t, st, f, "a", "b", "c")
+			if tc.archived {
+				if _, err := st.ArchiveFlag(ctx, f.flag.ID); err != nil {
+					t.Fatalf("ArchiveFlag(): %v", err)
+				}
+			}
+			version := envVersion(t, db, f.env.ID.String())
+			id := rules[0].ID.String()
+			if tc.id != "" {
+				id = tc.id
+			}
+			_, err := client.DeleteRule(ctx, &flagsettingv1.DeleteRuleRequest{Id: id})
+			testutil.WantCode(t, err, tc.code, tc.message)
+			if n := ruleCount(t, db); n != len(rules) {
+				t.Errorf("%d rules after a rejected delete, want %d", n, len(rules))
+			}
+			wantPositions(t, db, rules, map[string]int32{"a": 0, "b": 1, "c": 2})
+			if got := envVersion(t, db, f.env.ID.String()); got != version {
+				t.Errorf("version = %d, want %d unchanged", got, version)
+			}
+		})
+	}
+
+	for name, tc := range testutil.BadIDs {
+		t.Run("rejects "+name, func(t *testing.T) {
+			_, err := client.DeleteRule(ctx, &flagsettingv1.DeleteRuleRequest{Id: tc.ID})
+			testutil.WantCode(t, err, connect.CodeInvalidArgument, tc.Message)
+		})
+	}
+
+	// The client gets the store's message, never the database's error.
+	t.Run("hides database failures", func(t *testing.T) {
+		unreachable := newClient(t, newStore(t, testutil.UnreachableDB))
+		_, err := unreachable.DeleteRule(ctx, &flagsettingv1.DeleteRuleRequest{Id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"})
+		testutil.WantCode(t, err, connect.CodeInternal, "can't delete the rule")
+	})
 }

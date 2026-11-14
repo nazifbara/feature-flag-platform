@@ -12,6 +12,7 @@ service FlagSettingService {
   rpc CreateRule(CreateRuleRequest) returns (CreateRuleResponse) {}
   rpc UpdateRule(UpdateRuleRequest) returns (UpdateRuleResponse) {}
   rpc ChangeRulePosition(ChangeRulePositionRequest) returns (ChangeRulePositionResponse) {}
+  rpc DeleteRule(DeleteRuleRequest) returns (DeleteRuleResponse) {}
 }
 
 message FlagSetting {
@@ -74,6 +75,14 @@ message ChangeRulePositionRequest {
 }
 
 message ChangeRulePositionResponse {
+  Rule rule = 1;
+}
+
+message DeleteRuleRequest {
+  string id = 1 [(buf.validate.field).string.uuid = true];
+}
+
+message DeleteRuleResponse {
   Rule rule = 1;
 }
 
