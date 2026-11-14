@@ -683,12 +683,16 @@ func TestHandlersWithoutValidationRejectBadIDs(t *testing.T) {
 			_, err := svc.UpdateRule(ctx, &flagsettingv1.UpdateRuleRequest{Id: id, Serve: 0.5, UpdateMask: mask("serve")})
 			return err
 		},
+		"ChangeRulePosition": func(id string) error {
+			_, err := svc.ChangeRulePosition(ctx, &flagsettingv1.ChangeRulePositionRequest{Id: id})
+			return err
+		},
 	}
 	for rpc, call := range calls {
 		for _, id := range testutil.UnparsableIDs {
 			t.Run(fmt.Sprintf("%s %q", rpc, id), func(t *testing.T) {
 				want := "invalid flag setting id"
-				if rpc == "UpdateRule" {
+				if rpc == "UpdateRule" || rpc == "ChangeRulePosition" {
 					want = "invalid rule id"
 				}
 				testutil.WantCode(t, call(id), connect.CodeInvalidArgument, want)
@@ -1823,6 +1827,12 @@ func TestUpdateRule(t *testing.T) {
 			code:     connect.CodeFailedPrecondition,
 			message:  "can't update rules of archived flag",
 		},
+		"an empty mask for a rule of an archived flag": {
+			archived: true,
+			req:      &flagsettingv1.UpdateRuleRequest{Name: "b", UpdateMask: mask()},
+			code:     connect.CodeFailedPrecondition,
+			message:  "can't update rules of archived flag",
+		},
 		"a name over 200 characters": {
 			req:     &flagsettingv1.UpdateRuleRequest{Name: strings.Repeat("é", 201), UpdateMask: mask("name")},
 			code:    connect.CodeInvalidArgument,
@@ -1972,4 +1982,236 @@ func TestUpdateRuleWithoutValidation(t *testing.T) {
 			}
 		})
 	}
+}
+
+// mustCreateStoredRules creates a rule for each name, in order, through the
+// store, in f's setting, so the first is at position 0.
+func mustCreateStoredRules(t *testing.T, st *store.Store, f fixture, names ...string) []database.Rule {
+	t.Helper()
+	raw, err := clausesToJSON(betaClauses())
+	if err != nil {
+		t.Fatalf("clausesToJSON(): %v", err)
+	}
+	rules := make([]database.Rule, len(names))
+	for i, name := range names {
+		rules[i], err = st.CreateRule(context.Background(), database.CreateRuleParams{FlagSettingID: f.setting.ID, Position: int32(i), Name: name, Serve: 0.25, Clauses: raw})
+		if err != nil {
+			t.Fatalf("CreateRule(%q): %v", name, err)
+		}
+	}
+	return rules
+}
+
+// mustChangeRulePosition moves the rule with id to position and returns the
+// response's rule, failing the test if the call fails or the response carries
+// none.
+func mustChangeRulePosition(t *testing.T, client flagsettingv1connect.FlagSettingServiceClient, id string, position int32) *flagsettingv1.Rule {
+	t.Helper()
+	res, err := client.ChangeRulePosition(context.Background(), &flagsettingv1.ChangeRulePositionRequest{Id: id, Position: position})
+	if err != nil {
+		t.Fatalf("ChangeRulePosition(%s, %d): %v", id, position, err)
+	}
+	if res.GetRule() == nil {
+		t.Fatalf("ChangeRulePosition(%s, %d) returned no rule", id, position)
+	}
+	return res.GetRule()
+}
+
+// wantPositions fails the test unless each rule is stored at the position
+// want gives for its name.
+func wantPositions(t *testing.T, db *sql.DB, rules []database.Rule, want map[string]int32) {
+	t.Helper()
+	for _, r := range rules {
+		if got := readRule(t, db, r.ID.String()).position; got != want[r.Name] {
+			t.Errorf("rule %s at position %d, want %d", r.Name, got, want[r.Name])
+		}
+	}
+}
+
+func TestChangeRulePosition(t *testing.T) {
+	db := testutil.OpenDB(t)
+	st := newStore(t, os.Getenv("TEST_DB_URL"))
+	client := newClient(t, st)
+	ctx := context.Background()
+
+	// The response is the moved rule as stored: its new position, and its
+	// other values as they were.
+	t.Run("returns the moved rule", func(t *testing.T) {
+		testutil.ResetDB(t, db)
+		f := mustSetUp(t, st, "new-checkout", "production")
+		rules := mustCreateStoredRules(t, st, f, "a", "b", "c")
+		got := mustChangeRulePosition(t, client, rules[2].ID.String(), 0)
+
+		want, err := ruleToProto(rules[2])
+		if err != nil {
+			t.Fatalf("ruleToProto(): %v", err)
+		}
+		want.Position = 0
+		// updated_at is the stored one, checked against the table below.
+		want.UpdatedAt = got.UpdatedAt
+		if !proto.Equal(got, want) {
+			t.Errorf("ChangeRulePosition() = %v, want %v", got, want)
+		}
+		stored := readRule(t, db, got.Id)
+		if stored.position != 0 || !stored.updated.Equal(got.UpdatedAt.AsTime()) {
+			t.Errorf("stored position, updated_at = %d, %v, want 0, %v", stored.position, stored.updated, got.UpdatedAt.AsTime())
+		}
+	})
+
+	// The rules between the old and new positions move by one, toward the
+	// gap, so positions stay 0 to n-1.
+	t.Run("shifts the rules in between", func(t *testing.T) {
+		tests := map[string]struct {
+			move     string
+			position int32
+			want     map[string]int32
+		}{
+			"last to first":  {"d", 0, map[string]int32{"d": 0, "a": 1, "b": 2, "c": 3}},
+			"first to last":  {"a", 3, map[string]int32{"b": 0, "c": 1, "d": 2, "a": 3}},
+			"up by one":      {"c", 1, map[string]int32{"a": 0, "c": 1, "b": 2, "d": 3}},
+			"down by one":    {"b", 2, map[string]int32{"a": 0, "c": 1, "b": 2, "d": 3}},
+			"middle to last": {"b", 3, map[string]int32{"a": 0, "c": 1, "d": 2, "b": 3}},
+		}
+		for name, tc := range tests {
+			t.Run(name, func(t *testing.T) {
+				testutil.ResetDB(t, db)
+				f := mustSetUp(t, st, "new-checkout", "production")
+				rules := mustCreateStoredRules(t, st, f, "a", "b", "c", "d")
+				byName := map[string]database.Rule{}
+				for _, r := range rules {
+					byName[r.Name] = r
+				}
+				got := mustChangeRulePosition(t, client, byName[tc.move].ID.String(), tc.position)
+				if got.Position != tc.position {
+					t.Errorf("response position = %d, want %d", got.Position, tc.position)
+				}
+				wantPositions(t, db, rules, tc.want)
+			})
+		}
+	})
+
+	// SDKs pick the move up from the environment's version and its log.
+	t.Run("bumps the version and logs the move", func(t *testing.T) {
+		testutil.ResetDB(t, db)
+		f := mustSetUp(t, st, "new-checkout", "production")
+		rules := mustCreateStoredRules(t, st, f, "a", "b")
+		version := envVersion(t, db, f.env.ID.String())
+		mustChangeRulePosition(t, client, rules[1].ID.String(), 0)
+		if got := envVersion(t, db, f.env.ID.String()); got != version+1 {
+			t.Errorf("version = %d, want %d", got, version+1)
+		}
+		if got := changeLogCount(t, db, "rule-position-changed"); got != 1 {
+			t.Errorf("%d rule-position-changed entries, want 1", got)
+		}
+	})
+
+	// A rule already at the position has nowhere to go: it comes back as it
+	// is, and SDKs have nothing to pick up.
+	t.Run("the current position changes nothing", func(t *testing.T) {
+		testutil.ResetDB(t, db)
+		f := mustSetUp(t, st, "new-checkout", "production")
+		rules := mustCreateStoredRules(t, st, f, "a", "b")
+		want, err := ruleToProto(rules[1])
+		if err != nil {
+			t.Fatalf("ruleToProto(): %v", err)
+		}
+		version := envVersion(t, db, f.env.ID.String())
+		got := mustChangeRulePosition(t, client, rules[1].ID.String(), 1)
+		if !proto.Equal(got, want) {
+			t.Errorf("ChangeRulePosition() = %v, want %v unchanged", got, want)
+		}
+		if got := envVersion(t, db, f.env.ID.String()); got != version {
+			t.Errorf("version = %d, want %d unchanged", got, version)
+		}
+		if got := changeLogCount(t, db, "rule-position-changed"); got != 0 {
+			t.Errorf("%d rule-position-changed entries, want none", got)
+		}
+	})
+
+	rejected := map[string]struct {
+		id       string
+		archived bool
+		position int32
+		code     connect.Code
+		message  string
+	}{
+		// The store's checks.
+		"an id no rule has": {
+			id:      "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+			code:    connect.CodeNotFound,
+			message: "can't update the rule",
+		},
+		"a rule of an archived flag": {
+			archived: true,
+			code:     connect.CodeFailedPrecondition,
+			message:  "can't update rules of archived flag",
+		},
+		"the current position of a rule of an archived flag": {
+			archived: true,
+			position: 2,
+			code:     connect.CodeFailedPrecondition,
+			message:  "can't update rules of archived flag",
+		},
+		"a position past the rules": {
+			position: 3,
+			code:     connect.CodeInvalidArgument,
+			message:  "can't update a rule with a position outside [0, 2]",
+		},
+		"a position far past the rules": {
+			position: math.MaxInt32,
+			code:     connect.CodeInvalidArgument,
+			message:  "can't update a rule with a position outside [0, 2]",
+		},
+		// The proto's rules.
+		"a negative position": {
+			position: -1,
+			code:     connect.CodeInvalidArgument,
+			message:  "validation error: position: must be greater than or equal to 0",
+		},
+	}
+	for name, tc := range rejected {
+		t.Run("rejects "+name, func(t *testing.T) {
+			testutil.ResetDB(t, db)
+			f := mustSetUp(t, st, "new-checkout", "production")
+			rules := mustCreateStoredRules(t, st, f, "a", "b", "c")
+			if tc.archived {
+				if _, err := st.ArchiveFlag(ctx, f.flag.ID); err != nil {
+					t.Fatalf("ArchiveFlag(): %v", err)
+				}
+			}
+			version := envVersion(t, db, f.env.ID.String())
+			id := rules[2].ID.String()
+			if tc.id != "" {
+				id = tc.id
+			}
+			_, err := client.ChangeRulePosition(ctx, &flagsettingv1.ChangeRulePositionRequest{Id: id, Position: tc.position})
+			testutil.WantCode(t, err, tc.code, tc.message)
+			wantPositions(t, db, rules, map[string]int32{"a": 0, "b": 1, "c": 2})
+			if got := envVersion(t, db, f.env.ID.String()); got != version {
+				t.Errorf("version = %d, want %d unchanged", got, version)
+			}
+		})
+	}
+
+	for name, tc := range testutil.BadIDs {
+		t.Run("rejects "+name, func(t *testing.T) {
+			_, err := client.ChangeRulePosition(ctx, &flagsettingv1.ChangeRulePositionRequest{Id: tc.ID})
+			testutil.WantCode(t, err, connect.CodeInvalidArgument, tc.Message)
+		})
+	}
+
+	// The client gets the store's message, never the database's error.
+	t.Run("hides database failures", func(t *testing.T) {
+		unreachable := newClient(t, newStore(t, testutil.UnreachableDB))
+		_, err := unreachable.ChangeRulePosition(ctx, &flagsettingv1.ChangeRulePositionRequest{Id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"})
+		testutil.WantCode(t, err, connect.CodeInternal, "can't update the rule")
+	})
+}
+
+// Without the validation interceptor, a negative position still reaches the
+// store's own check, which rejects it before using the database.
+func TestChangeRulePositionWithoutValidationRejectsNegativePositions(t *testing.T) {
+	svc := New(newStore(t, testutil.UnreachableDB))
+	_, err := svc.ChangeRulePosition(context.Background(), &flagsettingv1.ChangeRulePositionRequest{Id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8", Position: -1})
+	testutil.WantCode(t, err, connect.CodeInvalidArgument, "can't update a rule with a negative position")
 }
