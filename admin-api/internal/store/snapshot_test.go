@@ -21,7 +21,7 @@ import (
 type snapshotRule struct {
 	ID      uuid.UUID
 	Serve   float32
-	Clauses []storedClause
+	Clauses []StoredClause
 }
 
 type snapshotSetting struct {
@@ -46,9 +46,9 @@ func settingsOf(snapshot EnvSnapshot) map[string]snapshotSetting {
 }
 
 // storedClausesOf decodes clauses the way they're stored.
-func storedClausesOf(t *testing.T, clauses string) []storedClause {
+func storedClausesOf(t *testing.T, clauses string) []StoredClause {
 	t.Helper()
-	var stored []storedClause
+	var stored []StoredClause
 	if err := json.Unmarshal([]byte(clauses), &stored); err != nil {
 		t.Fatalf("decoding clauses %s: %v", clauses, err)
 	}
@@ -141,7 +141,7 @@ func TestSnapshotEnv(t *testing.T) {
 	})
 
 	// The clauses check only holds a list, so what's in it can still be wrong
-	// for storedClause; that's corrupt data, not the caller's mistake. What
+	// for StoredClause; that's corrupt data, not the caller's mistake. What
 	// failed to decode is kept as the cause, for the logs.
 	t.Run("internal for clauses that don't decode", func(t *testing.T) {
 		setting := mustCreateRuleSetting(t, store)
