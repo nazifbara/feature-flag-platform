@@ -9,6 +9,7 @@ import "google/protobuf/timestamp.proto";
 service FlagSettingService {
   rpc Get(GetRequest) returns (GetResponse) {}
   rpc Update(UpdateRequest) returns (UpdateResponse) {}
+  rpc CreateRule(CreateRuleRequest) returns (CreateRuleResponse) {}
 }
 
 message FlagSetting {
@@ -19,6 +20,81 @@ message FlagSetting {
   float fallthrough = 5;
   google.protobuf.Timestamp created_at = 6;
   google.protobuf.Timestamp updated_at = 7;
+}
+
+message Rule {
+  string id = 1;
+  string flag_setting_id = 2;
+  int32 position = 3;
+  string name = 8;
+  double serve = 4;
+  repeated Clause clauses = 5;
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp updated_at = 7;
+}
+
+message CreateRuleRequest {
+  string flag_setting_id = 1 [(buf.validate.field).string.uuid = true];
+  int32 position = 2 [(buf.validate.field).int32.gte = 0];
+  string name = 3 [(buf.validate.field).string.min_len = 1];
+  float serve = 4 [(buf.validate.field).float = {
+    gte: 0
+    lte: 1
+  }];
+  repeated Clause clauses = 5;
+}
+
+message CreateRuleResponse {
+  Rule rule = 1;
+}
+
+// Clause matches a user attribute against values. Its kind is whichever of
+// values is set, so the values always match it. The operators a kind allows,
+// and eq and neq taking a single value, are checked by the store.
+message Clause {
+  string attribute = 1 [(buf.validate.field).string.min_len = 1];
+  Operator operator = 2 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
+  oneof values {
+    option (buf.validate.oneof).required = true;
+    StringValues string_values = 3;
+    NumberValues number_values = 4;
+    BoolValues bool_values = 5;
+  }
+}
+
+message StringValues {
+  repeated string values = 1 [(buf.validate.field).repeated.min_items = 1];
+}
+
+message NumberValues {
+  repeated double values = 1 [(buf.validate.field).repeated.min_items = 1];
+}
+
+message BoolValues {
+  repeated bool values = 1 [(buf.validate.field).repeated.min_items = 1];
+}
+
+enum Operator {
+  OPERATOR_UNSPECIFIED = 0;
+  // Equal to the clause's single value.
+  OPERATOR_EQ = 1;
+  // Not equal to the clause's single value.
+  OPERATOR_NEQ = 2;
+  OPERATOR_GT = 3;
+  OPERATOR_LT = 4;
+  OPERATOR_GTE = 5;
+  OPERATOR_LTE = 6;
+  // Starts with.
+  OPERATOR_STW = 7;
+  // Ends with.
+  OPERATOR_EDW = 8;
+  // Contains.
+  OPERATOR_CNT = 9;
+  // In the list of values.
+  OPERATOR_IL = 10;
 }
 
 message GetRequest {

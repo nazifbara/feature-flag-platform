@@ -24,6 +24,85 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type Operator int32
+
+const (
+	Operator_OPERATOR_UNSPECIFIED Operator = 0
+	// Equal to the clause's single value.
+	Operator_OPERATOR_EQ Operator = 1
+	// Not equal to the clause's single value.
+	Operator_OPERATOR_NEQ Operator = 2
+	Operator_OPERATOR_GT  Operator = 3
+	Operator_OPERATOR_LT  Operator = 4
+	Operator_OPERATOR_GTE Operator = 5
+	Operator_OPERATOR_LTE Operator = 6
+	// Starts with.
+	Operator_OPERATOR_STW Operator = 7
+	// Ends with.
+	Operator_OPERATOR_EDW Operator = 8
+	// Contains.
+	Operator_OPERATOR_CNT Operator = 9
+	// In the list of values.
+	Operator_OPERATOR_IL Operator = 10
+)
+
+// Enum value maps for Operator.
+var (
+	Operator_name = map[int32]string{
+		0:  "OPERATOR_UNSPECIFIED",
+		1:  "OPERATOR_EQ",
+		2:  "OPERATOR_NEQ",
+		3:  "OPERATOR_GT",
+		4:  "OPERATOR_LT",
+		5:  "OPERATOR_GTE",
+		6:  "OPERATOR_LTE",
+		7:  "OPERATOR_STW",
+		8:  "OPERATOR_EDW",
+		9:  "OPERATOR_CNT",
+		10: "OPERATOR_IL",
+	}
+	Operator_value = map[string]int32{
+		"OPERATOR_UNSPECIFIED": 0,
+		"OPERATOR_EQ":          1,
+		"OPERATOR_NEQ":         2,
+		"OPERATOR_GT":          3,
+		"OPERATOR_LT":          4,
+		"OPERATOR_GTE":         5,
+		"OPERATOR_LTE":         6,
+		"OPERATOR_STW":         7,
+		"OPERATOR_EDW":         8,
+		"OPERATOR_CNT":         9,
+		"OPERATOR_IL":          10,
+	}
+)
+
+func (x Operator) Enum() *Operator {
+	p := new(Operator)
+	*p = x
+	return p
+}
+
+func (x Operator) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (Operator) Descriptor() protoreflect.EnumDescriptor {
+	return file_ffp_flagsetting_v1_flagsetting_proto_enumTypes[0].Descriptor()
+}
+
+func (Operator) Type() protoreflect.EnumType {
+	return &file_ffp_flagsetting_v1_flagsetting_proto_enumTypes[0]
+}
+
+func (x Operator) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use Operator.Descriptor instead.
+func (Operator) EnumDescriptor() ([]byte, []int) {
+	return file_ffp_flagsetting_v1_flagsetting_proto_rawDescGZIP(), []int{0}
+}
+
 type FlagSetting struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -116,6 +195,475 @@ func (x *FlagSetting) GetUpdatedAt() *timestamppb.Timestamp {
 	return nil
 }
 
+type Rule struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	FlagSettingId string                 `protobuf:"bytes,2,opt,name=flag_setting_id,json=flagSettingId,proto3" json:"flag_setting_id,omitempty"`
+	Position      int32                  `protobuf:"varint,3,opt,name=position,proto3" json:"position,omitempty"`
+	Name          string                 `protobuf:"bytes,8,opt,name=name,proto3" json:"name,omitempty"`
+	Serve         float64                `protobuf:"fixed64,4,opt,name=serve,proto3" json:"serve,omitempty"`
+	Clauses       []*Clause              `protobuf:"bytes,5,rep,name=clauses,proto3" json:"clauses,omitempty"`
+	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Rule) Reset() {
+	*x = Rule{}
+	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Rule) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Rule) ProtoMessage() {}
+
+func (x *Rule) ProtoReflect() protoreflect.Message {
+	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Rule.ProtoReflect.Descriptor instead.
+func (*Rule) Descriptor() ([]byte, []int) {
+	return file_ffp_flagsetting_v1_flagsetting_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *Rule) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *Rule) GetFlagSettingId() string {
+	if x != nil {
+		return x.FlagSettingId
+	}
+	return ""
+}
+
+func (x *Rule) GetPosition() int32 {
+	if x != nil {
+		return x.Position
+	}
+	return 0
+}
+
+func (x *Rule) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *Rule) GetServe() float64 {
+	if x != nil {
+		return x.Serve
+	}
+	return 0
+}
+
+func (x *Rule) GetClauses() []*Clause {
+	if x != nil {
+		return x.Clauses
+	}
+	return nil
+}
+
+func (x *Rule) GetCreatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return nil
+}
+
+func (x *Rule) GetUpdatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.UpdatedAt
+	}
+	return nil
+}
+
+type CreateRuleRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	FlagSettingId string                 `protobuf:"bytes,1,opt,name=flag_setting_id,json=flagSettingId,proto3" json:"flag_setting_id,omitempty"`
+	Position      int32                  `protobuf:"varint,2,opt,name=position,proto3" json:"position,omitempty"`
+	Name          string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
+	Serve         float32                `protobuf:"fixed32,4,opt,name=serve,proto3" json:"serve,omitempty"`
+	Clauses       []*Clause              `protobuf:"bytes,5,rep,name=clauses,proto3" json:"clauses,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateRuleRequest) Reset() {
+	*x = CreateRuleRequest{}
+	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateRuleRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateRuleRequest) ProtoMessage() {}
+
+func (x *CreateRuleRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateRuleRequest.ProtoReflect.Descriptor instead.
+func (*CreateRuleRequest) Descriptor() ([]byte, []int) {
+	return file_ffp_flagsetting_v1_flagsetting_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *CreateRuleRequest) GetFlagSettingId() string {
+	if x != nil {
+		return x.FlagSettingId
+	}
+	return ""
+}
+
+func (x *CreateRuleRequest) GetPosition() int32 {
+	if x != nil {
+		return x.Position
+	}
+	return 0
+}
+
+func (x *CreateRuleRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *CreateRuleRequest) GetServe() float32 {
+	if x != nil {
+		return x.Serve
+	}
+	return 0
+}
+
+func (x *CreateRuleRequest) GetClauses() []*Clause {
+	if x != nil {
+		return x.Clauses
+	}
+	return nil
+}
+
+type CreateRuleResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Rule          *Rule                  `protobuf:"bytes,1,opt,name=rule,proto3" json:"rule,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateRuleResponse) Reset() {
+	*x = CreateRuleResponse{}
+	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateRuleResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateRuleResponse) ProtoMessage() {}
+
+func (x *CreateRuleResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateRuleResponse.ProtoReflect.Descriptor instead.
+func (*CreateRuleResponse) Descriptor() ([]byte, []int) {
+	return file_ffp_flagsetting_v1_flagsetting_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *CreateRuleResponse) GetRule() *Rule {
+	if x != nil {
+		return x.Rule
+	}
+	return nil
+}
+
+// Clause matches a user attribute against values. Its kind is whichever of
+// values is set, so the values always match it. The operators a kind allows,
+// and eq and neq taking a single value, are checked by the store.
+type Clause struct {
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	Attribute string                 `protobuf:"bytes,1,opt,name=attribute,proto3" json:"attribute,omitempty"`
+	Operator  Operator               `protobuf:"varint,2,opt,name=operator,proto3,enum=ffp.flagsetting.v1.Operator" json:"operator,omitempty"`
+	// Types that are valid to be assigned to Values:
+	//
+	//	*Clause_StringValues
+	//	*Clause_NumberValues
+	//	*Clause_BoolValues
+	Values        isClause_Values `protobuf_oneof:"values"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Clause) Reset() {
+	*x = Clause{}
+	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Clause) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Clause) ProtoMessage() {}
+
+func (x *Clause) ProtoReflect() protoreflect.Message {
+	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Clause.ProtoReflect.Descriptor instead.
+func (*Clause) Descriptor() ([]byte, []int) {
+	return file_ffp_flagsetting_v1_flagsetting_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *Clause) GetAttribute() string {
+	if x != nil {
+		return x.Attribute
+	}
+	return ""
+}
+
+func (x *Clause) GetOperator() Operator {
+	if x != nil {
+		return x.Operator
+	}
+	return Operator_OPERATOR_UNSPECIFIED
+}
+
+func (x *Clause) GetValues() isClause_Values {
+	if x != nil {
+		return x.Values
+	}
+	return nil
+}
+
+func (x *Clause) GetStringValues() *StringValues {
+	if x != nil {
+		if x, ok := x.Values.(*Clause_StringValues); ok {
+			return x.StringValues
+		}
+	}
+	return nil
+}
+
+func (x *Clause) GetNumberValues() *NumberValues {
+	if x != nil {
+		if x, ok := x.Values.(*Clause_NumberValues); ok {
+			return x.NumberValues
+		}
+	}
+	return nil
+}
+
+func (x *Clause) GetBoolValues() *BoolValues {
+	if x != nil {
+		if x, ok := x.Values.(*Clause_BoolValues); ok {
+			return x.BoolValues
+		}
+	}
+	return nil
+}
+
+type isClause_Values interface {
+	isClause_Values()
+}
+
+type Clause_StringValues struct {
+	StringValues *StringValues `protobuf:"bytes,3,opt,name=string_values,json=stringValues,proto3,oneof"`
+}
+
+type Clause_NumberValues struct {
+	NumberValues *NumberValues `protobuf:"bytes,4,opt,name=number_values,json=numberValues,proto3,oneof"`
+}
+
+type Clause_BoolValues struct {
+	BoolValues *BoolValues `protobuf:"bytes,5,opt,name=bool_values,json=boolValues,proto3,oneof"`
+}
+
+func (*Clause_StringValues) isClause_Values() {}
+
+func (*Clause_NumberValues) isClause_Values() {}
+
+func (*Clause_BoolValues) isClause_Values() {}
+
+type StringValues struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Values        []string               `protobuf:"bytes,1,rep,name=values,proto3" json:"values,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StringValues) Reset() {
+	*x = StringValues{}
+	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StringValues) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StringValues) ProtoMessage() {}
+
+func (x *StringValues) ProtoReflect() protoreflect.Message {
+	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StringValues.ProtoReflect.Descriptor instead.
+func (*StringValues) Descriptor() ([]byte, []int) {
+	return file_ffp_flagsetting_v1_flagsetting_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *StringValues) GetValues() []string {
+	if x != nil {
+		return x.Values
+	}
+	return nil
+}
+
+type NumberValues struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Values        []float64              `protobuf:"fixed64,1,rep,packed,name=values,proto3" json:"values,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *NumberValues) Reset() {
+	*x = NumberValues{}
+	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NumberValues) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NumberValues) ProtoMessage() {}
+
+func (x *NumberValues) ProtoReflect() protoreflect.Message {
+	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use NumberValues.ProtoReflect.Descriptor instead.
+func (*NumberValues) Descriptor() ([]byte, []int) {
+	return file_ffp_flagsetting_v1_flagsetting_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *NumberValues) GetValues() []float64 {
+	if x != nil {
+		return x.Values
+	}
+	return nil
+}
+
+type BoolValues struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Values        []bool                 `protobuf:"varint,1,rep,packed,name=values,proto3" json:"values,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BoolValues) Reset() {
+	*x = BoolValues{}
+	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BoolValues) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BoolValues) ProtoMessage() {}
+
+func (x *BoolValues) ProtoReflect() protoreflect.Message {
+	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BoolValues.ProtoReflect.Descriptor instead.
+func (*BoolValues) Descriptor() ([]byte, []int) {
+	return file_ffp_flagsetting_v1_flagsetting_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *BoolValues) GetValues() []bool {
+	if x != nil {
+		return x.Values
+	}
+	return nil
+}
+
 type GetRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -125,7 +673,7 @@ type GetRequest struct {
 
 func (x *GetRequest) Reset() {
 	*x = GetRequest{}
-	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[1]
+	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -137,7 +685,7 @@ func (x *GetRequest) String() string {
 func (*GetRequest) ProtoMessage() {}
 
 func (x *GetRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[1]
+	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -150,7 +698,7 @@ func (x *GetRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetRequest.ProtoReflect.Descriptor instead.
 func (*GetRequest) Descriptor() ([]byte, []int) {
-	return file_ffp_flagsetting_v1_flagsetting_proto_rawDescGZIP(), []int{1}
+	return file_ffp_flagsetting_v1_flagsetting_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *GetRequest) GetId() string {
@@ -169,7 +717,7 @@ type GetResponse struct {
 
 func (x *GetResponse) Reset() {
 	*x = GetResponse{}
-	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[2]
+	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -181,7 +729,7 @@ func (x *GetResponse) String() string {
 func (*GetResponse) ProtoMessage() {}
 
 func (x *GetResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[2]
+	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -194,7 +742,7 @@ func (x *GetResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetResponse.ProtoReflect.Descriptor instead.
 func (*GetResponse) Descriptor() ([]byte, []int) {
-	return file_ffp_flagsetting_v1_flagsetting_proto_rawDescGZIP(), []int{2}
+	return file_ffp_flagsetting_v1_flagsetting_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *GetResponse) GetFlagSetting() *FlagSetting {
@@ -216,7 +764,7 @@ type UpdateRequest struct {
 
 func (x *UpdateRequest) Reset() {
 	*x = UpdateRequest{}
-	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[3]
+	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -228,7 +776,7 @@ func (x *UpdateRequest) String() string {
 func (*UpdateRequest) ProtoMessage() {}
 
 func (x *UpdateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[3]
+	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -241,7 +789,7 @@ func (x *UpdateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateRequest.ProtoReflect.Descriptor instead.
 func (*UpdateRequest) Descriptor() ([]byte, []int) {
-	return file_ffp_flagsetting_v1_flagsetting_proto_rawDescGZIP(), []int{3}
+	return file_ffp_flagsetting_v1_flagsetting_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *UpdateRequest) GetId() string {
@@ -281,7 +829,7 @@ type UpdateResponse struct {
 
 func (x *UpdateResponse) Reset() {
 	*x = UpdateResponse{}
-	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[4]
+	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -293,7 +841,7 @@ func (x *UpdateResponse) String() string {
 func (*UpdateResponse) ProtoMessage() {}
 
 func (x *UpdateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[4]
+	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -306,7 +854,7 @@ func (x *UpdateResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateResponse.ProtoReflect.Descriptor instead.
 func (*UpdateResponse) Descriptor() ([]byte, []int) {
-	return file_ffp_flagsetting_v1_flagsetting_proto_rawDescGZIP(), []int{4}
+	return file_ffp_flagsetting_v1_flagsetting_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *UpdateResponse) GetFlagSetting() *FlagSetting {
@@ -330,7 +878,44 @@ const file_ffp_flagsetting_v1_flagsetting_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
-	"updated_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"&\n" +
+	"updated_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"\xb0\x02\n" +
+	"\x04Rule\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12&\n" +
+	"\x0fflag_setting_id\x18\x02 \x01(\tR\rflagSettingId\x12\x1a\n" +
+	"\bposition\x18\x03 \x01(\x05R\bposition\x12\x12\n" +
+	"\x04name\x18\b \x01(\tR\x04name\x12\x14\n" +
+	"\x05serve\x18\x04 \x01(\x01R\x05serve\x124\n" +
+	"\aclauses\x18\x05 \x03(\v2\x1a.ffp.flagsetting.v1.ClauseR\aclauses\x129\n" +
+	"\n" +
+	"created_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
+	"\n" +
+	"updated_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"\xe4\x01\n" +
+	"\x11CreateRuleRequest\x120\n" +
+	"\x0fflag_setting_id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\rflagSettingId\x12#\n" +
+	"\bposition\x18\x02 \x01(\x05B\a\xbaH\x04\x1a\x02(\x00R\bposition\x12\x1b\n" +
+	"\x04name\x18\x03 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x04name\x12%\n" +
+	"\x05serve\x18\x04 \x01(\x02B\x0f\xbaH\f\n" +
+	"\n" +
+	"\x1d\x00\x00\x80?-\x00\x00\x00\x00R\x05serve\x124\n" +
+	"\aclauses\x18\x05 \x03(\v2\x1a.ffp.flagsetting.v1.ClauseR\aclauses\"B\n" +
+	"\x12CreateRuleResponse\x12,\n" +
+	"\x04rule\x18\x01 \x01(\v2\x18.ffp.flagsetting.v1.RuleR\x04rule\"\xdb\x02\n" +
+	"\x06Clause\x12%\n" +
+	"\tattribute\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\tattribute\x12D\n" +
+	"\boperator\x18\x02 \x01(\x0e2\x1c.ffp.flagsetting.v1.OperatorB\n" +
+	"\xbaH\a\x82\x01\x04\x10\x01 \x00R\boperator\x12G\n" +
+	"\rstring_values\x18\x03 \x01(\v2 .ffp.flagsetting.v1.StringValuesH\x00R\fstringValues\x12G\n" +
+	"\rnumber_values\x18\x04 \x01(\v2 .ffp.flagsetting.v1.NumberValuesH\x00R\fnumberValues\x12A\n" +
+	"\vbool_values\x18\x05 \x01(\v2\x1e.ffp.flagsetting.v1.BoolValuesH\x00R\n" +
+	"boolValuesB\x0f\n" +
+	"\x06values\x12\x05\xbaH\x02\b\x01\"0\n" +
+	"\fStringValues\x12 \n" +
+	"\x06values\x18\x01 \x03(\tB\b\xbaH\x05\x92\x01\x02\b\x01R\x06values\"0\n" +
+	"\fNumberValues\x12 \n" +
+	"\x06values\x18\x01 \x03(\x01B\b\xbaH\x05\x92\x01\x02\b\x01R\x06values\".\n" +
+	"\n" +
+	"BoolValues\x12 \n" +
+	"\x06values\x18\x01 \x03(\bB\b\xbaH\x05\x92\x01\x02\b\x01R\x06values\"&\n" +
 	"\n" +
 	"GetRequest\x12\x18\n" +
 	"\x02id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x02id\"Q\n" +
@@ -343,10 +928,25 @@ const file_ffp_flagsetting_v1_flagsetting_proto_rawDesc = "" +
 	"\vupdate_mask\x18\x04 \x01(\v2\x1a.google.protobuf.FieldMaskB\x1f\xbaH\x1c\xc8\x01\x01\xe2\x01\x16\x12\aenabled\x12\vfallthroughR\n" +
 	"updateMask\"T\n" +
 	"\x0eUpdateResponse\x12B\n" +
-	"\fflag_setting\x18\x01 \x01(\v2\x1f.ffp.flagsetting.v1.FlagSettingR\vflagSetting2\xb1\x01\n" +
+	"\fflag_setting\x18\x01 \x01(\v2\x1f.ffp.flagsetting.v1.FlagSettingR\vflagSetting*\xd4\x01\n" +
+	"\bOperator\x12\x18\n" +
+	"\x14OPERATOR_UNSPECIFIED\x10\x00\x12\x0f\n" +
+	"\vOPERATOR_EQ\x10\x01\x12\x10\n" +
+	"\fOPERATOR_NEQ\x10\x02\x12\x0f\n" +
+	"\vOPERATOR_GT\x10\x03\x12\x0f\n" +
+	"\vOPERATOR_LT\x10\x04\x12\x10\n" +
+	"\fOPERATOR_GTE\x10\x05\x12\x10\n" +
+	"\fOPERATOR_LTE\x10\x06\x12\x10\n" +
+	"\fOPERATOR_STW\x10\a\x12\x10\n" +
+	"\fOPERATOR_EDW\x10\b\x12\x10\n" +
+	"\fOPERATOR_CNT\x10\t\x12\x0f\n" +
+	"\vOPERATOR_IL\x10\n" +
+	"2\x90\x02\n" +
 	"\x12FlagSettingService\x12H\n" +
 	"\x03Get\x12\x1e.ffp.flagsetting.v1.GetRequest\x1a\x1f.ffp.flagsetting.v1.GetResponse\"\x00\x12Q\n" +
-	"\x06Update\x12!.ffp.flagsetting.v1.UpdateRequest\x1a\".ffp.flagsetting.v1.UpdateResponse\"\x00B\xe8\x01\n" +
+	"\x06Update\x12!.ffp.flagsetting.v1.UpdateRequest\x1a\".ffp.flagsetting.v1.UpdateResponse\"\x00\x12]\n" +
+	"\n" +
+	"CreateRule\x12%.ffp.flagsetting.v1.CreateRuleRequest\x1a&.ffp.flagsetting.v1.CreateRuleResponse\"\x00B\xe8\x01\n" +
 	"\x16com.ffp.flagsetting.v1B\x10FlagsettingProtoP\x01ZRgithub.com/nazifbara/feature-flag-platform/gen/go/ffp/flagsetting/v1;flagsettingv1\xa2\x02\x03FFX\xaa\x02\x12Ffp.Flagsetting.V1\xca\x02\x12Ffp\\Flagsetting\\V1\xe2\x02\x1eFfp\\Flagsetting\\V1\\GPBMetadata\xea\x02\x14Ffp::Flagsetting::V1b\x06proto3"
 
 var (
@@ -361,31 +961,51 @@ func file_ffp_flagsetting_v1_flagsetting_proto_rawDescGZIP() []byte {
 	return file_ffp_flagsetting_v1_flagsetting_proto_rawDescData
 }
 
-var file_ffp_flagsetting_v1_flagsetting_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_ffp_flagsetting_v1_flagsetting_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_ffp_flagsetting_v1_flagsetting_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
 var file_ffp_flagsetting_v1_flagsetting_proto_goTypes = []any{
-	(*FlagSetting)(nil),           // 0: ffp.flagsetting.v1.FlagSetting
-	(*GetRequest)(nil),            // 1: ffp.flagsetting.v1.GetRequest
-	(*GetResponse)(nil),           // 2: ffp.flagsetting.v1.GetResponse
-	(*UpdateRequest)(nil),         // 3: ffp.flagsetting.v1.UpdateRequest
-	(*UpdateResponse)(nil),        // 4: ffp.flagsetting.v1.UpdateResponse
-	(*timestamppb.Timestamp)(nil), // 5: google.protobuf.Timestamp
-	(*fieldmaskpb.FieldMask)(nil), // 6: google.protobuf.FieldMask
+	(Operator)(0),                 // 0: ffp.flagsetting.v1.Operator
+	(*FlagSetting)(nil),           // 1: ffp.flagsetting.v1.FlagSetting
+	(*Rule)(nil),                  // 2: ffp.flagsetting.v1.Rule
+	(*CreateRuleRequest)(nil),     // 3: ffp.flagsetting.v1.CreateRuleRequest
+	(*CreateRuleResponse)(nil),    // 4: ffp.flagsetting.v1.CreateRuleResponse
+	(*Clause)(nil),                // 5: ffp.flagsetting.v1.Clause
+	(*StringValues)(nil),          // 6: ffp.flagsetting.v1.StringValues
+	(*NumberValues)(nil),          // 7: ffp.flagsetting.v1.NumberValues
+	(*BoolValues)(nil),            // 8: ffp.flagsetting.v1.BoolValues
+	(*GetRequest)(nil),            // 9: ffp.flagsetting.v1.GetRequest
+	(*GetResponse)(nil),           // 10: ffp.flagsetting.v1.GetResponse
+	(*UpdateRequest)(nil),         // 11: ffp.flagsetting.v1.UpdateRequest
+	(*UpdateResponse)(nil),        // 12: ffp.flagsetting.v1.UpdateResponse
+	(*timestamppb.Timestamp)(nil), // 13: google.protobuf.Timestamp
+	(*fieldmaskpb.FieldMask)(nil), // 14: google.protobuf.FieldMask
 }
 var file_ffp_flagsetting_v1_flagsetting_proto_depIdxs = []int32{
-	5, // 0: ffp.flagsetting.v1.FlagSetting.created_at:type_name -> google.protobuf.Timestamp
-	5, // 1: ffp.flagsetting.v1.FlagSetting.updated_at:type_name -> google.protobuf.Timestamp
-	0, // 2: ffp.flagsetting.v1.GetResponse.flag_setting:type_name -> ffp.flagsetting.v1.FlagSetting
-	6, // 3: ffp.flagsetting.v1.UpdateRequest.update_mask:type_name -> google.protobuf.FieldMask
-	0, // 4: ffp.flagsetting.v1.UpdateResponse.flag_setting:type_name -> ffp.flagsetting.v1.FlagSetting
-	1, // 5: ffp.flagsetting.v1.FlagSettingService.Get:input_type -> ffp.flagsetting.v1.GetRequest
-	3, // 6: ffp.flagsetting.v1.FlagSettingService.Update:input_type -> ffp.flagsetting.v1.UpdateRequest
-	2, // 7: ffp.flagsetting.v1.FlagSettingService.Get:output_type -> ffp.flagsetting.v1.GetResponse
-	4, // 8: ffp.flagsetting.v1.FlagSettingService.Update:output_type -> ffp.flagsetting.v1.UpdateResponse
-	7, // [7:9] is the sub-list for method output_type
-	5, // [5:7] is the sub-list for method input_type
-	5, // [5:5] is the sub-list for extension type_name
-	5, // [5:5] is the sub-list for extension extendee
-	0, // [0:5] is the sub-list for field type_name
+	13, // 0: ffp.flagsetting.v1.FlagSetting.created_at:type_name -> google.protobuf.Timestamp
+	13, // 1: ffp.flagsetting.v1.FlagSetting.updated_at:type_name -> google.protobuf.Timestamp
+	5,  // 2: ffp.flagsetting.v1.Rule.clauses:type_name -> ffp.flagsetting.v1.Clause
+	13, // 3: ffp.flagsetting.v1.Rule.created_at:type_name -> google.protobuf.Timestamp
+	13, // 4: ffp.flagsetting.v1.Rule.updated_at:type_name -> google.protobuf.Timestamp
+	5,  // 5: ffp.flagsetting.v1.CreateRuleRequest.clauses:type_name -> ffp.flagsetting.v1.Clause
+	2,  // 6: ffp.flagsetting.v1.CreateRuleResponse.rule:type_name -> ffp.flagsetting.v1.Rule
+	0,  // 7: ffp.flagsetting.v1.Clause.operator:type_name -> ffp.flagsetting.v1.Operator
+	6,  // 8: ffp.flagsetting.v1.Clause.string_values:type_name -> ffp.flagsetting.v1.StringValues
+	7,  // 9: ffp.flagsetting.v1.Clause.number_values:type_name -> ffp.flagsetting.v1.NumberValues
+	8,  // 10: ffp.flagsetting.v1.Clause.bool_values:type_name -> ffp.flagsetting.v1.BoolValues
+	1,  // 11: ffp.flagsetting.v1.GetResponse.flag_setting:type_name -> ffp.flagsetting.v1.FlagSetting
+	14, // 12: ffp.flagsetting.v1.UpdateRequest.update_mask:type_name -> google.protobuf.FieldMask
+	1,  // 13: ffp.flagsetting.v1.UpdateResponse.flag_setting:type_name -> ffp.flagsetting.v1.FlagSetting
+	9,  // 14: ffp.flagsetting.v1.FlagSettingService.Get:input_type -> ffp.flagsetting.v1.GetRequest
+	11, // 15: ffp.flagsetting.v1.FlagSettingService.Update:input_type -> ffp.flagsetting.v1.UpdateRequest
+	3,  // 16: ffp.flagsetting.v1.FlagSettingService.CreateRule:input_type -> ffp.flagsetting.v1.CreateRuleRequest
+	10, // 17: ffp.flagsetting.v1.FlagSettingService.Get:output_type -> ffp.flagsetting.v1.GetResponse
+	12, // 18: ffp.flagsetting.v1.FlagSettingService.Update:output_type -> ffp.flagsetting.v1.UpdateResponse
+	4,  // 19: ffp.flagsetting.v1.FlagSettingService.CreateRule:output_type -> ffp.flagsetting.v1.CreateRuleResponse
+	17, // [17:20] is the sub-list for method output_type
+	14, // [14:17] is the sub-list for method input_type
+	14, // [14:14] is the sub-list for extension type_name
+	14, // [14:14] is the sub-list for extension extendee
+	0,  // [0:14] is the sub-list for field type_name
 }
 
 func init() { file_ffp_flagsetting_v1_flagsetting_proto_init() }
@@ -393,18 +1013,24 @@ func file_ffp_flagsetting_v1_flagsetting_proto_init() {
 	if File_ffp_flagsetting_v1_flagsetting_proto != nil {
 		return
 	}
+	file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[4].OneofWrappers = []any{
+		(*Clause_StringValues)(nil),
+		(*Clause_NumberValues)(nil),
+		(*Clause_BoolValues)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_ffp_flagsetting_v1_flagsetting_proto_rawDesc), len(file_ffp_flagsetting_v1_flagsetting_proto_rawDesc)),
-			NumEnums:      0,
-			NumMessages:   5,
+			NumEnums:      1,
+			NumMessages:   12,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_ffp_flagsetting_v1_flagsetting_proto_goTypes,
 		DependencyIndexes: file_ffp_flagsetting_v1_flagsetting_proto_depIdxs,
+		EnumInfos:         file_ffp_flagsetting_v1_flagsetting_proto_enumTypes,
 		MessageInfos:      file_ffp_flagsetting_v1_flagsetting_proto_msgTypes,
 	}.Build()
 	File_ffp_flagsetting_v1_flagsetting_proto = out.File
