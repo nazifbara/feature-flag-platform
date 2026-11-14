@@ -10,6 +10,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 	"uuid"
@@ -211,6 +212,12 @@ func mustCreateRuleSetting(t *testing.T, store *Store) database.FlagSetting {
 		t.Fatalf("GetFlagSetting(): %v", err)
 	}
 	return s
+}
+
+// fullRuleUpdate gives every value of arg to UpdateRule, so the rule ends up
+// with exactly them.
+func fullRuleUpdate(arg database.UpdateRuleParams) RuleUpdate {
+	return RuleUpdate{ID: arg.ID, Name: &arg.Name, Serve: &arg.Serve, Clauses: &arg.Clauses}
 }
 
 func mustCreateRule(t *testing.T, store *Store, arg database.CreateRuleParams) database.Rule {
@@ -1305,7 +1312,7 @@ func ruleWrites(store *Store) map[string]ruleWrite {
 		},
 		"UpdateRule": {
 			write: func(rule database.Rule) (database.Rule, error) {
-				return store.UpdateRule(ctx, database.UpdateRuleParams{ID: rule.ID, Name: "changed", Serve: 0.75, Clauses: json.RawMessage(otherClauses)})
+				return store.UpdateRule(ctx, fullRuleUpdate(database.UpdateRuleParams{ID: rule.ID, Name: "changed", Serve: 0.75, Clauses: json.RawMessage(otherClauses)}))
 			},
 			message: "can't update the rule",
 		},
@@ -1850,7 +1857,7 @@ func TestUpdateRuleBumpCounts(t *testing.T) {
 			{ID: rule.ID, Name: "b", Serve: 0.75, Clauses: json.RawMessage(otherClauses)},
 		}
 		for i, arg := range changes {
-			if _, err := store.UpdateRule(ctx, arg); err != nil {
+			if _, err := store.UpdateRule(ctx, fullRuleUpdate(arg)); err != nil {
 				t.Fatalf("UpdateRule(): %v", err)
 			}
 			if got, want := mustGetEnv(t, store, env.ID).Version, env.Version+int64(i)+1; got != want {
@@ -1867,7 +1874,7 @@ func TestUpdateRuleBumpCounts(t *testing.T) {
 		rule := mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: setting.ID, Name: "a", Serve: 0.1, Clauses: json.RawMessage(validClauses)})
 		env := mustGetEnv(t, store, setting.EnvironmentID)
 		for _, n := range []string{rule.Name, "  " + rule.Name + "  "} {
-			if _, err := store.UpdateRule(ctx, database.UpdateRuleParams{ID: rule.ID, Name: n, Serve: rule.Serve, Clauses: rule.Clauses}); err != nil {
+			if _, err := store.UpdateRule(ctx, fullRuleUpdate(database.UpdateRuleParams{ID: rule.ID, Name: n, Serve: rule.Serve, Clauses: rule.Clauses})); err != nil {
 				t.Fatalf("UpdateRule(): %v", err)
 			}
 			if diff := cmp.Diff(env, mustGetEnv(t, store, env.ID)); diff != "" {
@@ -1902,7 +1909,7 @@ func TestUpdateRuleBumpCounts(t *testing.T) {
 				setting := mustCreateRuleSetting(t, store)
 				rule := mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: setting.ID, Name: "a", Serve: 0.5, Clauses: json.RawMessage(test.stored)})
 				env := mustGetEnv(t, store, setting.EnvironmentID)
-				got, err := store.UpdateRule(ctx, database.UpdateRuleParams{ID: rule.ID, Name: rule.Name, Serve: rule.Serve, Clauses: json.RawMessage(test.sent)})
+				got, err := store.UpdateRule(ctx, fullRuleUpdate(database.UpdateRuleParams{ID: rule.ID, Name: rule.Name, Serve: rule.Serve, Clauses: json.RawMessage(test.sent)}))
 				if err != nil {
 					t.Fatalf("UpdateRule(): %v", err)
 				}
@@ -1932,7 +1939,7 @@ func TestUpdateRuleBumpCounts(t *testing.T) {
 				setting := mustCreateRuleSetting(t, store)
 				rule := mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: setting.ID, Name: "a", Serve: 0.5, Clauses: json.RawMessage(stored)})
 				env := mustGetEnv(t, store, setting.EnvironmentID)
-				got, err := store.UpdateRule(ctx, database.UpdateRuleParams{ID: rule.ID, Name: rule.Name, Serve: rule.Serve, Clauses: json.RawMessage(clauses)})
+				got, err := store.UpdateRule(ctx, fullRuleUpdate(database.UpdateRuleParams{ID: rule.ID, Name: rule.Name, Serve: rule.Serve, Clauses: json.RawMessage(clauses)}))
 				if err != nil {
 					t.Fatalf("UpdateRule(): %v", err)
 				}
@@ -1962,7 +1969,7 @@ func TestUpdateRuleBumpCounts(t *testing.T) {
 				setting := mustCreateRuleSetting(t, store)
 				rule := mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: setting.ID, Name: "a", Serve: 0.5, Clauses: json.RawMessage(test.stored)})
 				env := mustGetEnv(t, store, setting.EnvironmentID)
-				if _, err := store.UpdateRule(ctx, database.UpdateRuleParams{ID: rule.ID, Name: rule.Name, Serve: rule.Serve, Clauses: json.RawMessage(test.sent)}); err != nil {
+				if _, err := store.UpdateRule(ctx, fullRuleUpdate(database.UpdateRuleParams{ID: rule.ID, Name: rule.Name, Serve: rule.Serve, Clauses: json.RawMessage(test.sent)})); err != nil {
 					t.Fatalf("UpdateRule(): %v", err)
 				}
 				wantSameJSON(t, storedRule(t, store, rule.ID).Clauses, test.sent)
@@ -1981,7 +1988,7 @@ func TestUpdateRuleBumpCounts(t *testing.T) {
 		if _, err := store.db.Exec(`UPDATE rules SET clauses = '[{"attribute":"country","operator":"nope","kind":"string","values":["BJ"]}]' WHERE id = $1`, rule.ID); err != nil {
 			t.Fatalf("corrupting the clauses: %v", err)
 		}
-		got, err := store.UpdateRule(ctx, database.UpdateRuleParams{ID: rule.ID, Name: rule.Name, Serve: rule.Serve, Clauses: json.RawMessage(validClauses)})
+		got, err := store.UpdateRule(ctx, fullRuleUpdate(database.UpdateRuleParams{ID: rule.ID, Name: rule.Name, Serve: rule.Serve, Clauses: json.RawMessage(validClauses)}))
 		if err != nil {
 			t.Fatalf("UpdateRule(): %v", err)
 		}
@@ -2003,7 +2010,7 @@ func TestUpdateRuleBumpCounts(t *testing.T) {
 		}
 		for name, arg := range tests {
 			t.Run(name, func(t *testing.T) {
-				if _, err := store.UpdateRule(ctx, arg); err == nil {
+				if _, err := store.UpdateRule(ctx, fullRuleUpdate(arg)); err == nil {
 					t.Fatal("UpdateRule() = nil error, want it rejected")
 				}
 				if diff := cmp.Diff(env, mustGetEnv(t, store, env.ID)); diff != "" {
@@ -2023,7 +2030,7 @@ func TestUpdateRuleBumpCounts(t *testing.T) {
 		errs := make(chan error, racers)
 		for i := range racers {
 			go func() {
-				_, err := store.UpdateRule(ctx, database.UpdateRuleParams{ID: rule.ID, Serve: float32(i+1) / racers, Clauses: rule.Clauses})
+				_, err := store.UpdateRule(ctx, fullRuleUpdate(database.UpdateRuleParams{ID: rule.ID, Serve: float32(i+1) / racers, Clauses: rule.Clauses}))
 				errs <- err
 			}()
 		}
@@ -2047,7 +2054,7 @@ func TestUpdateRuleBumpCounts(t *testing.T) {
 		errs := make(chan error, racers)
 		for range racers {
 			go func() {
-				_, err := store.UpdateRule(ctx, database.UpdateRuleParams{ID: rule.ID, Name: rule.Name, Serve: 0.75, Clauses: rule.Clauses})
+				_, err := store.UpdateRule(ctx, fullRuleUpdate(database.UpdateRuleParams{ID: rule.ID, Name: rule.Name, Serve: 0.75, Clauses: rule.Clauses}))
 				errs <- err
 			}()
 		}
@@ -2067,7 +2074,7 @@ func TestUpdateRuleBumpCounts(t *testing.T) {
 		setting := mustCreateRuleSetting(t, store)
 		rule := mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: setting.ID, Name: "a", Serve: 0.25, Clauses: json.RawMessage(validClauses)})
 		env := mustGetEnv(t, store, setting.EnvironmentID)
-		got, err := store.UpdateRule(ctx, database.UpdateRuleParams{ID: rule.ID, Name: "b", Serve: rule.Serve, Clauses: rule.Clauses})
+		got, err := store.UpdateRule(ctx, fullRuleUpdate(database.UpdateRuleParams{ID: rule.ID, Name: "b", Serve: rule.Serve, Clauses: rule.Clauses}))
 		if err != nil {
 			t.Fatalf("UpdateRule(): %v", err)
 		}
@@ -2099,7 +2106,7 @@ func TestUpdateRuleLogsChange(t *testing.T) {
 		mustCreateEnv(t, store, "staging")
 		rules := mustCreateNamedRules(t, store, setting.ID, "a", "b", "c")
 		before := changeLogCount(t, store)
-		if _, err := store.UpdateRule(ctx, database.UpdateRuleParams{ID: rules[1].ID, Name: "b", Serve: 0.75, Clauses: json.RawMessage(otherClauses)}); err != nil {
+		if _, err := store.UpdateRule(ctx, fullRuleUpdate(database.UpdateRuleParams{ID: rules[1].ID, Name: "b", Serve: 0.75, Clauses: json.RawMessage(otherClauses)})); err != nil {
 			t.Fatalf("UpdateRule(): %v", err)
 		}
 		logs := storedChangeLogsFor(t, store, "rule-updated")
@@ -2130,7 +2137,7 @@ func TestUpdateRuleLogsChange(t *testing.T) {
 	t.Run("entry matches the stored rule", func(t *testing.T) {
 		setting := mustCreateRuleSetting(t, store)
 		rule := mustCreateNamedRules(t, store, setting.ID, "a")[0]
-		if _, err := store.UpdateRule(ctx, database.UpdateRuleParams{ID: rule.ID, Name: "a", Serve: 0.1, Clauses: json.RawMessage(otherClauses)}); err != nil {
+		if _, err := store.UpdateRule(ctx, fullRuleUpdate(database.UpdateRuleParams{ID: rule.ID, Name: "a", Serve: 0.1, Clauses: json.RawMessage(otherClauses)})); err != nil {
 			t.Fatalf("UpdateRule(): %v", err)
 		}
 		logs := storedChangeLogsFor(t, store, "rule-updated")
@@ -2155,7 +2162,7 @@ func TestUpdateRuleLogsChange(t *testing.T) {
 		if _, err := store.ChangeRulePosition(ctx, database.ChangeRulePositionParams{ID: rules[1].ID, Position: 0}); err != nil {
 			t.Fatalf("ChangeRulePosition(): %v", err)
 		}
-		if _, err := store.UpdateRule(ctx, database.UpdateRuleParams{ID: rules[1].ID, Name: "b", Serve: 0.75, Clauses: rules[1].Clauses}); err != nil {
+		if _, err := store.UpdateRule(ctx, fullRuleUpdate(database.UpdateRuleParams{ID: rules[1].ID, Name: "b", Serve: 0.75, Clauses: rules[1].Clauses})); err != nil {
 			t.Fatalf("UpdateRule(): %v", err)
 		}
 		logs := storedChangeLogsFor(t, store, "rule-updated")
@@ -2181,7 +2188,7 @@ func TestUpdateRuleLogsChange(t *testing.T) {
 			clauses string
 		}{{0.5, validClauses}, {0.5, otherClauses}, {0.75, validClauses}}
 		for _, c := range changes {
-			if _, err := store.UpdateRule(ctx, database.UpdateRuleParams{ID: rule.ID, Name: "a", Serve: c.serve, Clauses: json.RawMessage(c.clauses)}); err != nil {
+			if _, err := store.UpdateRule(ctx, fullRuleUpdate(database.UpdateRuleParams{ID: rule.ID, Name: "a", Serve: c.serve, Clauses: json.RawMessage(c.clauses)})); err != nil {
 				t.Fatalf("UpdateRule(): %v", err)
 			}
 		}
@@ -2212,7 +2219,7 @@ func TestUpdateRuleLogsChange(t *testing.T) {
 			{ID: rule.ID, Name: "  " + rule.Name + "  ", Serve: rule.Serve, Clauses: rule.Clauses},
 			{ID: rule.ID, Name: rule.Name, Serve: rule.Serve, Clauses: json.RawMessage(`[{"values":["BJ"],"kind":"string","operator":"eq","attribute":"country"}]`)},
 		} {
-			if _, err := store.UpdateRule(ctx, arg); err != nil {
+			if _, err := store.UpdateRule(ctx, fullRuleUpdate(arg)); err != nil {
 				t.Fatalf("UpdateRule(): %v", err)
 			}
 			if got := changeLogCount(t, store); got != before {
@@ -2226,7 +2233,7 @@ func TestUpdateRuleLogsChange(t *testing.T) {
 		setting := mustCreateRuleSetting(t, store)
 		rule := mustCreateNamedRules(t, store, setting.ID, "a")[0]
 		before := changeLogCount(t, store)
-		if _, err := store.UpdateRule(ctx, database.UpdateRuleParams{ID: rule.ID, Name: "b", Serve: rule.Serve, Clauses: rule.Clauses}); err != nil {
+		if _, err := store.UpdateRule(ctx, fullRuleUpdate(database.UpdateRuleParams{ID: rule.ID, Name: "b", Serve: rule.Serve, Clauses: rule.Clauses})); err != nil {
 			t.Fatalf("UpdateRule(): %v", err)
 		}
 		if got := changeLogCount(t, store); got != before {
@@ -2245,7 +2252,7 @@ func TestUpdateRuleLogsChange(t *testing.T) {
 		errs := make(chan error, racers)
 		for i := range racers {
 			go func() {
-				_, err := store.UpdateRule(ctx, database.UpdateRuleParams{ID: rule.ID, Name: "a", Serve: float32(i+1) / (racers + 1), Clauses: rule.Clauses})
+				_, err := store.UpdateRule(ctx, fullRuleUpdate(database.UpdateRuleParams{ID: rule.ID, Name: "a", Serve: float32(i+1) / (racers + 1), Clauses: rule.Clauses}))
 				errs <- err
 			}()
 		}
@@ -2287,7 +2294,7 @@ func TestUpdateRuleLogsChange(t *testing.T) {
 		}
 		for name, arg := range tests {
 			t.Run(name, func(t *testing.T) {
-				if _, err := store.UpdateRule(ctx, arg); err == nil {
+				if _, err := store.UpdateRule(ctx, fullRuleUpdate(arg)); err == nil {
 					t.Fatal("UpdateRule() = nil error, want it rejected")
 				}
 				if got := changeLogCount(t, store); got != before {
@@ -2301,7 +2308,7 @@ func TestUpdateRuleLogsChange(t *testing.T) {
 		setting := mustCreateRuleSetting(t, store)
 		rule := mustCreateNamedRules(t, store, setting.ID, "a")[0]
 		rejectEnvBumps(t, store)
-		if _, err := store.UpdateRule(ctx, database.UpdateRuleParams{ID: rule.ID, Name: "a", Serve: 0.75, Clauses: rule.Clauses}); err == nil {
+		if _, err := store.UpdateRule(ctx, fullRuleUpdate(database.UpdateRuleParams{ID: rule.ID, Name: "a", Serve: 0.75, Clauses: rule.Clauses})); err == nil {
 			t.Fatal("UpdateRule() = nil error, want it to fail")
 		}
 		if n := len(storedChangeLogsFor(t, store, "rule-updated")); n != 0 {
@@ -2316,7 +2323,7 @@ func TestUpdateRuleLogsChange(t *testing.T) {
 		rule := mustCreateNamedRules(t, store, setting.ID, "a")[0]
 		env := mustGetEnv(t, store, setting.EnvironmentID)
 		rejectNewChangeLogs(t, store)
-		got, err := store.UpdateRule(ctx, database.UpdateRuleParams{ID: rule.ID, Name: "b", Serve: 0.75, Clauses: json.RawMessage(otherClauses)})
+		got, err := store.UpdateRule(ctx, fullRuleUpdate(database.UpdateRuleParams{ID: rule.ID, Name: "b", Serve: 0.75, Clauses: json.RawMessage(otherClauses)}))
 		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, "can't update the rule"))
 		wantZeroRule(t, got)
 		if diff := cmp.Diff(rule, storedRule(t, store, rule.ID)); diff != "" {
@@ -3615,7 +3622,7 @@ func TestUpdateRule(t *testing.T) {
 	}
 	update := func(t *testing.T, arg database.UpdateRuleParams) database.Rule {
 		t.Helper()
-		got, err := store.UpdateRule(ctx, arg)
+		got, err := store.UpdateRule(ctx, fullRuleUpdate(arg))
 		if err != nil {
 			t.Fatalf("UpdateRule(%+v): %v", arg, err)
 		}
@@ -3811,7 +3818,7 @@ func TestUpdateRule(t *testing.T) {
 		}
 		for name, id := range tests {
 			t.Run(name, func(t *testing.T) {
-				got, err := store.UpdateRule(ctx, database.UpdateRuleParams{ID: id, Name: "Everyone", Clauses: json.RawMessage(validClauses)})
+				got, err := store.UpdateRule(ctx, fullRuleUpdate(database.UpdateRuleParams{ID: id, Name: "Everyone", Clauses: json.RawMessage(validClauses)}))
 				wantConnectErr(t, err, notFound)
 				wantZeroRule(t, got)
 				if diff := cmp.Diff(kept, storedRule(t, store, kept.ID)); diff != "" {
@@ -3825,7 +3832,7 @@ func TestUpdateRule(t *testing.T) {
 			if _, err := store.DeleteRule(ctx, rule.ID); err != nil {
 				t.Fatalf("DeleteRule(): %v", err)
 			}
-			got, err := store.UpdateRule(ctx, database.UpdateRuleParams{ID: rule.ID, Name: "Everyone", Clauses: json.RawMessage(validClauses)})
+			got, err := store.UpdateRule(ctx, fullRuleUpdate(database.UpdateRuleParams{ID: rule.ID, Name: "Everyone", Clauses: json.RawMessage(validClauses)}))
 			wantConnectErr(t, err, notFound)
 			wantZeroRule(t, got)
 		})
@@ -3916,7 +3923,7 @@ func TestUpdateRuleRejectsInvalid(t *testing.T) {
 			arg.ID = rule.ID
 			test.change(&arg)
 
-			got, err := store.UpdateRule(ctx, arg)
+			got, err := store.UpdateRule(ctx, fullRuleUpdate(arg))
 			wantConnectErr(t, err, test.want)
 			wantZeroRule(t, got)
 			if diff := cmp.Diff(rule, storedRule(t, store, rule.ID)); diff != "" {
@@ -3942,7 +3949,7 @@ func TestUpdateRuleRejectsInvalid(t *testing.T) {
 				arg := valid()
 				arg.ID = uuid.New()
 				test.change(&arg)
-				_, err := store.UpdateRule(ctx, arg)
+				_, err := store.UpdateRule(ctx, fullRuleUpdate(arg))
 				wantConnectErr(t, err, test.want)
 			})
 		}
@@ -3976,7 +3983,7 @@ func TestUpdateRuleReportsErrors(t *testing.T) {
 	}
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			got, err := store.UpdateRule(test.ctx, arg)
+			got, err := store.UpdateRule(test.ctx, fullRuleUpdate(arg))
 			wantConnectErr(t, err, test.want)
 			wantZeroRule(t, got)
 			if diff := cmp.Diff(rule, storedRule(t, store, rule.ID)); diff != "" {
@@ -3990,7 +3997,7 @@ func TestUpdateRuleReportsErrors(t *testing.T) {
 		if err := store.db.Close(); err != nil {
 			t.Fatalf("closing the database: %v", err)
 		}
-		got, err := store.UpdateRule(context.Background(), arg)
+		got, err := store.UpdateRule(context.Background(), fullRuleUpdate(arg))
 		wantConnectErr(t, err, connect.NewError(connect.CodeInternal, message))
 		wantZeroRule(t, got)
 	})
@@ -4093,7 +4100,7 @@ func TestCountRulesBySetting(t *testing.T) {
 	t.Run("stays the same when a rule is updated", func(t *testing.T) {
 		setting := mustCreateRuleSetting(t, store)
 		rule := create(t, setting.ID, 0)
-		if _, err := store.UpdateRule(ctx, database.UpdateRuleParams{ID: rule.ID, Name: "Everyone", Clauses: json.RawMessage(validClauses)}); err != nil {
+		if _, err := store.UpdateRule(ctx, fullRuleUpdate(database.UpdateRuleParams{ID: rule.ID, Name: "Everyone", Clauses: json.RawMessage(validClauses)})); err != nil {
 			t.Fatalf("UpdateRule(): %v", err)
 		}
 		wantCount(t, setting.ID, 1)
@@ -4569,7 +4576,7 @@ func TestRulesOfArchivedFlag(t *testing.T) {
 		},
 		"UpdateRule": {
 			call: func(_ database.FlagSetting, r database.Rule) (database.Rule, error) {
-				return store.UpdateRule(ctx, database.UpdateRuleParams{ID: r.ID, Name: "renamed", Serve: 0.5, Clauses: json.RawMessage(otherClauses)})
+				return store.UpdateRule(ctx, fullRuleUpdate(database.UpdateRuleParams{ID: r.ID, Name: "renamed", Serve: 0.5, Clauses: json.RawMessage(otherClauses)}))
 			},
 			message: "can't update rules of archived flag",
 		},
@@ -4626,4 +4633,203 @@ func TestRulesOfArchivedFlag(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A RuleUpdate changes only the values it sets; the others keep the rule's,
+// read in the same transaction.
+func TestUpdateRuleSetsOnlyGivenValues(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	create := func(t *testing.T) (database.FlagSetting, database.Rule) {
+		t.Helper()
+		setting := mustCreateRuleSetting(t, store)
+		rule := mustCreateRule(t, store, database.CreateRuleParams{FlagSettingID: setting.ID, Name: "a", Serve: 0.25, Clauses: json.RawMessage(validClauses)})
+		return setting, rule
+	}
+	name, serve, clauses := "b", float32(0.75), json.RawMessage(otherClauses)
+
+	// Every mix of values, each to a new one. Only a new serve or new clauses
+	// change how the rule evaluates, so only they bump and log; a new name is
+	// stored but SDKs have nothing to pick up.
+	tests := map[string]struct {
+		update    RuleUpdate
+		evaluated bool
+	}{
+		"nothing":                  {RuleUpdate{}, false},
+		"only the name":            {RuleUpdate{Name: &name}, false},
+		"only the serve":           {RuleUpdate{Serve: &serve}, true},
+		"only the clauses":         {RuleUpdate{Clauses: &clauses}, true},
+		"the name and serve":       {RuleUpdate{Name: &name, Serve: &serve}, true},
+		"the name and clauses":     {RuleUpdate{Name: &name, Clauses: &clauses}, true},
+		"the serve and clauses":    {RuleUpdate{Serve: &serve, Clauses: &clauses}, true},
+		"the name, serve, clauses": {RuleUpdate{Name: &name, Serve: &serve, Clauses: &clauses}, true},
+	}
+	for testName, test := range tests {
+		t.Run(testName, func(t *testing.T) {
+			setting, rule := create(t)
+			envBefore := mustGetEnv(t, store, setting.EnvironmentID)
+			logsBefore := changeLogCount(t, store)
+			arg := test.update
+			arg.ID = rule.ID
+
+			got, err := store.UpdateRule(ctx, arg)
+			if err != nil {
+				t.Fatalf("UpdateRule(): %v", err)
+			}
+			want := rule
+			if arg.Name != nil {
+				want.Name = name
+			}
+			if arg.Serve != nil {
+				want.Serve = serve
+			}
+			if arg.Name == nil && arg.Serve == nil && arg.Clauses == nil {
+				if diff := cmp.Diff(rule, got); diff != "" {
+					t.Errorf("UpdateRule() with nothing set changed the rule (-want +got):\n%s", diff)
+				}
+			}
+			if got.Name != want.Name || got.Serve != want.Serve {
+				t.Errorf("UpdateRule() name, serve = %q, %v, want %q, %v", got.Name, got.Serve, want.Name, want.Serve)
+			}
+			if arg.Clauses != nil {
+				wantSameJSON(t, got.Clauses, otherClauses)
+			} else {
+				wantSameJSON(t, got.Clauses, string(rule.Clauses))
+			}
+			if diff := cmp.Diff(got, storedRule(t, store, rule.ID)); diff != "" {
+				t.Errorf("stored rule mismatch (-returned +stored):\n%s", diff)
+			}
+
+			wantVersion, wantLogs := envBefore.Version, logsBefore
+			if test.evaluated {
+				wantVersion, wantLogs = wantVersion+1, wantLogs+1
+			}
+			if got := mustGetEnv(t, store, setting.EnvironmentID).Version; got != wantVersion {
+				t.Errorf("version = %d, want %d", got, wantVersion)
+			}
+			if got := changeLogCount(t, store); got != wantLogs {
+				t.Errorf("%d entries, want %d", got, wantLogs)
+			}
+		})
+	}
+
+	// Setting a value the rule already has is no change, whatever else is
+	// left unset: the rule comes back as it is, and nothing is bumped or
+	// logged.
+	t.Run("values the rule already has change nothing", func(t *testing.T) {
+		for testName, update := range map[string]func(r database.Rule) RuleUpdate{
+			"only the name":    func(r database.Rule) RuleUpdate { return RuleUpdate{Name: &r.Name} },
+			"only the serve":   func(r database.Rule) RuleUpdate { return RuleUpdate{Serve: &r.Serve} },
+			"only the clauses": func(r database.Rule) RuleUpdate { return RuleUpdate{Clauses: &r.Clauses} },
+		} {
+			t.Run(testName, func(t *testing.T) {
+				setting, rule := create(t)
+				envBefore := mustGetEnv(t, store, setting.EnvironmentID)
+				logsBefore := changeLogCount(t, store)
+				arg := update(rule)
+				arg.ID = rule.ID
+				got, err := store.UpdateRule(ctx, arg)
+				if err != nil {
+					t.Fatalf("UpdateRule(): %v", err)
+				}
+				if diff := cmp.Diff(rule, got); diff != "" {
+					t.Errorf("UpdateRule() mismatch (-want +got):\n%s", diff)
+				}
+				if diff := cmp.Diff(rule, storedRule(t, store, rule.ID)); diff != "" {
+					t.Errorf("stored rule changed (-want +got):\n%s", diff)
+				}
+				if diff := cmp.Diff(envBefore, mustGetEnv(t, store, setting.EnvironmentID)); diff != "" {
+					t.Errorf("environment changed (-want +got):\n%s", diff)
+				}
+				if got := changeLogCount(t, store); got != logsBefore {
+					t.Errorf("%d entries, want %d", got, logsBefore)
+				}
+			})
+		}
+	})
+
+	// A value that's set is checked even when the others are left unset.
+	t.Run("checks the values it sets", func(t *testing.T) {
+		long, outside, none := strings.Repeat("a", 201), float32(1.5), json.RawMessage(`[]`)
+		tests := map[string]struct {
+			update RuleUpdate
+			want   string
+		}{
+			"a name over 200 characters": {RuleUpdate{Name: &long}, "can't update a rule with a name over 200 characters"},
+			"a serve outside [0, 1]":     {RuleUpdate{Serve: &outside}, "can't update a rule with a serve value outside [0, 1]"},
+			"no clauses":                 {RuleUpdate{Clauses: &none}, "invalid clauses: at least one clause is required"},
+		}
+		for testName, test := range tests {
+			t.Run(testName, func(t *testing.T) {
+				setting, rule := create(t)
+				envBefore := mustGetEnv(t, store, setting.EnvironmentID)
+				arg := test.update
+				arg.ID = rule.ID
+				got, err := store.UpdateRule(ctx, arg)
+				wantConnectErr(t, err, connect.NewError(connect.CodeInvalidArgument, test.want))
+				wantZeroRule(t, got)
+				if diff := cmp.Diff(rule, storedRule(t, store, rule.ID)); diff != "" {
+					t.Errorf("rule changed (-want +got):\n%s", diff)
+				}
+				if diff := cmp.Diff(envBefore, mustGetEnv(t, store, setting.EnvironmentID)); diff != "" {
+					t.Errorf("environment changed (-want +got):\n%s", diff)
+				}
+			})
+		}
+	})
+
+	// An update that sets nothing still has to name a rule.
+	t.Run("nothing set for an id no rule has is not found", func(t *testing.T) {
+		got, err := store.UpdateRule(ctx, RuleUpdate{ID: uuid.New()})
+		wantConnectErr(t, err, connect.NewError(connect.CodeNotFound, "can't update the rule"))
+		wantZeroRule(t, got)
+	})
+
+	// An archived flag's rules are frozen, whichever value an update sets.
+	t.Run("rejects a setting of an archived flag", func(t *testing.T) {
+		for testName, update := range map[string]RuleUpdate{
+			"only the name":    {Name: &name},
+			"only the serve":   {Serve: &serve},
+			"only the clauses": {Clauses: &clauses},
+		} {
+			t.Run(testName, func(t *testing.T) {
+				setting, rule := create(t)
+				mustArchiveFlag(t, store, setting.FlagID)
+				arg := update
+				arg.ID = rule.ID
+				got, err := store.UpdateRule(ctx, arg)
+				wantConnectErr(t, err, connect.NewError(connect.CodeFailedPrecondition, "can't update rules of archived flag"))
+				wantZeroRule(t, got)
+				if diff := cmp.Diff(rule, storedRule(t, store, rule.ID)); diff != "" {
+					t.Errorf("rule changed (-want +got):\n%s", diff)
+				}
+			})
+		}
+	})
+
+	// Two updates racing on different values both land: each reads the value
+	// it leaves unset under the lock, so neither writes back a stale one.
+	t.Run("racing updates of different values both land", func(t *testing.T) {
+		for round := range 20 {
+			_, rule := create(t)
+			newName, newServe := fmt.Sprintf("renamed %d", round), float32(0.5)
+			var wg sync.WaitGroup
+			errs := make([]error, 2)
+			for i, arg := range []RuleUpdate{{ID: rule.ID, Name: &newName}, {ID: rule.ID, Serve: &newServe}} {
+				wg.Go(func() {
+					_, errs[i] = store.UpdateRule(ctx, arg)
+				})
+			}
+			wg.Wait()
+			for _, err := range errs {
+				if err != nil {
+					t.Fatalf("UpdateRule(): %v", err)
+				}
+			}
+			if got := storedRule(t, store, rule.ID); got.Name != newName || got.Serve != newServe {
+				t.Fatalf("round %d: stored name, serve = %q, %v, want %q, %v", round, got.Name, got.Serve, newName, newServe)
+			}
+		}
+	})
 }
