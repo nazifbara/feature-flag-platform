@@ -324,3 +324,30 @@ func (s *Service) UpdateRule(ctx context.Context, req *flagsettingv1.UpdateRuleR
 		Rule: ruleProto,
 	}, nil
 }
+
+// ChangeRulePosition moves the rule with the requested id to the requested
+// position, checked by the store, and returns the rule as stored. The proto's
+// rules reject an id that isn't a UUID and a negative position; checking again
+// here and in the store only guards against a caller without them. Store errors
+// reach the client as they are, and a stored rule that can't be read back gives
+// Internal.
+func (s *Service) ChangeRulePosition(ctx context.Context, req *flagsettingv1.ChangeRulePositionRequest) (*flagsettingv1.ChangeRulePositionResponse, error) {
+	ruleID, err := utils.ParseID(req.Id, "rule")
+	if err != nil {
+		return nil, err
+	}
+	rule, err := s.store.ChangeRulePosition(ctx, database.ChangeRulePositionParams{
+		ID:       ruleID,
+		Position: req.Position,
+	})
+	if err != nil {
+		return nil, err
+	}
+	ruleProto, err := ruleToProto(rule)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, connect.CodeInternal.String())
+	}
+	return &flagsettingv1.ChangeRulePositionResponse{
+		Rule: ruleProto,
+	}, nil
+}
