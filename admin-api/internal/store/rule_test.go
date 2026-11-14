@@ -4586,6 +4586,26 @@ func TestRulesOfArchivedFlag(t *testing.T) {
 			},
 			message: "can't update rules of archived flag",
 		},
+		// Writes that would change nothing are refused too: the flag is frozen,
+		// whatever the request.
+		"ChangeRulePosition to its own position": {
+			call: func(_ database.FlagSetting, r database.Rule) (database.Rule, error) {
+				return store.ChangeRulePosition(ctx, database.ChangeRulePositionParams{ID: r.ID, Position: r.Position})
+			},
+			message: "can't update rules of archived flag",
+		},
+		"UpdateRule with the values it has": {
+			call: func(_ database.FlagSetting, r database.Rule) (database.Rule, error) {
+				return store.UpdateRule(ctx, fullRuleUpdate(database.UpdateRuleParams{ID: r.ID, Name: r.Name, Serve: r.Serve, Clauses: r.Clauses}))
+			},
+			message: "can't update rules of archived flag",
+		},
+		"UpdateRule setting nothing": {
+			call: func(_ database.FlagSetting, r database.Rule) (database.Rule, error) {
+				return store.UpdateRule(ctx, RuleUpdate{ID: r.ID})
+			},
+			message: "can't update rules of archived flag",
+		},
 		"DeleteRule": {
 			call: func(_ database.FlagSetting, r database.Rule) (database.Rule, error) {
 				return store.DeleteRule(ctx, r.ID)

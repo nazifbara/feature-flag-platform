@@ -262,6 +262,7 @@ type RuleUpdate struct {
 // without either, since SDKs never see it, and values the rule already has, or
 // none at all, change nothing. Clauses are compared as parsed, so JSON spacing
 // and key order don't count, but the order of clauses and of their values does.
+// A rule of an archived flag gives FailedPrecondition, whatever args sets.
 func (s *Store) UpdateRule(ctx context.Context, args RuleUpdate) (database.Rule, error) {
 	if args.Name != nil {
 		name, err := normalizeRuleName("update", *args.Name)
@@ -366,7 +367,8 @@ func (s *Store) CountRulesBySetting(ctx context.Context, flagSettingID uuid.UUID
 // old and new positions get a position one higher or lower, which keeps the
 // positions contiguous. It bumps the version of the rule's environment and logs
 // the move there, unless the rule is already at that position, which changes
-// nothing.
+// nothing. A rule of an archived flag gives FailedPrecondition, even at
+// its current position.
 func (s *Store) ChangeRulePosition(ctx context.Context, args database.ChangeRulePositionParams) (database.Rule, error) {
 	if err := checkPosition("update", args.Position); err != nil {
 		return database.Rule{}, err
@@ -379,6 +381,17 @@ func (s *Store) ChangeRulePosition(ctx context.Context, args database.ChangeRule
 		rule, err := q.GetRule(ctx, args.ID)
 		if err != nil {
 			return err
+		}
+		setting, err := q.GetFlagSettingByID(ctx, rule.FlagSettingID)
+		if err != nil {
+			return err
+		}
+		flag, err := q.GetFlag(ctx, setting.FlagID)
+		if err != nil {
+			return err
+		}
+		if flag.Archived {
+			return connect.NewError(connect.CodeFailedPrecondition, "can't update rules of archived flag")
 		}
 		ruleCount, err := q.CountRulesBySetting(ctx, rule.FlagSettingID)
 		if err != nil {
@@ -408,17 +421,6 @@ func (s *Store) ChangeRulePosition(ctx context.Context, args database.ChangeRule
 		updatedRule, err = q.ChangeRulePosition(ctx, args)
 		if err != nil {
 			return err
-		}
-		setting, err := q.GetFlagSettingByID(ctx, rule.FlagSettingID)
-		if err != nil {
-			return err
-		}
-		flag, err := q.GetFlag(ctx, setting.FlagID)
-		if err != nil {
-			return err
-		}
-		if flag.Archived {
-			return connect.NewError(connect.CodeFailedPrecondition, "can't update rules of archived flag")
 		}
 		if err := q.IncrementEnvVersion(ctx, setting.EnvironmentID); err != nil {
 			return err
