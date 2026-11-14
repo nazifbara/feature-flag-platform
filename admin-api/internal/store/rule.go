@@ -245,28 +245,46 @@ func (s *Store) DeleteRule(ctx context.Context, id uuid.UUID) (database.Rule, er
 	return deletedRule, nil
 }
 
-// UpdateRule replaces the name, serve and clauses of the rule with the given id
-// and returns it as updated. The rule's position doesn't change. When the serve
-// or clauses change, it bumps the version of the rule's environment and logs the
-// update there. A new name alone is saved without either, since SDKs never see
-// it, and values the rule already has change nothing. Clauses are compared as
-// parsed, so JSON spacing and key order don't count, but the order of clauses
-// and of their values does.
-func (s *Store) UpdateRule(ctx context.Context, args database.UpdateRuleParams) (database.Rule, error) {
-	name, err := normalizeRuleName("update", args.Name)
-	if err != nil {
-		return database.Rule{}, err
+// RuleUpdate holds the values to give the rule with ID. A nil field keeps the
+// value the rule has.
+type RuleUpdate struct {
+	ID      uuid.UUID
+	Name    *string
+	Serve   *float32
+	Clauses *json.RawMessage
+}
+
+// UpdateRule gives the rule with args.ID the values args sets, and returns it as
+// updated. The values left unset are read in the same transaction, so a racing
+// update's values aren't overwritten with stale ones. The rule's position
+// doesn't change. When the serve or clauses change, it bumps the version of the
+// rule's environment and logs the update there. A new name alone is saved
+// without either, since SDKs never see it, and values the rule already has, or
+// none at all, change nothing. Clauses are compared as parsed, so JSON spacing
+// and key order don't count, but the order of clauses and of their values does.
+func (s *Store) UpdateRule(ctx context.Context, args RuleUpdate) (database.Rule, error) {
+	if args.Name != nil {
+		name, err := normalizeRuleName("update", *args.Name)
+		if err != nil {
+			return database.Rule{}, err
+		}
+		args.Name = &name
 	}
-	args.Name = name
-	if err := checkServe("update", args.Serve); err != nil {
-		return database.Rule{}, err
+	if args.Serve != nil {
+		if err := checkServe("update", *args.Serve); err != nil {
+			return database.Rule{}, err
+		}
 	}
-	parsedClauses, err := parseClauses(args.Clauses)
-	if err != nil {
-		return database.Rule{}, connect.NewError(connect.CodeInvalidArgument, err.Error()).WithCause(err)
+	var parsedClauses []evaluator.Clause
+	if args.Clauses != nil {
+		pc, err := parseClauses(*args.Clauses)
+		if err != nil {
+			return database.Rule{}, connect.NewError(connect.CodeInvalidArgument, err.Error()).WithCause(err)
+		}
+		parsedClauses = pc
 	}
 	var rule database.Rule
-	err = s.ExecTx(ctx, func(q *database.Queries) error {
+	err := s.ExecTx(ctx, func(q *database.Queries) error {
 		if err := q.LockFlagEnvMatrix(ctx); err != nil {
 			return err
 		}
@@ -274,24 +292,7 @@ func (s *Store) UpdateRule(ctx context.Context, args database.UpdateRuleParams) 
 		if err != nil {
 			return err
 		}
-		parsedCurrentClauses, _ := parseClauses(currentRule.Clauses)
-		if currentRule.Name == args.Name &&
-			reflect.DeepEqual(parsedCurrentClauses, parsedClauses) &&
-			currentRule.Serve == args.Serve {
-			rule = currentRule
-			return nil
-		}
-		r, err := q.UpdateRule(ctx, args)
-		if err != nil {
-			return err
-		}
-		rule = r
-		if currentRule.Name != args.Name &&
-			reflect.DeepEqual(parsedCurrentClauses, parsedClauses) &&
-			currentRule.Serve == args.Serve {
-			return nil
-		}
-		setting, err := q.GetFlagSettingByID(ctx, rule.FlagSettingID)
+		setting, err := q.GetFlagSettingByID(ctx, currentRule.FlagSettingID)
 		if err != nil {
 			return err
 		}
@@ -301,6 +302,43 @@ func (s *Store) UpdateRule(ctx context.Context, args database.UpdateRuleParams) 
 		}
 		if flag.Archived {
 			return connect.NewError(connect.CodeFailedPrecondition, "can't update rules of archived flag")
+		}
+
+		update := database.UpdateRuleParams{
+			ID:      currentRule.ID,
+			Name:    currentRule.Name,
+			Serve:   currentRule.Serve,
+			Clauses: currentRule.Clauses,
+		}
+		if args.Name != nil {
+			update.Name = *args.Name
+		}
+		if args.Serve != nil {
+			update.Serve = *args.Serve
+		}
+		if args.Clauses != nil {
+			update.Clauses = *args.Clauses
+		}
+		parsedCurrentClauses, _ := parseClauses(currentRule.Clauses)
+		sameClauses := true
+		if parsedClauses != nil {
+			sameClauses = reflect.DeepEqual(parsedCurrentClauses, parsedClauses)
+		}
+		if currentRule.Name == update.Name &&
+			sameClauses &&
+			currentRule.Serve == update.Serve {
+			rule = currentRule
+			return nil
+		}
+		r, err := q.UpdateRule(ctx, update)
+		if err != nil {
+			return err
+		}
+		rule = r
+		if currentRule.Name != update.Name &&
+			sameClauses &&
+			currentRule.Serve == update.Serve {
+			return nil
 		}
 		if err := q.IncrementEnvVersion(ctx, setting.EnvironmentID); err != nil {
 			return err

@@ -1279,7 +1279,7 @@ func TestDeleteEnvLogsChange(t *testing.T) {
 					return err
 				},
 				func() error {
-					_, err := store.UpdateRule(ctx, database.UpdateRuleParams{ID: rules[0].ID, Name: "a", Serve: 0.75, Clauses: rules[0].Clauses})
+					_, err := store.UpdateRule(ctx, fullRuleUpdate(database.UpdateRuleParams{ID: rules[0].ID, Name: "a", Serve: 0.75, Clauses: rules[0].Clauses}))
 					return err
 				},
 				func() error {

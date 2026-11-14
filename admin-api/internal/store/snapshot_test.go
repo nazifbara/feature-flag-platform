@@ -244,7 +244,7 @@ func TestSnapshotEnvAndChangeLogAgree(t *testing.T) {
 			return err
 		},
 		func() error {
-			_, err := store.UpdateRule(ctx, database.UpdateRuleParams{ID: rules[2].ID, Name: "c", Serve: 0.125, Clauses: json.RawMessage(otherClauses)})
+			_, err := store.UpdateRule(ctx, fullRuleUpdate(database.UpdateRuleParams{ID: rules[2].ID, Name: "c", Serve: 0.125, Clauses: json.RawMessage(otherClauses)}))
 			return err
 		},
 		func() error {

@@ -1662,7 +1662,7 @@ func TestWritesCanceledWhileWaitingForMatrixLock(t *testing.T) {
 			return err
 		}, "can't delete the rule"},
 		"UpdateRule": {func(ctx context.Context, f fixture) error {
-			_, err := store.UpdateRule(ctx, database.UpdateRuleParams{ID: f.rules[0].ID, Name: "a", Serve: 0.75, Clauses: f.rules[0].Clauses})
+			_, err := store.UpdateRule(ctx, fullRuleUpdate(database.UpdateRuleParams{ID: f.rules[0].ID, Name: "a", Serve: 0.75, Clauses: f.rules[0].Clauses}))
 			return err
 		}, "can't update the rule"},
 		"ChangeRulePosition": {func(ctx context.Context, f fixture) error {
