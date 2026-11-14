@@ -31,6 +31,9 @@ const (
 	// FlagSettingServiceCreateRuleProcedure is the procedure name of the FlagSettingService's
 	// CreateRule RPC.
 	FlagSettingServiceCreateRuleProcedure = "/ffp.flagsetting.v1.FlagSettingService/CreateRule"
+	// FlagSettingServiceUpdateRuleProcedure is the procedure name of the FlagSettingService's
+	// UpdateRule RPC.
+	FlagSettingServiceUpdateRuleProcedure = "/ffp.flagsetting.v1.FlagSettingService/UpdateRule"
 )
 
 var (
@@ -55,6 +58,13 @@ var (
 			Procedure:  FlagSettingServiceCreateRuleProcedure,
 		}
 	})
+	flagSettingServiceUpdateRuleSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_ffp_flagsetting_v1_flagsetting_proto.Services().ByName("FlagSettingService").Methods().ByName("UpdateRule"),
+			Procedure:  FlagSettingServiceUpdateRuleProcedure,
+		}
+	})
 )
 
 // FlagSettingServiceClient is a client for the ffp.flagsetting.v1.FlagSettingService service.
@@ -62,6 +72,7 @@ type FlagSettingServiceClient interface {
 	Get(context.Context, *v1.GetRequest) (*v1.GetResponse, error)
 	Update(context.Context, *v1.UpdateRequest) (*v1.UpdateResponse, error)
 	CreateRule(context.Context, *v1.CreateRuleRequest) (*v1.CreateRuleResponse, error)
+	UpdateRule(context.Context, *v1.UpdateRuleRequest) (*v1.UpdateRuleResponse, error)
 }
 
 // NewFlagSettingServiceClient constructs a client for the ffp.flagsetting.v1.FlagSettingService
@@ -76,6 +87,7 @@ type FlagSettingServiceHandler interface {
 	Get(context.Context, *v1.GetRequest) (*v1.GetResponse, error)
 	Update(context.Context, *v1.UpdateRequest) (*v1.UpdateResponse, error)
 	CreateRule(context.Context, *v1.CreateRuleRequest) (*v1.CreateRuleResponse, error)
+	UpdateRule(context.Context, *v1.UpdateRuleRequest) (*v1.UpdateRuleResponse, error)
 }
 
 // RegisterFlagSettingServiceHandler registers svc as the ffp.flagsetting.v1.FlagSettingService
@@ -86,6 +98,7 @@ func RegisterFlagSettingServiceHandler(server *connect.Server, svc FlagSettingSe
 		connect.Method{Spec: flagSettingServiceGetSpec(), Handler: adapter.get},
 		connect.Method{Spec: flagSettingServiceUpdateSpec(), Handler: adapter.update},
 		connect.Method{Spec: flagSettingServiceCreateRuleSpec(), Handler: adapter.createRule},
+		connect.Method{Spec: flagSettingServiceUpdateRuleSpec(), Handler: adapter.updateRule},
 	)
 }
 
@@ -102,6 +115,10 @@ func (UnimplementedFlagSettingServiceHandler) Update(context.Context, *v1.Update
 
 func (UnimplementedFlagSettingServiceHandler) CreateRule(context.Context, *v1.CreateRuleRequest) (*v1.CreateRuleResponse, error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, "ffp.flagsetting.v1.FlagSettingService.CreateRule is not implemented")
+}
+
+func (UnimplementedFlagSettingServiceHandler) UpdateRule(context.Context, *v1.UpdateRuleRequest) (*v1.UpdateRuleResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "ffp.flagsetting.v1.FlagSettingService.UpdateRule is not implemented")
 }
 
 type flagSettingServiceClient struct {
@@ -127,6 +144,14 @@ func (c *flagSettingServiceClient) Update(ctx context.Context, req *v1.UpdateReq
 func (c *flagSettingServiceClient) CreateRule(ctx context.Context, req *v1.CreateRuleRequest) (*v1.CreateRuleResponse, error) {
 	var res v1.CreateRuleResponse
 	if err := c.client.CallUnary(ctx, flagSettingServiceCreateRuleSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *flagSettingServiceClient) UpdateRule(ctx context.Context, req *v1.UpdateRuleRequest) (*v1.UpdateRuleResponse, error) {
+	var res v1.UpdateRuleResponse
+	if err := c.client.CallUnary(ctx, flagSettingServiceUpdateRuleSpec(), req, &res); err != nil {
 		return nil, err
 	}
 	return &res, nil
@@ -164,6 +189,18 @@ func (h flagSettingServiceHandler) createRule(ctx context.Context, _ connect.Spe
 		return err
 	}
 	res, err := h.svc.CreateRule(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h flagSettingServiceHandler) updateRule(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.UpdateRuleRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.UpdateRule(ctx, &req)
 	if err != nil {
 		return err
 	}

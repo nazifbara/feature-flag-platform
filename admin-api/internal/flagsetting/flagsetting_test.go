@@ -15,6 +15,7 @@ import (
 	"time"
 	"uuid"
 
+	"buf.build/go/protovalidate"
 	connect "connectrpc.com/connect/v2"
 	"connectrpc.com/connect/v2/connecthttp"
 	"connectrpc.com/validate"
@@ -660,7 +661,8 @@ func TestUpdate(t *testing.T) {
 }
 
 // Without the validation interceptor, the handler's own parse still rejects
-// ids that aren't UUIDs, before reaching the store.
+// ids that aren't UUIDs, before reaching the store, naming what the id
+// is for.
 func TestHandlersWithoutValidationRejectBadIDs(t *testing.T) {
 	svc := New(newStore(t, testutil.UnreachableDB))
 	ctx := context.Background()
@@ -677,11 +679,19 @@ func TestHandlersWithoutValidationRejectBadIDs(t *testing.T) {
 			_, err := svc.CreateRule(ctx, &flagsettingv1.CreateRuleRequest{FlagSettingId: id, Name: "rule", Serve: 1, Clauses: []*flagsettingv1.Clause{boolClause("beta", flagsettingv1.Operator_OPERATOR_EQ, true)}})
 			return err
 		},
+		"UpdateRule": func(id string) error {
+			_, err := svc.UpdateRule(ctx, &flagsettingv1.UpdateRuleRequest{Id: id, Serve: 0.5, UpdateMask: mask("serve")})
+			return err
+		},
 	}
 	for rpc, call := range calls {
 		for _, id := range testutil.UnparsableIDs {
 			t.Run(fmt.Sprintf("%s %q", rpc, id), func(t *testing.T) {
-				testutil.WantCode(t, call(id), connect.CodeInvalidArgument, "invalid flag setting id")
+				want := "invalid flag setting id"
+				if rpc == "UpdateRule" {
+					want = "invalid rule id"
+				}
+				testutil.WantCode(t, call(id), connect.CodeInvalidArgument, want)
 			})
 		}
 	}
@@ -1574,6 +1584,389 @@ func TestCreateRuleWithoutValidationRejectsBadClauses(t *testing.T) {
 			})
 			testutil.WantCode(t, err, connect.CodeInvalidArgument, "invalid request clauses")
 			_, want := clausesToJSON([]*flagsettingv1.Clause{clause})
+			if cause := errors.Unwrap(err); cause == nil || cause.Error() != want.Error() {
+				t.Errorf("cause = %v, want %v", cause, want)
+			}
+		})
+	}
+}
+
+// mustCreateStoredRule creates a rule named "a" serving 0.25 to the clauses
+// betaClauses gives, through the store, in f's setting.
+func mustCreateStoredRule(t *testing.T, st *store.Store, f fixture) database.Rule {
+	t.Helper()
+	raw, err := clausesToJSON(betaClauses())
+	if err != nil {
+		t.Fatalf("clausesToJSON(): %v", err)
+	}
+	rule, err := st.CreateRule(context.Background(), database.CreateRuleParams{FlagSettingID: f.setting.ID, Name: "a", Serve: 0.25, Clauses: raw})
+	if err != nil {
+		t.Fatalf("CreateRule(): %v", err)
+	}
+	return rule
+}
+
+// mustUpdateRule gives the rule with req's id the values its mask names, and
+// returns the response's rule, failing the test if the call fails or the
+// response carries none.
+func mustUpdateRule(t *testing.T, client flagsettingv1connect.FlagSettingServiceClient, req *flagsettingv1.UpdateRuleRequest) *flagsettingv1.Rule {
+	t.Helper()
+	res, err := client.UpdateRule(context.Background(), req)
+	if err != nil {
+		t.Fatalf("UpdateRule(%v): %v", req, err)
+	}
+	if res.GetRule() == nil {
+		t.Fatalf("UpdateRule(%v) returned no rule", req)
+	}
+	return res.GetRule()
+}
+
+// wantClauses fails the test unless got holds want's clauses, in order.
+func wantClauses(t *testing.T, got, want []*flagsettingv1.Clause) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("%d clauses, want %d: %v", len(got), len(want), got)
+	}
+	for i := range want {
+		if !proto.Equal(got[i], want[i]) {
+			t.Errorf("clause %d = %v, want %v", i, got[i], want[i])
+		}
+	}
+}
+
+func TestUpdateRule(t *testing.T) {
+	db := testutil.OpenDB(t)
+	st := newStore(t, os.Getenv("TEST_DB_URL"))
+	client := newClient(t, st)
+	ctx := context.Background()
+	newClauses := []*flagsettingv1.Clause{
+		stringClause("country", flagsettingv1.Operator_OPERATOR_IL, "FR", "BJ"),
+		numberClause("age", flagsettingv1.Operator_OPERATOR_GTE, 18),
+	}
+
+	// The response is what's stored: the new values, the same id, setting,
+	// position and created_at, and a later updated_at.
+	t.Run("returns the updated rule", func(t *testing.T) {
+		testutil.ResetDB(t, db)
+		f := mustSetUp(t, st, "new-checkout", "production")
+		rule := mustCreateStoredRule(t, st, f)
+		got := mustUpdateRule(t, client, &flagsettingv1.UpdateRuleRequest{Id: rule.ID.String(), Name: "Everyone in Benin", Serve: 0.75, Clauses: newClauses, UpdateMask: mask("name", "serve", "clauses")})
+
+		if got.Id != rule.ID.String() || got.FlagSettingId != f.setting.ID.String() || got.Position != rule.Position {
+			t.Errorf("id, setting, position = %s, %s, %d, want %s, %s, %d", got.Id, got.FlagSettingId, got.Position, rule.ID, f.setting.ID, rule.Position)
+		}
+		if got.Name != "Everyone in Benin" || got.Serve != 0.75 {
+			t.Errorf("name, serve = %q, %v, want %q, 0.75", got.Name, got.Serve, "Everyone in Benin")
+		}
+		wantClauses(t, got.Clauses, newClauses)
+		if created := got.GetCreatedAt().AsTime(); !created.Equal(rule.CreatedAt) {
+			t.Errorf("created_at = %v, want %v unchanged", created, rule.CreatedAt)
+		}
+		if updated := got.GetUpdatedAt().AsTime(); !updated.After(rule.UpdatedAt) {
+			t.Errorf("updated_at = %v, want it after %v", updated, rule.UpdatedAt)
+		}
+		stored := readRule(t, db, got.Id)
+		if stored.name != got.Name || float64(stored.serve) != got.Serve || stored.position != got.Position || !stored.updated.Equal(got.UpdatedAt.AsTime()) {
+			t.Errorf("stored rule = %+v, want the response's %v", stored, got)
+		}
+		storedClauses, err := clausesFromJSON(stored.clauses)
+		if err != nil {
+			t.Fatalf("clausesFromJSON(%s): %v", stored.clauses, err)
+		}
+		wantClauses(t, storedClauses, newClauses)
+	})
+
+	// A value the mask leaves out keeps the one the rule has. Only a new
+	// serve or new clauses change how the rule evaluates, so only they bump
+	// the version and log the rule; a new name is stored without either.
+	t.Run("updates only the values the mask names", func(t *testing.T) {
+		tests := map[string]struct {
+			paths     []string
+			evaluated bool
+		}{
+			"only the name":    {[]string{"name"}, false},
+			"only the serve":   {[]string{"serve"}, true},
+			"only the clauses": {[]string{"clauses"}, true},
+			"name and serve":   {[]string{"name", "serve"}, true},
+			"every value":      {[]string{"name", "serve", "clauses"}, true},
+		}
+		for name, tc := range tests {
+			t.Run(name, func(t *testing.T) {
+				testutil.ResetDB(t, db)
+				f := mustSetUp(t, st, "new-checkout", "production")
+				rule := mustCreateStoredRule(t, st, f)
+				version := envVersion(t, db, f.env.ID.String())
+				logs := changeLogCount(t, db, "rule-updated")
+
+				got := mustUpdateRule(t, client, &flagsettingv1.UpdateRuleRequest{Id: rule.ID.String(), Name: "b", Serve: 0.75, Clauses: newClauses, UpdateMask: mask(tc.paths...)})
+				wantName, wantServe, wantClausesOf := "a", 0.25, betaClauses()
+				for _, p := range tc.paths {
+					switch p {
+					case "name":
+						wantName = "b"
+					case "serve":
+						wantServe = 0.75
+					case "clauses":
+						wantClausesOf = newClauses
+					}
+				}
+				if got.Name != wantName || got.Serve != wantServe {
+					t.Errorf("name, serve = %q, %v, want %q, %v", got.Name, got.Serve, wantName, wantServe)
+				}
+				wantClauses(t, got.Clauses, wantClausesOf)
+				if s := readRule(t, db, got.Id); s.name != wantName || float64(s.serve) != wantServe {
+					t.Errorf("stored name, serve = %q, %v, want %q, %v", s.name, s.serve, wantName, wantServe)
+				}
+
+				wantVersion, wantLogs := version, logs
+				if tc.evaluated {
+					wantVersion, wantLogs = version+1, logs+1
+				}
+				if got := envVersion(t, db, f.env.ID.String()); got != wantVersion {
+					t.Errorf("version = %d, want %d", got, wantVersion)
+				}
+				if got := changeLogCount(t, db, "rule-updated"); got != wantLogs {
+					t.Errorf("%d rule-updated entries, want %d", got, wantLogs)
+				}
+			})
+		}
+	})
+
+	// A name is optional, so an empty one clears it.
+	t.Run("an empty name clears it", func(t *testing.T) {
+		testutil.ResetDB(t, db)
+		f := mustSetUp(t, st, "new-checkout", "production")
+		rule := mustCreateStoredRule(t, st, f)
+		got := mustUpdateRule(t, client, &flagsettingv1.UpdateRuleRequest{Id: rule.ID.String(), Name: "", UpdateMask: mask("name")})
+		if got.Name != "" {
+			t.Errorf("name = %q, want it cleared", got.Name)
+		}
+		if s := readRule(t, db, got.Id); s.name != "" {
+			t.Errorf("stored name = %q, want it cleared", s.name)
+		}
+	})
+
+	// An empty mask has nothing to change: the rule comes back as it is, and
+	// SDKs have nothing to pick up.
+	t.Run("an empty mask changes nothing", func(t *testing.T) {
+		testutil.ResetDB(t, db)
+		f := mustSetUp(t, st, "new-checkout", "production")
+		rule := mustCreateStoredRule(t, st, f)
+		want, err := ruleToProto(rule)
+		if err != nil {
+			t.Fatalf("ruleToProto(): %v", err)
+		}
+		version := envVersion(t, db, f.env.ID.String())
+		got := mustUpdateRule(t, client, &flagsettingv1.UpdateRuleRequest{Id: rule.ID.String(), Name: "b", Serve: 0.75, Clauses: newClauses, UpdateMask: mask()})
+		if !proto.Equal(got, want) {
+			t.Errorf("UpdateRule() = %v, want %v unchanged", got, want)
+		}
+		if got := envVersion(t, db, f.env.ID.String()); got != version {
+			t.Errorf("version = %d, want %d unchanged", got, version)
+		}
+		if got := changeLogCount(t, db, "rule-updated"); got != 0 {
+			t.Errorf("%d rule-updated entries, want none", got)
+		}
+	})
+
+	// The values outside the mask aren't stored or checked, so a request can
+	// carry anything there, even values the proto's rules would reject if the
+	// mask named them.
+	t.Run("ignores the values the mask leaves out", func(t *testing.T) {
+		tests := map[string]*flagsettingv1.UpdateRuleRequest{
+			"an empty name":          {Name: "", Serve: 0.75, UpdateMask: mask("serve")},
+			"a serve outside [0, 1]": {Name: "b", Serve: 50, UpdateMask: mask("name")},
+			"clauses without values": {Name: "b", Clauses: []*flagsettingv1.Clause{{Attribute: "beta", Operator: flagsettingv1.Operator_OPERATOR_EQ}}, UpdateMask: mask("name")},
+		}
+		for name, req := range tests {
+			t.Run(name, func(t *testing.T) {
+				testutil.ResetDB(t, db)
+				f := mustSetUp(t, st, "new-checkout", "production")
+				rule := mustCreateStoredRule(t, st, f)
+				req.Id = rule.ID.String()
+				got := mustUpdateRule(t, client, req)
+				if got.Serve != 0.25 && req.UpdateMask.Paths[0] != "serve" {
+					t.Errorf("serve = %v, want 0.25 unchanged", got.Serve)
+				}
+				if got.Name != "a" && req.UpdateMask.Paths[0] != "name" {
+					t.Errorf("name = %q, want %q unchanged", got.Name, "a")
+				}
+				wantClauses(t, got.Clauses, betaClauses())
+			})
+		}
+	})
+
+	rejected := map[string]struct {
+		id       string
+		archived bool
+		req      *flagsettingv1.UpdateRuleRequest
+		noMask   bool
+		code     connect.Code
+		message  string
+	}{
+		// The store's checks.
+		"an id no rule has": {
+			id:      "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+			req:     &flagsettingv1.UpdateRuleRequest{Name: "b", Serve: 0.75, UpdateMask: mask("serve")},
+			code:    connect.CodeNotFound,
+			message: "can't update the rule",
+		},
+		"an empty mask for an id no rule has": {
+			id:      "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+			req:     &flagsettingv1.UpdateRuleRequest{Name: "b", UpdateMask: mask()},
+			code:    connect.CodeNotFound,
+			message: "can't update the rule",
+		},
+		"a rule of an archived flag": {
+			archived: true,
+			req:      &flagsettingv1.UpdateRuleRequest{Name: "b", Serve: 0.75, UpdateMask: mask("serve")},
+			code:     connect.CodeFailedPrecondition,
+			message:  "can't update rules of archived flag",
+		},
+		"a name over 200 characters": {
+			req:     &flagsettingv1.UpdateRuleRequest{Name: strings.Repeat("é", 201), UpdateMask: mask("name")},
+			code:    connect.CodeInvalidArgument,
+			message: "can't update a rule with a name over 200 characters",
+		},
+		"a serve above 1": {
+			req:     &flagsettingv1.UpdateRuleRequest{Name: "b", Serve: 1.5, UpdateMask: mask("serve")},
+			code:    connect.CodeInvalidArgument,
+			message: "can't update a rule with a serve value outside [0, 1]",
+		},
+		"a serve that isn't a number": {
+			req:     &flagsettingv1.UpdateRuleRequest{Name: "b", Serve: float32(math.NaN()), UpdateMask: mask("serve")},
+			code:    connect.CodeInvalidArgument,
+			message: "can't update a rule with a serve value outside [0, 1]",
+		},
+		"no clauses": {
+			req:     &flagsettingv1.UpdateRuleRequest{Name: "b", UpdateMask: mask("clauses")},
+			code:    connect.CodeInvalidArgument,
+			message: "invalid clauses: at least one clause is required",
+		},
+		"eq with several values": {
+			req:     &flagsettingv1.UpdateRuleRequest{Name: "b", Clauses: []*flagsettingv1.Clause{stringClause("country", flagsettingv1.Operator_OPERATOR_EQ, "FR", "BJ")}, UpdateMask: mask("clauses")},
+			code:    connect.CodeInvalidArgument,
+			message: "clause at index 0: eq operator on multi-value clause",
+		},
+		// The handler's own checks, which also run the clause rules,
+		// as the proto leaves them to it.
+		"a number that isn't finite": {
+			req:     &flagsettingv1.UpdateRuleRequest{Name: "b", Clauses: []*flagsettingv1.Clause{numberClause("age", flagsettingv1.Operator_OPERATOR_GT, math.NaN())}, UpdateMask: mask("clauses")},
+			code:    connect.CodeInvalidArgument,
+			message: "invalid clauses",
+		},
+		"a sub-path of a value": {
+			req:     &flagsettingv1.UpdateRuleRequest{Name: "b", UpdateMask: mask("name.value")},
+			code:    connect.CodeInvalidArgument,
+			message: `invalid update mask path "name.value"`,
+		},
+		"a clause without an operator": {
+			req:     &flagsettingv1.UpdateRuleRequest{Name: "b", Clauses: []*flagsettingv1.Clause{boolClause("beta", flagsettingv1.Operator_OPERATOR_UNSPECIFIED, true)}, UpdateMask: mask("clauses")},
+			code:    connect.CodeInvalidArgument,
+			message: "clause at index 0: validation error: operator: must not be in list [0]",
+		},
+		"a clause without an attribute": {
+			req:     &flagsettingv1.UpdateRuleRequest{Name: "b", Clauses: []*flagsettingv1.Clause{boolClause("", flagsettingv1.Operator_OPERATOR_EQ, true)}, UpdateMask: mask("clauses")},
+			code:    connect.CodeInvalidArgument,
+			message: "clause at index 0: validation error: attribute: must be at least 1 characters",
+		},
+		"a clause with an empty list of values": {
+			req:     &flagsettingv1.UpdateRuleRequest{Name: "b", Clauses: []*flagsettingv1.Clause{stringClause("email", flagsettingv1.Operator_OPERATOR_IL)}, UpdateMask: mask("clauses")},
+			code:    connect.CodeInvalidArgument,
+			message: "clause at index 0: validation error: string_values.values: must contain at least 1 item(s)",
+		},
+		"a bad clause after a good one": {
+			req:     &flagsettingv1.UpdateRuleRequest{Name: "b", Clauses: []*flagsettingv1.Clause{boolClause("beta", flagsettingv1.Operator_OPERATOR_EQ, true), {Attribute: "beta", Operator: flagsettingv1.Operator_OPERATOR_EQ}}, UpdateMask: mask("clauses")},
+			code:    connect.CodeInvalidArgument,
+			message: "clause at index 1: validation error: values: exactly one field is required in oneof",
+		},
+		// The proto's rules.
+		"a request without a mask": {
+			req:     &flagsettingv1.UpdateRuleRequest{Name: "b", Serve: 0.75},
+			noMask:  true,
+			code:    connect.CodeInvalidArgument,
+			message: "validation error: update_mask: value is required",
+		},
+		"a path outside the rule's values": {
+			req:     &flagsettingv1.UpdateRuleRequest{Name: "b", UpdateMask: mask("position")},
+			code:    connect.CodeInvalidArgument,
+			message: "validation error: update_mask: must only contain paths in [name, serve, clauses]",
+		},
+	}
+	for name, tc := range rejected {
+		t.Run("rejects "+name, func(t *testing.T) {
+			testutil.ResetDB(t, db)
+			f := mustSetUp(t, st, "new-checkout", "production")
+			rule := mustCreateStoredRule(t, st, f)
+			if tc.archived {
+				if _, err := st.ArchiveFlag(ctx, f.flag.ID); err != nil {
+					t.Fatalf("ArchiveFlag(): %v", err)
+				}
+			}
+			before := readRule(t, db, rule.ID.String())
+			version := envVersion(t, db, f.env.ID.String())
+			req := proto.Clone(tc.req).(*flagsettingv1.UpdateRuleRequest)
+			req.Id = rule.ID.String()
+			if tc.id != "" {
+				req.Id = tc.id
+			}
+			if tc.noMask {
+				req.UpdateMask = nil
+			}
+			_, err := client.UpdateRule(ctx, req)
+			testutil.WantCode(t, err, tc.code, tc.message)
+			after := readRule(t, db, rule.ID.String())
+			if after.name != before.name || after.serve != before.serve || string(after.clauses) != string(before.clauses) || !after.updated.Equal(before.updated) {
+				t.Errorf("rule = %+v after a rejected update, want %+v unchanged", after, before)
+			}
+			if got := envVersion(t, db, f.env.ID.String()); got != version {
+				t.Errorf("version = %d, want %d unchanged", got, version)
+			}
+		})
+	}
+
+	for name, tc := range testutil.BadIDs {
+		t.Run("rejects "+name, func(t *testing.T) {
+			_, err := client.UpdateRule(ctx, &flagsettingv1.UpdateRuleRequest{Id: tc.ID, Name: "b", Serve: 0.5, UpdateMask: mask("serve")})
+			testutil.WantCode(t, err, connect.CodeInvalidArgument, tc.Message)
+		})
+	}
+
+	// The client gets the store's message, never the database's error.
+	t.Run("hides database failures", func(t *testing.T) {
+		unreachable := newClient(t, newStore(t, testutil.UnreachableDB))
+		_, err := unreachable.UpdateRule(ctx, &flagsettingv1.UpdateRuleRequest{Id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8", Name: "b", Serve: 0.5, UpdateMask: mask("serve")})
+		testutil.WantCode(t, err, connect.CodeInternal, "can't update the rule")
+	})
+}
+
+// Without the validation interceptor, the handler's own checks still reject
+// paths that aren't one of the rule's values, and clauses the proto's rules
+// would, before reaching the store. A clause error keeps protovalidate's as
+// its cause.
+func TestUpdateRuleWithoutValidation(t *testing.T) {
+	svc := New(newStore(t, testutil.UnreachableDB))
+	ctx := context.Background()
+	const id = "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+	for _, path := range []string{"", "position", "Name", "serve.value", "*"} {
+		t.Run(fmt.Sprintf("path %q", path), func(t *testing.T) {
+			_, err := svc.UpdateRule(ctx, &flagsettingv1.UpdateRuleRequest{Id: id, Name: "b", UpdateMask: mask("name", path)})
+			testutil.WantCode(t, err, connect.CodeInvalidArgument, fmt.Sprintf("invalid update mask path %q", path))
+		})
+	}
+	clauses := map[string]*flagsettingv1.Clause{
+		"no operator":        boolClause("beta", flagsettingv1.Operator_OPERATOR_UNSPECIFIED, true),
+		"undefined operator": boolClause("beta", flagsettingv1.Operator(99), true),
+		"no values":          {Attribute: "beta", Operator: flagsettingv1.Operator_OPERATOR_EQ},
+	}
+	for name, clause := range clauses {
+		t.Run("clause with "+name, func(t *testing.T) {
+			_, err := svc.UpdateRule(ctx, &flagsettingv1.UpdateRuleRequest{Id: id, Clauses: []*flagsettingv1.Clause{clause}, UpdateMask: mask("clauses")})
+			want := protovalidate.Validate(clause)
+			if want == nil {
+				t.Fatalf("protovalidate.Validate(%v) took the clause", clause)
+			}
+			testutil.WantCode(t, err, connect.CodeInvalidArgument, "clause at index 0: "+want.Error())
 			if cause := errors.Unwrap(err); cause == nil || cause.Error() != want.Error() {
 				t.Errorf("cause = %v, want %v", cause, want)
 			}
