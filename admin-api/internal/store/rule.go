@@ -19,9 +19,9 @@ import (
 )
 
 // StoredClause is how a clause is kept in the rules.clauses column, which holds
-// a JSON list of them. Kind is "string", "boolean" or "number", and Values holds
-// that kind's values. Callers building the column's JSON use it, and
-// parseClauses reads it back.
+// a JSON list of them. Kind is one of the evaluator's kind names, such as
+// evaluator.StringKind, and Values holds that kind's values. Callers building
+// the column's JSON use it, and parseClauses reads it back.
 type StoredClause struct {
 	Attribute string `json:"attribute"`
 	Operator  string `json:"operator"`
@@ -31,9 +31,9 @@ type StoredClause struct {
 
 // clauseKinds maps a stored clause's kind to the evaluator's.
 var clauseKinds = map[string]evaluator.ClauseKind{
-	"string":  evaluator.StringClause,
-	"boolean": evaluator.BooleanClause,
-	"number":  evaluator.NumberClause,
+	evaluator.StringKind:  evaluator.StringClause,
+	evaluator.BooleanKind: evaluator.BooleanClause,
+	evaluator.NumberKind:  evaluator.NumberClause,
 }
 
 // parseClauses turns a rule's stored clauses into the evaluator's, leaving

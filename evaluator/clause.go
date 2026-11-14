@@ -15,6 +15,13 @@ const (
 	NumberClause
 )
 
+// The names rules store a clause's kind under, one for each ClauseKind.
+const (
+	StringKind  = "string"
+	BooleanKind = "boolean"
+	NumberKind  = "number"
+)
+
 // The operators a clause can have, as rules store them. Each kind allows only
 // some of them, and EqOp and NeqOp take a single value.
 const (

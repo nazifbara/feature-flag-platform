@@ -86,16 +86,16 @@ func clausesToJSON(clauses []*flagsettingv1.Clause) (json.RawMessage, error) {
 		clause := store.StoredClause{Attribute: c.GetAttribute(), Operator: op}
 		switch v := c.GetValues().(type) {
 		case *flagsettingv1.Clause_StringValues:
-			clause.Kind, clause.Values = "string", toAny(v.StringValues.GetValues())
+			clause.Kind, clause.Values = evaluator.StringKind, toAny(v.StringValues.GetValues())
 		case *flagsettingv1.Clause_NumberValues:
 			for _, n := range v.NumberValues.GetValues() {
 				if math.IsNaN(n) || math.IsInf(n, 0) {
 					return nil, fmt.Errorf("clause at index %d: %v isn't a finite number", i, n)
 				}
 			}
-			clause.Kind, clause.Values = "number", toAny(v.NumberValues.GetValues())
+			clause.Kind, clause.Values = evaluator.NumberKind, toAny(v.NumberValues.GetValues())
 		case *flagsettingv1.Clause_BoolValues:
-			clause.Kind, clause.Values = "boolean", toAny(v.BoolValues.GetValues())
+			clause.Kind, clause.Values = evaluator.BooleanKind, toAny(v.BoolValues.GetValues())
 		default:
 			return nil, fmt.Errorf("clause at index %d: no values", i)
 		}
@@ -152,20 +152,20 @@ func clausesFromJSON(raw json.RawMessage) ([]*flagsettingv1.Clause, error) {
 		}
 		clause := &flagsettingv1.Clause{Attribute: s.Attribute, Operator: op}
 		switch s.Kind {
-		case "string":
+		case evaluator.StringKind:
 			values, err := fromAny[string](s.Values)
 			if err != nil {
 				return nil, fmt.Errorf("clause at index %d: %w", i, err)
 			}
 			clause.Values = &flagsettingv1.Clause_StringValues{StringValues: &flagsettingv1.StringValues{Values: values}}
-		case "number":
+		case evaluator.NumberKind:
 			// JSON numbers decode as float64.
 			values, err := fromAny[float64](s.Values)
 			if err != nil {
 				return nil, fmt.Errorf("clause at index %d: %w", i, err)
 			}
 			clause.Values = &flagsettingv1.Clause_NumberValues{NumberValues: &flagsettingv1.NumberValues{Values: values}}
-		case "boolean":
+		case evaluator.BooleanKind:
 			values, err := fromAny[bool](s.Values)
 			if err != nil {
 				return nil, fmt.Errorf("clause at index %d: %w", i, err)
