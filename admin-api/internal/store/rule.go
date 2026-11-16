@@ -3,6 +3,7 @@ package store
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -180,9 +181,20 @@ func (s *Store) GetRule(ctx context.Context, id uuid.UUID) (database.Rule, error
 }
 
 // ListRulesBySetting gets a flag setting's rules, ordered by position, which is
-// the order they're evaluated in. An unknown setting has no rules.
+// the order they're evaluated in. An id no setting has gives NotFound. The
+// setting is looked up and its rules read in one read-only Repeatable Read
+// transaction, so both reads see the same snapshot: a setting deleted in
+// between still lists the rules it had, and never comes back empty.
 func (s *Store) ListRulesBySetting(ctx context.Context, settingID uuid.UUID) ([]database.Rule, error) {
-	rules, err := s.Queries.ListRulesBySetting(ctx, settingID)
+	var rules []database.Rule
+	err := s.execTxWith(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true}, func(q *database.Queries) error {
+		if _, err := q.GetFlagSettingByID(ctx, settingID); err != nil {
+			return ffserrors.FromDBErr(err, "can't get the flag setting")
+		}
+		var err error
+		rules, err = q.ListRulesBySetting(ctx, settingID)
+		return err
+	})
 	if err != nil {
 		return nil, ffserrors.FromDBErr(err, "can't list the flag setting's rules")
 	}

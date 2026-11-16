@@ -3075,40 +3075,87 @@ func TestListRulesBySetting(t *testing.T) {
 		}
 	})
 
-	// None of these is an error: a setting without rules just falls through,
-	// and an unknown setting looks the same.
-	t.Run("nothing to list", func(t *testing.T) {
+	// A setting without rules just falls through, so it's an empty list, not an
+	// error.
+	t.Run("setting without rules", func(t *testing.T) {
 		setting := mustCreateRuleSetting(t, store)
-		other := mustUpdateFlagSetting(t, store, pairSetting{
-			FlagID:        mustCreateFlag(t, store, "dark-mode").ID,
-			EnvironmentID: setting.EnvironmentID,
-		})
-		create(t, other.ID, 0)
+		if got := list(t, setting.ID); len(got) != 0 {
+			t.Fatalf("ListRulesBySetting() = %+v, want no rules", got)
+		}
+	})
+
+	// An id that isn't a setting's is NotFound, so it doesn't pass for a setting
+	// without rules. Other settings having rules doesn't change that.
+	t.Run("not found", func(t *testing.T) {
+		setting := mustCreateRuleSetting(t, store)
+		rule := create(t, setting.ID, 0)
+		notFound := connect.NewError(connect.CodeNotFound, "can't get the flag setting")
 
 		tests := map[string]uuid.UUID{
-			"setting without rules": setting.ID,
-			"unknown setting":       uuid.New(),
-			"zero ID":               uuid.Nil(),
+			"unknown setting": uuid.New(),
+			"zero ID":         uuid.Nil(),
 			// Easy to do, since these are UUIDs too.
-			"flag ID": other.FlagID,
+			"flag ID":        setting.FlagID,
+			"environment ID": setting.EnvironmentID,
+			"rule ID":        rule.ID,
 		}
 		for name, id := range tests {
 			t.Run(name, func(t *testing.T) {
-				if got := list(t, id); len(got) != 0 {
-					t.Fatalf("ListRulesBySetting() = %+v, want no rules", got)
+				got, err := store.ListRulesBySetting(ctx, id)
+				wantConnectErr(t, err, notFound)
+				if got != nil {
+					t.Fatalf("ListRulesBySetting() = %+v on error, want nil", got)
 				}
 			})
 		}
 	})
 
-	t.Run("empty once the flag is deleted", func(t *testing.T) {
+	// Deleting the flag or the environment deletes the setting, so its id is
+	// then not found rather than a setting without rules.
+	owners := map[string]func(setting database.FlagSetting) error{
+		"flag": func(setting database.FlagSetting) error {
+			_, err := store.DeleteFlag(ctx, setting.FlagID)
+			return err
+		},
+		"environment": func(setting database.FlagSetting) error {
+			_, err := store.DeleteEnv(ctx, setting.EnvironmentID)
+			return err
+		},
+	}
+	for owner, deleteOwner := range owners {
+		t.Run("not found once the "+owner+" is deleted", func(t *testing.T) {
+			setting := mustCreateRuleSetting(t, store)
+			create(t, setting.ID, 0)
+			if err := deleteOwner(setting); err != nil {
+				t.Fatalf("deleting the %s: %v", owner, err)
+			}
+			_, err := store.ListRulesBySetting(ctx, setting.ID)
+			wantConnectErr(t, err, connect.NewError(connect.CodeNotFound, "can't get the flag setting"))
+		})
+	}
+
+	// Listing only reads, so it works while a writer holds the matrix lock,
+	// without waiting for it.
+	t.Run("doesn't wait for the matrix lock", func(t *testing.T) {
 		setting := mustCreateRuleSetting(t, store)
-		create(t, setting.ID, 0)
-		if _, err := store.DeleteFlag(ctx, setting.FlagID); err != nil {
-			t.Fatalf("DeleteFlag(): %v", err)
+		want := []database.Rule{create(t, setting.ID, 0)}
+		holder := newTestStoreKeepingData(t)
+		tx, err := holder.db.BeginTx(ctx, nil)
+		if err != nil {
+			t.Fatalf("BeginTx(): %v", err)
 		}
-		if got := list(t, setting.ID); len(got) != 0 {
-			t.Fatalf("ListRulesBySetting() = %+v, want no rules", got)
+		defer tx.Rollback()
+		if err := holder.WithTx(tx).LockFlagEnvMatrix(ctx); err != nil {
+			t.Fatalf("LockFlagEnvMatrix(): %v", err)
+		}
+		timeout, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		got, err := store.ListRulesBySetting(timeout, setting.ID)
+		if err != nil {
+			t.Fatalf("ListRulesBySetting() while the lock is held: %v", err)
+		}
+		if diff := cmp.Diff(want, got); diff != "" {
+			t.Fatalf("ListRulesBySetting() mismatch (-want +got):\n%s", diff)
 		}
 	})
 }
