@@ -1,5 +1,6 @@
-// Package ffserrors maps errors to connect.Error
-package ffserrors
+// Package apperr handles the application's errors, such as turning them into
+// connect.Error values for clients.
+package apperr
 
 import (
 	"context"
@@ -20,7 +21,7 @@ var userFacingUniques = map[string]bool{
 	"identities_email_unique":  true,
 }
 
-// FromDBErr maps a database error to the connect.Error with the matching code.
+// FromDB maps a database error to the connect.Error with the matching code.
 // msg reaches the client, so it must not reveal internals. err is kept as the
 // cause, which connect doesn't send to the client. An err that already holds a
 // connect.Error, such as a validation error returned from inside a transaction,
@@ -30,7 +31,7 @@ var userFacingUniques = map[string]bool{
 // are internal. Foreign key violations are always internal: every write looks
 // its parent rows up under the lock first, which reports a missing one as not
 // found, so only a bug reaches a foreign key.
-func FromDBErr(err error, msg string) error {
+func FromDB(err error, msg string) error {
 	if connectErr, ok := errors.AsType[*connect.Error](err); ok {
 		if connectErr == err {
 			return connectErr

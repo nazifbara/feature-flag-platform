@@ -14,8 +14,8 @@ import (
 	"uuid"
 
 	"connectrpc.com/connect/v2"
+	"github.com/nazifbara/feature-flag-platform/api/internal/apperr"
 	"github.com/nazifbara/feature-flag-platform/api/internal/database"
-	"github.com/nazifbara/feature-flag-platform/api/internal/ffserrors"
 	"github.com/nazifbara/feature-flag-platform/evaluator"
 )
 
@@ -166,7 +166,7 @@ func (s *Store) CreateRule(ctx context.Context, args database.CreateRuleParams) 
 		return q.ChangeLogRuleCreated(ctx, rule.ID)
 	})
 	if err != nil {
-		return database.Rule{}, ffserrors.FromDBErr(err, "can't create the rule")
+		return database.Rule{}, apperr.FromDB(err, "can't create the rule")
 	}
 	return rule, nil
 }
@@ -175,7 +175,7 @@ func (s *Store) CreateRule(ctx context.Context, args database.CreateRuleParams) 
 func (s *Store) GetRule(ctx context.Context, id uuid.UUID) (database.Rule, error) {
 	rule, err := s.Queries.GetRule(ctx, id)
 	if err != nil {
-		return database.Rule{}, ffserrors.FromDBErr(err, "can't get the rule")
+		return database.Rule{}, apperr.FromDB(err, "can't get the rule")
 	}
 	return rule, nil
 }
@@ -189,14 +189,14 @@ func (s *Store) ListRulesBySetting(ctx context.Context, settingID uuid.UUID) ([]
 	var rules []database.Rule
 	err := s.execTxWith(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true}, func(q *database.Queries) error {
 		if _, err := q.GetFlagSettingByID(ctx, settingID); err != nil {
-			return ffserrors.FromDBErr(err, "can't get the flag setting")
+			return apperr.FromDB(err, "can't get the flag setting")
 		}
 		var err error
 		rules, err = q.ListRulesBySetting(ctx, settingID)
 		return err
 	})
 	if err != nil {
-		return nil, ffserrors.FromDBErr(err, "can't list the flag setting's rules")
+		return nil, apperr.FromDB(err, "can't list the flag setting's rules")
 	}
 	return rules, nil
 }
@@ -252,7 +252,7 @@ func (s *Store) DeleteRule(ctx context.Context, id uuid.UUID) (database.Rule, er
 		})
 	})
 	if err != nil {
-		return database.Rule{}, ffserrors.FromDBErr(err, "can't delete the rule")
+		return database.Rule{}, apperr.FromDB(err, "can't delete the rule")
 	}
 	return deletedRule, nil
 }
@@ -359,7 +359,7 @@ func (s *Store) UpdateRule(ctx context.Context, args RuleUpdate) (database.Rule,
 		return q.ChangeLogRuleUpdated(ctx, r.ID)
 	})
 	if err != nil {
-		return database.Rule{}, ffserrors.FromDBErr(err, "can't update the rule")
+		return database.Rule{}, apperr.FromDB(err, "can't update the rule")
 	}
 	return rule, nil
 }
@@ -369,7 +369,7 @@ func (s *Store) UpdateRule(ctx context.Context, args RuleUpdate) (database.Rule,
 func (s *Store) CountRulesBySetting(ctx context.Context, flagSettingID uuid.UUID) (int, error) {
 	count, err := s.Queries.CountRulesBySetting(ctx, flagSettingID)
 	if err != nil {
-		return 0, ffserrors.FromDBErr(err, "can't count the flag setting's rules")
+		return 0, apperr.FromDB(err, "can't count the flag setting's rules")
 	}
 	return int(count), nil
 }
@@ -443,7 +443,7 @@ func (s *Store) ChangeRulePosition(ctx context.Context, args database.ChangeRule
 		})
 	})
 	if err != nil {
-		return database.Rule{}, ffserrors.FromDBErr(err, "can't update the rule")
+		return database.Rule{}, apperr.FromDB(err, "can't update the rule")
 	}
 	return updatedRule, nil
 }

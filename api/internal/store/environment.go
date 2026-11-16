@@ -9,8 +9,8 @@ import (
 	"uuid"
 
 	"connectrpc.com/connect/v2"
+	"github.com/nazifbara/feature-flag-platform/api/internal/apperr"
 	"github.com/nazifbara/feature-flag-platform/api/internal/database"
-	"github.com/nazifbara/feature-flag-platform/api/internal/ffserrors"
 )
 
 // normalizeEnvName trims and lowercases name and checks it fits the column.
@@ -49,7 +49,7 @@ func (s *Store) CreateEnv(ctx context.Context, name string) (database.Environmen
 		return q.CreateSettingsForEnv(ctx, e.ID)
 	})
 	if err != nil {
-		return database.Environment{}, ffserrors.FromDBErr(err, "can't create the environment")
+		return database.Environment{}, apperr.FromDB(err, "can't create the environment")
 	}
 	return env, nil
 }
@@ -58,7 +58,7 @@ func (s *Store) CreateEnv(ctx context.Context, name string) (database.Environmen
 func (s *Store) GetEnv(ctx context.Context, id uuid.UUID) (database.Environment, error) {
 	env, err := s.Queries.GetEnv(ctx, id)
 	if err != nil {
-		return database.Environment{}, ffserrors.FromDBErr(err, "can't get the environment")
+		return database.Environment{}, apperr.FromDB(err, "can't get the environment")
 	}
 	return env, nil
 }
@@ -72,7 +72,7 @@ func (s *Store) UpdateEnv(ctx context.Context, id uuid.UUID, name string) (datab
 	}
 	env, err := s.Queries.UpdateEnv(ctx, database.UpdateEnvParams{ID: id, Name: name})
 	if err != nil {
-		return database.Environment{}, ffserrors.FromDBErr(err, "can't update the environment")
+		return database.Environment{}, apperr.FromDB(err, "can't update the environment")
 	}
 	return env, nil
 }
@@ -100,7 +100,7 @@ func (s *Store) ListEnvs(ctx context.Context, cursor *EnvsCursor) ([]database.En
 	}
 	envs, err := s.Queries.ListEnvs(ctx, params)
 	if err != nil {
-		return nil, nil, ffserrors.FromDBErr(err, "can't list environments")
+		return nil, nil, apperr.FromDB(err, "can't list environments")
 	}
 	var next *EnvsCursor
 	// The query asks for one more than a page to know whether another follows.
@@ -132,7 +132,7 @@ func (s *Store) DeleteEnv(ctx context.Context, id uuid.UUID) (database.Environme
 		})
 	})
 	if err != nil {
-		return database.Environment{}, ffserrors.FromDBErr(err, "can't delete the environment")
+		return database.Environment{}, apperr.FromDB(err, "can't delete the environment")
 	}
 	return env, nil
 }

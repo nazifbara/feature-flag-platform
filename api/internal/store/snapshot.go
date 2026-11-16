@@ -7,7 +7,7 @@ import (
 	"uuid"
 
 	"connectrpc.com/connect/v2"
-	"github.com/nazifbara/feature-flag-platform/api/internal/ffserrors"
+	"github.com/nazifbara/feature-flag-platform/api/internal/apperr"
 )
 
 // EnvSnapshot is an environment as an SDK syncs it from scratch: its version,
@@ -36,7 +36,7 @@ func (s *Store) SnapshotEnv(ctx context.Context, id uuid.UUID) (EnvSnapshot, err
 	var snapshot EnvSnapshot
 	rawSnapshot, err := s.Queries.SnapshotEnv(ctx, id)
 	if err != nil {
-		return EnvSnapshot{}, ffserrors.FromDBErr(err, "can't get environment's snapshot")
+		return EnvSnapshot{}, apperr.FromDB(err, "can't get environment's snapshot")
 	}
 	jsonDecoder := json.NewDecoder(bytes.NewReader(rawSnapshot))
 	if err := jsonDecoder.Decode(&snapshot); err != nil {
