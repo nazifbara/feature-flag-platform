@@ -691,6 +691,10 @@ func TestHandlersWithoutValidationRejectBadIDs(t *testing.T) {
 			_, err := svc.DeleteRule(ctx, &flagsettingv1.DeleteRuleRequest{Id: id})
 			return err
 		},
+		"ListRules": func(id string) error {
+			_, err := svc.ListRules(ctx, &flagsettingv1.ListRulesRequest{FlagSettingId: id})
+			return err
+		},
 	}
 	for rpc, call := range calls {
 		for _, id := range testutil.UnparsableIDs {
@@ -2399,5 +2403,176 @@ func TestDeleteRule(t *testing.T) {
 		unreachable := newClient(t, newStore(t, testutil.UnreachableDB))
 		_, err := unreachable.DeleteRule(ctx, &flagsettingv1.DeleteRuleRequest{Id: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"})
 		testutil.WantCode(t, err, connect.CodeInternal, "can't delete the rule")
+	})
+}
+
+// mustListRules lists the rules of the setting with id, failing the test if
+// the call fails.
+func mustListRules(t *testing.T, client flagsettingv1connect.FlagSettingServiceClient, id string) []*flagsettingv1.Rule {
+	t.Helper()
+	res, err := client.ListRules(context.Background(), &flagsettingv1.ListRulesRequest{FlagSettingId: id})
+	if err != nil {
+		t.Fatalf("ListRules(%s): %v", id, err)
+	}
+	return res.GetRules()
+}
+
+// ruleNames gives the names of rules, in their order.
+func ruleNames(rules []*flagsettingv1.Rule) []string {
+	names := make([]string, len(rules))
+	for i, r := range rules {
+		names[i] = r.Name
+	}
+	return names
+}
+
+func TestListRules(t *testing.T) {
+	db := testutil.OpenDB(t)
+	st := newStore(t, os.Getenv("TEST_DB_URL"))
+	client := newClient(t, st)
+	ctx := context.Background()
+
+	// Each listed rule is the stored one, as the other RPCs return it.
+	t.Run("returns the stored rules", func(t *testing.T) {
+		testutil.ResetDB(t, db)
+		f := mustSetUp(t, st, "new-checkout", "production")
+		rules := mustCreateStoredRules(t, st, f, "a", "b")
+		got := mustListRules(t, client, f.setting.ID.String())
+		if len(got) != len(rules) {
+			t.Fatalf("ListRules() gave %d rules, want %d", len(got), len(rules))
+		}
+		for i, rule := range rules {
+			want, err := ruleToProto(rule)
+			if err != nil {
+				t.Fatalf("ruleToProto(): %v", err)
+			}
+			if !proto.Equal(got[i], want) {
+				t.Errorf("rule %d = %v, want %v", i, got[i], want)
+			}
+		}
+	})
+
+	// Rules come in the order they're evaluated in, not the order they were
+	// created in.
+	t.Run("orders rules by position", func(t *testing.T) {
+		testutil.ResetDB(t, db)
+		f := mustSetUp(t, st, "new-checkout", "production")
+		rules := mustCreateStoredRules(t, st, f, "a", "b", "c")
+		mustChangeRulePosition(t, client, rules[2].ID.String(), 0)
+		got := mustListRules(t, client, f.setting.ID.String())
+		if diff := cmp.Diff([]string{"c", "a", "b"}, ruleNames(got)); diff != "" {
+			t.Errorf("ListRules() names (-want +got):\n%s", diff)
+		}
+		for i, r := range got {
+			if r.Position != int32(i) {
+				t.Errorf("rule %q at index %d has position %d", r.Name, i, r.Position)
+			}
+		}
+	})
+
+	// A deleted rule isn't listed, and the rest close the gap.
+	t.Run("leaves deleted rules out", func(t *testing.T) {
+		testutil.ResetDB(t, db)
+		f := mustSetUp(t, st, "new-checkout", "production")
+		rules := mustCreateStoredRules(t, st, f, "a", "b", "c")
+		mustDeleteRule(t, client, rules[1].ID.String())
+		got := mustListRules(t, client, f.setting.ID.String())
+		if diff := cmp.Diff([]string{"a", "c"}, ruleNames(got)); diff != "" {
+			t.Errorf("ListRules() names (-want +got):\n%s", diff)
+		}
+	})
+
+	// Only the requested setting's rules are listed, even for the same flag in
+	// another environment.
+	t.Run("lists only the setting's rules", func(t *testing.T) {
+		testutil.ResetDB(t, db)
+		f := mustSetUp(t, st, "new-checkout", "production")
+		mustCreateStoredRules(t, st, f, "a", "b")
+		other := mustSetUp(t, st, "dark-mode", "staging")
+		mustCreateStoredRules(t, st, other, "x")
+		got := mustListRules(t, client, other.setting.ID.String())
+		if diff := cmp.Diff([]string{"x"}, ruleNames(got)); diff != "" {
+			t.Errorf("ListRules() names (-want +got):\n%s", diff)
+		}
+		for _, r := range got {
+			if r.FlagSettingId != other.setting.ID.String() {
+				t.Errorf("rule %q has setting %s, want %s", r.Name, r.FlagSettingId, other.setting.ID)
+			}
+		}
+	})
+
+	// Listing only reads: archived flags' rules are still listed.
+	t.Run("lists rules of archived flags", func(t *testing.T) {
+		testutil.ResetDB(t, db)
+		f := mustSetUp(t, st, "new-checkout", "production")
+		mustCreateStoredRules(t, st, f, "a")
+		if _, err := st.ArchiveFlag(ctx, f.flag.ID); err != nil {
+			t.Fatalf("ArchiveFlag(): %v", err)
+		}
+		if got := mustListRules(t, client, f.setting.ID.String()); len(got) != 1 {
+			t.Errorf("ListRules() gave %d rules, want 1", len(got))
+		}
+	})
+
+	// A setting without rules lists nothing, and still succeeds.
+	t.Run("lists nothing for a setting without rules", func(t *testing.T) {
+		testutil.ResetDB(t, db)
+		f := mustSetUp(t, st, "new-checkout", "production")
+		res, err := client.ListRules(ctx, &flagsettingv1.ListRulesRequest{FlagSettingId: f.setting.ID.String()})
+		if err != nil {
+			t.Fatalf("ListRules(): %v", err)
+		}
+		if len(res.GetRules()) != 0 {
+			t.Errorf("ListRules() = %v, want no rules", res.GetRules())
+		}
+	})
+
+	// An unknown setting is NotFound, so a mistyped id doesn't pass for a
+	// setting without rules. Rules of other settings don't make it exist.
+	t.Run("rejects an id no setting has", func(t *testing.T) {
+		testutil.ResetDB(t, db)
+		f := mustSetUp(t, st, "new-checkout", "production")
+		mustCreateStoredRules(t, st, f, "a")
+		_, err := client.ListRules(ctx, &flagsettingv1.ListRulesRequest{FlagSettingId: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"})
+		testutil.WantCode(t, err, connect.CodeNotFound, "can't get the flag setting")
+	})
+
+	// Listing doesn't change the environment, so SDKs have nothing to sync.
+	t.Run("leaves the version alone", func(t *testing.T) {
+		testutil.ResetDB(t, db)
+		f := mustSetUp(t, st, "new-checkout", "production")
+		mustCreateStoredRules(t, st, f, "a")
+		version := envVersion(t, db, f.env.ID.String())
+		mustListRules(t, client, f.setting.ID.String())
+		if got := envVersion(t, db, f.env.ID.String()); got != version {
+			t.Errorf("version = %d, want %d unchanged", got, version)
+		}
+	})
+
+	// A stored rule the API can't read fails the whole list, without telling
+	// the client what's wrong with it.
+	t.Run("hides unreadable rules", func(t *testing.T) {
+		testutil.ResetDB(t, db)
+		f := mustSetUp(t, st, "new-checkout", "production")
+		rules := mustCreateStoredRules(t, st, f, "a", "b")
+		if _, err := db.Exec(`UPDATE rules SET clauses = '[{"attribute": "a", "operator": "like", "kind": "string", "values": ["x"]}]' WHERE id = $1`, rules[1].ID); err != nil {
+			t.Fatalf("corrupting the rule: %v", err)
+		}
+		_, err := client.ListRules(ctx, &flagsettingv1.ListRulesRequest{FlagSettingId: f.setting.ID.String()})
+		testutil.WantCode(t, err, connect.CodeInternal, "internal")
+	})
+
+	for name, tc := range testutil.BadIDs {
+		t.Run("rejects "+name, func(t *testing.T) {
+			_, err := client.ListRules(ctx, &flagsettingv1.ListRulesRequest{FlagSettingId: tc.ID})
+			testutil.WantCode(t, err, connect.CodeInvalidArgument, strings.Replace(tc.Message, "validation error: id:", "validation error: flag_setting_id:", 1))
+		})
+	}
+
+	// The client gets the store's message, never the database's error.
+	t.Run("hides database failures", func(t *testing.T) {
+		unreachable := newClient(t, newStore(t, testutil.UnreachableDB))
+		_, err := unreachable.ListRules(ctx, &flagsettingv1.ListRulesRequest{FlagSettingId: "6ba7b810-9dad-11d1-80b4-00c04fd430c8"})
+		testutil.WantCode(t, err, connect.CodeInternal, "can't list the flag setting's rules")
 	})
 }

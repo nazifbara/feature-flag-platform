@@ -13,6 +13,7 @@ service FlagSettingService {
   rpc UpdateRule(UpdateRuleRequest) returns (UpdateRuleResponse) {}
   rpc ChangeRulePosition(ChangeRulePositionRequest) returns (ChangeRulePositionResponse) {}
   rpc DeleteRule(DeleteRuleRequest) returns (DeleteRuleResponse) {}
+  rpc ListRules(ListRulesRequest) returns (ListRulesResponse) {}
 }
 
 message FlagSetting {
@@ -84,6 +85,16 @@ message DeleteRuleRequest {
 
 message DeleteRuleResponse {
   Rule rule = 1;
+}
+
+message ListRulesRequest {
+  string flag_setting_id = 1 [(buf.validate.field).string.uuid = true];
+}
+
+// ListRulesResponse holds every rule of the setting, in the order they are
+// evaluated in.
+message ListRulesResponse {
+  repeated Rule rules = 1;
 }
 
 // Clause matches a user attribute against values. Its kind is whichever of
