@@ -719,6 +719,96 @@ func (x *DeleteRuleResponse) GetRule() *Rule {
 	return nil
 }
 
+type ListRulesRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	FlagSettingId string                 `protobuf:"bytes,1,opt,name=flag_setting_id,json=flagSettingId,proto3" json:"flag_setting_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListRulesRequest) Reset() {
+	*x = ListRulesRequest{}
+	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListRulesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListRulesRequest) ProtoMessage() {}
+
+func (x *ListRulesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListRulesRequest.ProtoReflect.Descriptor instead.
+func (*ListRulesRequest) Descriptor() ([]byte, []int) {
+	return file_ffp_flagsetting_v1_flagsetting_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *ListRulesRequest) GetFlagSettingId() string {
+	if x != nil {
+		return x.FlagSettingId
+	}
+	return ""
+}
+
+// ListRulesResponse holds every rule of the setting, in the order they are
+// evaluated in.
+type ListRulesResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Rules         []*Rule                `protobuf:"bytes,1,rep,name=rules,proto3" json:"rules,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListRulesResponse) Reset() {
+	*x = ListRulesResponse{}
+	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListRulesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListRulesResponse) ProtoMessage() {}
+
+func (x *ListRulesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListRulesResponse.ProtoReflect.Descriptor instead.
+func (*ListRulesResponse) Descriptor() ([]byte, []int) {
+	return file_ffp_flagsetting_v1_flagsetting_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *ListRulesResponse) GetRules() []*Rule {
+	if x != nil {
+		return x.Rules
+	}
+	return nil
+}
+
 // Clause matches a user attribute against values. Its kind is whichever of
 // values is set, so the values always match it. The operators a kind allows,
 // and eq and neq taking a single value, are checked by the store.
@@ -738,7 +828,7 @@ type Clause struct {
 
 func (x *Clause) Reset() {
 	*x = Clause{}
-	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[10]
+	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -750,7 +840,7 @@ func (x *Clause) String() string {
 func (*Clause) ProtoMessage() {}
 
 func (x *Clause) ProtoReflect() protoreflect.Message {
-	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[10]
+	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -763,7 +853,7 @@ func (x *Clause) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Clause.ProtoReflect.Descriptor instead.
 func (*Clause) Descriptor() ([]byte, []int) {
-	return file_ffp_flagsetting_v1_flagsetting_proto_rawDescGZIP(), []int{10}
+	return file_ffp_flagsetting_v1_flagsetting_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *Clause) GetAttribute() string {
@@ -845,7 +935,7 @@ type StringValues struct {
 
 func (x *StringValues) Reset() {
 	*x = StringValues{}
-	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[11]
+	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -857,7 +947,7 @@ func (x *StringValues) String() string {
 func (*StringValues) ProtoMessage() {}
 
 func (x *StringValues) ProtoReflect() protoreflect.Message {
-	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[11]
+	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -870,7 +960,7 @@ func (x *StringValues) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StringValues.ProtoReflect.Descriptor instead.
 func (*StringValues) Descriptor() ([]byte, []int) {
-	return file_ffp_flagsetting_v1_flagsetting_proto_rawDescGZIP(), []int{11}
+	return file_ffp_flagsetting_v1_flagsetting_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *StringValues) GetValues() []string {
@@ -889,7 +979,7 @@ type NumberValues struct {
 
 func (x *NumberValues) Reset() {
 	*x = NumberValues{}
-	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[12]
+	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -901,7 +991,7 @@ func (x *NumberValues) String() string {
 func (*NumberValues) ProtoMessage() {}
 
 func (x *NumberValues) ProtoReflect() protoreflect.Message {
-	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[12]
+	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -914,7 +1004,7 @@ func (x *NumberValues) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NumberValues.ProtoReflect.Descriptor instead.
 func (*NumberValues) Descriptor() ([]byte, []int) {
-	return file_ffp_flagsetting_v1_flagsetting_proto_rawDescGZIP(), []int{12}
+	return file_ffp_flagsetting_v1_flagsetting_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *NumberValues) GetValues() []float64 {
@@ -933,7 +1023,7 @@ type BoolValues struct {
 
 func (x *BoolValues) Reset() {
 	*x = BoolValues{}
-	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[13]
+	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -945,7 +1035,7 @@ func (x *BoolValues) String() string {
 func (*BoolValues) ProtoMessage() {}
 
 func (x *BoolValues) ProtoReflect() protoreflect.Message {
-	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[13]
+	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -958,7 +1048,7 @@ func (x *BoolValues) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BoolValues.ProtoReflect.Descriptor instead.
 func (*BoolValues) Descriptor() ([]byte, []int) {
-	return file_ffp_flagsetting_v1_flagsetting_proto_rawDescGZIP(), []int{13}
+	return file_ffp_flagsetting_v1_flagsetting_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *BoolValues) GetValues() []bool {
@@ -977,7 +1067,7 @@ type GetRequest struct {
 
 func (x *GetRequest) Reset() {
 	*x = GetRequest{}
-	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[14]
+	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -989,7 +1079,7 @@ func (x *GetRequest) String() string {
 func (*GetRequest) ProtoMessage() {}
 
 func (x *GetRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[14]
+	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1002,7 +1092,7 @@ func (x *GetRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetRequest.ProtoReflect.Descriptor instead.
 func (*GetRequest) Descriptor() ([]byte, []int) {
-	return file_ffp_flagsetting_v1_flagsetting_proto_rawDescGZIP(), []int{14}
+	return file_ffp_flagsetting_v1_flagsetting_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *GetRequest) GetId() string {
@@ -1021,7 +1111,7 @@ type GetResponse struct {
 
 func (x *GetResponse) Reset() {
 	*x = GetResponse{}
-	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[15]
+	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1033,7 +1123,7 @@ func (x *GetResponse) String() string {
 func (*GetResponse) ProtoMessage() {}
 
 func (x *GetResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[15]
+	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1046,7 +1136,7 @@ func (x *GetResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetResponse.ProtoReflect.Descriptor instead.
 func (*GetResponse) Descriptor() ([]byte, []int) {
-	return file_ffp_flagsetting_v1_flagsetting_proto_rawDescGZIP(), []int{15}
+	return file_ffp_flagsetting_v1_flagsetting_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *GetResponse) GetFlagSetting() *FlagSetting {
@@ -1068,7 +1158,7 @@ type UpdateRequest struct {
 
 func (x *UpdateRequest) Reset() {
 	*x = UpdateRequest{}
-	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[16]
+	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1080,7 +1170,7 @@ func (x *UpdateRequest) String() string {
 func (*UpdateRequest) ProtoMessage() {}
 
 func (x *UpdateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[16]
+	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1093,7 +1183,7 @@ func (x *UpdateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateRequest.ProtoReflect.Descriptor instead.
 func (*UpdateRequest) Descriptor() ([]byte, []int) {
-	return file_ffp_flagsetting_v1_flagsetting_proto_rawDescGZIP(), []int{16}
+	return file_ffp_flagsetting_v1_flagsetting_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *UpdateRequest) GetId() string {
@@ -1133,7 +1223,7 @@ type UpdateResponse struct {
 
 func (x *UpdateResponse) Reset() {
 	*x = UpdateResponse{}
-	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[17]
+	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1145,7 +1235,7 @@ func (x *UpdateResponse) String() string {
 func (*UpdateResponse) ProtoMessage() {}
 
 func (x *UpdateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[17]
+	mi := &file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1158,7 +1248,7 @@ func (x *UpdateResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateResponse.ProtoReflect.Descriptor instead.
 func (*UpdateResponse) Descriptor() ([]byte, []int) {
-	return file_ffp_flagsetting_v1_flagsetting_proto_rawDescGZIP(), []int{17}
+	return file_ffp_flagsetting_v1_flagsetting_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *UpdateResponse) GetFlagSetting() *FlagSetting {
@@ -1221,7 +1311,11 @@ const file_ffp_flagsetting_v1_flagsetting_proto_rawDesc = "" +
 	"\x11DeleteRuleRequest\x12\x18\n" +
 	"\x02id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x02id\"B\n" +
 	"\x12DeleteRuleResponse\x12,\n" +
-	"\x04rule\x18\x01 \x01(\v2\x18.ffp.flagsetting.v1.RuleR\x04rule\"\xdb\x02\n" +
+	"\x04rule\x18\x01 \x01(\v2\x18.ffp.flagsetting.v1.RuleR\x04rule\"D\n" +
+	"\x10ListRulesRequest\x120\n" +
+	"\x0fflag_setting_id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\rflagSettingId\"C\n" +
+	"\x11ListRulesResponse\x12.\n" +
+	"\x05rules\x18\x01 \x03(\v2\x18.ffp.flagsetting.v1.RuleR\x05rules\"\xdb\x02\n" +
 	"\x06Clause\x12%\n" +
 	"\tattribute\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\tattribute\x12D\n" +
 	"\boperator\x18\x02 \x01(\x0e2\x1c.ffp.flagsetting.v1.OperatorB\n" +
@@ -1263,7 +1357,7 @@ const file_ffp_flagsetting_v1_flagsetting_proto_rawDesc = "" +
 	"\fOPERATOR_EDW\x10\b\x12\x10\n" +
 	"\fOPERATOR_CNT\x10\t\x12\x0f\n" +
 	"\vOPERATOR_IL\x10\n" +
-	"2\xc5\x04\n" +
+	"2\xa1\x05\n" +
 	"\x12FlagSettingService\x12H\n" +
 	"\x03Get\x12\x1e.ffp.flagsetting.v1.GetRequest\x1a\x1f.ffp.flagsetting.v1.GetResponse\"\x00\x12Q\n" +
 	"\x06Update\x12!.ffp.flagsetting.v1.UpdateRequest\x1a\".ffp.flagsetting.v1.UpdateResponse\"\x00\x12]\n" +
@@ -1273,7 +1367,8 @@ const file_ffp_flagsetting_v1_flagsetting_proto_rawDesc = "" +
 	"UpdateRule\x12%.ffp.flagsetting.v1.UpdateRuleRequest\x1a&.ffp.flagsetting.v1.UpdateRuleResponse\"\x00\x12u\n" +
 	"\x12ChangeRulePosition\x12-.ffp.flagsetting.v1.ChangeRulePositionRequest\x1a..ffp.flagsetting.v1.ChangeRulePositionResponse\"\x00\x12]\n" +
 	"\n" +
-	"DeleteRule\x12%.ffp.flagsetting.v1.DeleteRuleRequest\x1a&.ffp.flagsetting.v1.DeleteRuleResponse\"\x00B\xe8\x01\n" +
+	"DeleteRule\x12%.ffp.flagsetting.v1.DeleteRuleRequest\x1a&.ffp.flagsetting.v1.DeleteRuleResponse\"\x00\x12Z\n" +
+	"\tListRules\x12$.ffp.flagsetting.v1.ListRulesRequest\x1a%.ffp.flagsetting.v1.ListRulesResponse\"\x00B\xe8\x01\n" +
 	"\x16com.ffp.flagsetting.v1B\x10FlagsettingProtoP\x01ZRgithub.com/nazifbara/feature-flag-platform/gen/go/ffp/flagsetting/v1;flagsettingv1\xa2\x02\x03FFX\xaa\x02\x12Ffp.Flagsetting.V1\xca\x02\x12Ffp\\Flagsetting\\V1\xe2\x02\x1eFfp\\Flagsetting\\V1\\GPBMetadata\xea\x02\x14Ffp::Flagsetting::V1b\x06proto3"
 
 var (
@@ -1289,7 +1384,7 @@ func file_ffp_flagsetting_v1_flagsetting_proto_rawDescGZIP() []byte {
 }
 
 var file_ffp_flagsetting_v1_flagsetting_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_ffp_flagsetting_v1_flagsetting_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
+var file_ffp_flagsetting_v1_flagsetting_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
 var file_ffp_flagsetting_v1_flagsetting_proto_goTypes = []any{
 	(Operator)(0),                      // 0: ffp.flagsetting.v1.Operator
 	(*FlagSetting)(nil),                // 1: ffp.flagsetting.v1.FlagSetting
@@ -1302,54 +1397,59 @@ var file_ffp_flagsetting_v1_flagsetting_proto_goTypes = []any{
 	(*ChangeRulePositionResponse)(nil), // 8: ffp.flagsetting.v1.ChangeRulePositionResponse
 	(*DeleteRuleRequest)(nil),          // 9: ffp.flagsetting.v1.DeleteRuleRequest
 	(*DeleteRuleResponse)(nil),         // 10: ffp.flagsetting.v1.DeleteRuleResponse
-	(*Clause)(nil),                     // 11: ffp.flagsetting.v1.Clause
-	(*StringValues)(nil),               // 12: ffp.flagsetting.v1.StringValues
-	(*NumberValues)(nil),               // 13: ffp.flagsetting.v1.NumberValues
-	(*BoolValues)(nil),                 // 14: ffp.flagsetting.v1.BoolValues
-	(*GetRequest)(nil),                 // 15: ffp.flagsetting.v1.GetRequest
-	(*GetResponse)(nil),                // 16: ffp.flagsetting.v1.GetResponse
-	(*UpdateRequest)(nil),              // 17: ffp.flagsetting.v1.UpdateRequest
-	(*UpdateResponse)(nil),             // 18: ffp.flagsetting.v1.UpdateResponse
-	(*timestamppb.Timestamp)(nil),      // 19: google.protobuf.Timestamp
-	(*fieldmaskpb.FieldMask)(nil),      // 20: google.protobuf.FieldMask
+	(*ListRulesRequest)(nil),           // 11: ffp.flagsetting.v1.ListRulesRequest
+	(*ListRulesResponse)(nil),          // 12: ffp.flagsetting.v1.ListRulesResponse
+	(*Clause)(nil),                     // 13: ffp.flagsetting.v1.Clause
+	(*StringValues)(nil),               // 14: ffp.flagsetting.v1.StringValues
+	(*NumberValues)(nil),               // 15: ffp.flagsetting.v1.NumberValues
+	(*BoolValues)(nil),                 // 16: ffp.flagsetting.v1.BoolValues
+	(*GetRequest)(nil),                 // 17: ffp.flagsetting.v1.GetRequest
+	(*GetResponse)(nil),                // 18: ffp.flagsetting.v1.GetResponse
+	(*UpdateRequest)(nil),              // 19: ffp.flagsetting.v1.UpdateRequest
+	(*UpdateResponse)(nil),             // 20: ffp.flagsetting.v1.UpdateResponse
+	(*timestamppb.Timestamp)(nil),      // 21: google.protobuf.Timestamp
+	(*fieldmaskpb.FieldMask)(nil),      // 22: google.protobuf.FieldMask
 }
 var file_ffp_flagsetting_v1_flagsetting_proto_depIdxs = []int32{
-	19, // 0: ffp.flagsetting.v1.FlagSetting.created_at:type_name -> google.protobuf.Timestamp
-	19, // 1: ffp.flagsetting.v1.FlagSetting.updated_at:type_name -> google.protobuf.Timestamp
-	11, // 2: ffp.flagsetting.v1.Rule.clauses:type_name -> ffp.flagsetting.v1.Clause
-	19, // 3: ffp.flagsetting.v1.Rule.created_at:type_name -> google.protobuf.Timestamp
-	19, // 4: ffp.flagsetting.v1.Rule.updated_at:type_name -> google.protobuf.Timestamp
-	11, // 5: ffp.flagsetting.v1.CreateRuleRequest.clauses:type_name -> ffp.flagsetting.v1.Clause
+	21, // 0: ffp.flagsetting.v1.FlagSetting.created_at:type_name -> google.protobuf.Timestamp
+	21, // 1: ffp.flagsetting.v1.FlagSetting.updated_at:type_name -> google.protobuf.Timestamp
+	13, // 2: ffp.flagsetting.v1.Rule.clauses:type_name -> ffp.flagsetting.v1.Clause
+	21, // 3: ffp.flagsetting.v1.Rule.created_at:type_name -> google.protobuf.Timestamp
+	21, // 4: ffp.flagsetting.v1.Rule.updated_at:type_name -> google.protobuf.Timestamp
+	13, // 5: ffp.flagsetting.v1.CreateRuleRequest.clauses:type_name -> ffp.flagsetting.v1.Clause
 	2,  // 6: ffp.flagsetting.v1.CreateRuleResponse.rule:type_name -> ffp.flagsetting.v1.Rule
-	11, // 7: ffp.flagsetting.v1.UpdateRuleRequest.clauses:type_name -> ffp.flagsetting.v1.Clause
-	20, // 8: ffp.flagsetting.v1.UpdateRuleRequest.update_mask:type_name -> google.protobuf.FieldMask
+	13, // 7: ffp.flagsetting.v1.UpdateRuleRequest.clauses:type_name -> ffp.flagsetting.v1.Clause
+	22, // 8: ffp.flagsetting.v1.UpdateRuleRequest.update_mask:type_name -> google.protobuf.FieldMask
 	2,  // 9: ffp.flagsetting.v1.UpdateRuleResponse.rule:type_name -> ffp.flagsetting.v1.Rule
 	2,  // 10: ffp.flagsetting.v1.ChangeRulePositionResponse.rule:type_name -> ffp.flagsetting.v1.Rule
 	2,  // 11: ffp.flagsetting.v1.DeleteRuleResponse.rule:type_name -> ffp.flagsetting.v1.Rule
-	0,  // 12: ffp.flagsetting.v1.Clause.operator:type_name -> ffp.flagsetting.v1.Operator
-	12, // 13: ffp.flagsetting.v1.Clause.string_values:type_name -> ffp.flagsetting.v1.StringValues
-	13, // 14: ffp.flagsetting.v1.Clause.number_values:type_name -> ffp.flagsetting.v1.NumberValues
-	14, // 15: ffp.flagsetting.v1.Clause.bool_values:type_name -> ffp.flagsetting.v1.BoolValues
-	1,  // 16: ffp.flagsetting.v1.GetResponse.flag_setting:type_name -> ffp.flagsetting.v1.FlagSetting
-	20, // 17: ffp.flagsetting.v1.UpdateRequest.update_mask:type_name -> google.protobuf.FieldMask
-	1,  // 18: ffp.flagsetting.v1.UpdateResponse.flag_setting:type_name -> ffp.flagsetting.v1.FlagSetting
-	15, // 19: ffp.flagsetting.v1.FlagSettingService.Get:input_type -> ffp.flagsetting.v1.GetRequest
-	17, // 20: ffp.flagsetting.v1.FlagSettingService.Update:input_type -> ffp.flagsetting.v1.UpdateRequest
-	3,  // 21: ffp.flagsetting.v1.FlagSettingService.CreateRule:input_type -> ffp.flagsetting.v1.CreateRuleRequest
-	5,  // 22: ffp.flagsetting.v1.FlagSettingService.UpdateRule:input_type -> ffp.flagsetting.v1.UpdateRuleRequest
-	7,  // 23: ffp.flagsetting.v1.FlagSettingService.ChangeRulePosition:input_type -> ffp.flagsetting.v1.ChangeRulePositionRequest
-	9,  // 24: ffp.flagsetting.v1.FlagSettingService.DeleteRule:input_type -> ffp.flagsetting.v1.DeleteRuleRequest
-	16, // 25: ffp.flagsetting.v1.FlagSettingService.Get:output_type -> ffp.flagsetting.v1.GetResponse
-	18, // 26: ffp.flagsetting.v1.FlagSettingService.Update:output_type -> ffp.flagsetting.v1.UpdateResponse
-	4,  // 27: ffp.flagsetting.v1.FlagSettingService.CreateRule:output_type -> ffp.flagsetting.v1.CreateRuleResponse
-	6,  // 28: ffp.flagsetting.v1.FlagSettingService.UpdateRule:output_type -> ffp.flagsetting.v1.UpdateRuleResponse
-	8,  // 29: ffp.flagsetting.v1.FlagSettingService.ChangeRulePosition:output_type -> ffp.flagsetting.v1.ChangeRulePositionResponse
-	10, // 30: ffp.flagsetting.v1.FlagSettingService.DeleteRule:output_type -> ffp.flagsetting.v1.DeleteRuleResponse
-	25, // [25:31] is the sub-list for method output_type
-	19, // [19:25] is the sub-list for method input_type
-	19, // [19:19] is the sub-list for extension type_name
-	19, // [19:19] is the sub-list for extension extendee
-	0,  // [0:19] is the sub-list for field type_name
+	2,  // 12: ffp.flagsetting.v1.ListRulesResponse.rules:type_name -> ffp.flagsetting.v1.Rule
+	0,  // 13: ffp.flagsetting.v1.Clause.operator:type_name -> ffp.flagsetting.v1.Operator
+	14, // 14: ffp.flagsetting.v1.Clause.string_values:type_name -> ffp.flagsetting.v1.StringValues
+	15, // 15: ffp.flagsetting.v1.Clause.number_values:type_name -> ffp.flagsetting.v1.NumberValues
+	16, // 16: ffp.flagsetting.v1.Clause.bool_values:type_name -> ffp.flagsetting.v1.BoolValues
+	1,  // 17: ffp.flagsetting.v1.GetResponse.flag_setting:type_name -> ffp.flagsetting.v1.FlagSetting
+	22, // 18: ffp.flagsetting.v1.UpdateRequest.update_mask:type_name -> google.protobuf.FieldMask
+	1,  // 19: ffp.flagsetting.v1.UpdateResponse.flag_setting:type_name -> ffp.flagsetting.v1.FlagSetting
+	17, // 20: ffp.flagsetting.v1.FlagSettingService.Get:input_type -> ffp.flagsetting.v1.GetRequest
+	19, // 21: ffp.flagsetting.v1.FlagSettingService.Update:input_type -> ffp.flagsetting.v1.UpdateRequest
+	3,  // 22: ffp.flagsetting.v1.FlagSettingService.CreateRule:input_type -> ffp.flagsetting.v1.CreateRuleRequest
+	5,  // 23: ffp.flagsetting.v1.FlagSettingService.UpdateRule:input_type -> ffp.flagsetting.v1.UpdateRuleRequest
+	7,  // 24: ffp.flagsetting.v1.FlagSettingService.ChangeRulePosition:input_type -> ffp.flagsetting.v1.ChangeRulePositionRequest
+	9,  // 25: ffp.flagsetting.v1.FlagSettingService.DeleteRule:input_type -> ffp.flagsetting.v1.DeleteRuleRequest
+	11, // 26: ffp.flagsetting.v1.FlagSettingService.ListRules:input_type -> ffp.flagsetting.v1.ListRulesRequest
+	18, // 27: ffp.flagsetting.v1.FlagSettingService.Get:output_type -> ffp.flagsetting.v1.GetResponse
+	20, // 28: ffp.flagsetting.v1.FlagSettingService.Update:output_type -> ffp.flagsetting.v1.UpdateResponse
+	4,  // 29: ffp.flagsetting.v1.FlagSettingService.CreateRule:output_type -> ffp.flagsetting.v1.CreateRuleResponse
+	6,  // 30: ffp.flagsetting.v1.FlagSettingService.UpdateRule:output_type -> ffp.flagsetting.v1.UpdateRuleResponse
+	8,  // 31: ffp.flagsetting.v1.FlagSettingService.ChangeRulePosition:output_type -> ffp.flagsetting.v1.ChangeRulePositionResponse
+	10, // 32: ffp.flagsetting.v1.FlagSettingService.DeleteRule:output_type -> ffp.flagsetting.v1.DeleteRuleResponse
+	12, // 33: ffp.flagsetting.v1.FlagSettingService.ListRules:output_type -> ffp.flagsetting.v1.ListRulesResponse
+	27, // [27:34] is the sub-list for method output_type
+	20, // [20:27] is the sub-list for method input_type
+	20, // [20:20] is the sub-list for extension type_name
+	20, // [20:20] is the sub-list for extension extendee
+	0,  // [0:20] is the sub-list for field type_name
 }
 
 func init() { file_ffp_flagsetting_v1_flagsetting_proto_init() }
@@ -1357,7 +1457,7 @@ func file_ffp_flagsetting_v1_flagsetting_proto_init() {
 	if File_ffp_flagsetting_v1_flagsetting_proto != nil {
 		return
 	}
-	file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[10].OneofWrappers = []any{
+	file_ffp_flagsetting_v1_flagsetting_proto_msgTypes[12].OneofWrappers = []any{
 		(*Clause_StringValues)(nil),
 		(*Clause_NumberValues)(nil),
 		(*Clause_BoolValues)(nil),
@@ -1368,7 +1468,7 @@ func file_ffp_flagsetting_v1_flagsetting_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_ffp_flagsetting_v1_flagsetting_proto_rawDesc), len(file_ffp_flagsetting_v1_flagsetting_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   18,
+			NumMessages:   20,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

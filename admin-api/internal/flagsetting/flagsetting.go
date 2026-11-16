@@ -375,3 +375,31 @@ func (s *Service) DeleteRule(ctx context.Context, req *flagsettingv1.DeleteRuleR
 		Rule: ruleProto,
 	}, nil
 }
+
+// ListRules lists every rule of the requested flag setting, ordered by
+// position, which is the order they're evaluated in. A setting with no rules
+// gives an empty list, and an id no setting has gives NotFound; the store reads
+// both in one snapshot. The proto's rules reject an id that isn't a UUID;
+// parsing it again here only guards against a caller without them. Store errors
+// reach the client as they are, and a stored rule that can't be read gives
+// Internal.
+func (s *Service) ListRules(ctx context.Context, req *flagsettingv1.ListRulesRequest) (*flagsettingv1.ListRulesResponse, error) {
+	settingID, err := utils.ParseID(req.FlagSettingId, "flag setting")
+	if err != nil {
+		return nil, err
+	}
+	rules, err := s.store.ListRulesBySetting(ctx, settingID)
+	if err != nil {
+		return nil, err
+	}
+	ruleProtos := make([]*flagsettingv1.Rule, len(rules))
+	for i, rule := range rules {
+		ruleProtos[i], err = ruleToProto(rule)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal, connect.CodeInternal.String())
+		}
+	}
+	return &flagsettingv1.ListRulesResponse{
+		Rules: ruleProtos,
+	}, nil
+}

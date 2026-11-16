@@ -40,6 +40,9 @@ const (
 	// FlagSettingServiceDeleteRuleProcedure is the procedure name of the FlagSettingService's
 	// DeleteRule RPC.
 	FlagSettingServiceDeleteRuleProcedure = "/ffp.flagsetting.v1.FlagSettingService/DeleteRule"
+	// FlagSettingServiceListRulesProcedure is the procedure name of the FlagSettingService's ListRules
+	// RPC.
+	FlagSettingServiceListRulesProcedure = "/ffp.flagsetting.v1.FlagSettingService/ListRules"
 )
 
 var (
@@ -85,6 +88,13 @@ var (
 			Procedure:  FlagSettingServiceDeleteRuleProcedure,
 		}
 	})
+	flagSettingServiceListRulesSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_ffp_flagsetting_v1_flagsetting_proto.Services().ByName("FlagSettingService").Methods().ByName("ListRules"),
+			Procedure:  FlagSettingServiceListRulesProcedure,
+		}
+	})
 )
 
 // FlagSettingServiceClient is a client for the ffp.flagsetting.v1.FlagSettingService service.
@@ -95,6 +105,7 @@ type FlagSettingServiceClient interface {
 	UpdateRule(context.Context, *v1.UpdateRuleRequest) (*v1.UpdateRuleResponse, error)
 	ChangeRulePosition(context.Context, *v1.ChangeRulePositionRequest) (*v1.ChangeRulePositionResponse, error)
 	DeleteRule(context.Context, *v1.DeleteRuleRequest) (*v1.DeleteRuleResponse, error)
+	ListRules(context.Context, *v1.ListRulesRequest) (*v1.ListRulesResponse, error)
 }
 
 // NewFlagSettingServiceClient constructs a client for the ffp.flagsetting.v1.FlagSettingService
@@ -112,6 +123,7 @@ type FlagSettingServiceHandler interface {
 	UpdateRule(context.Context, *v1.UpdateRuleRequest) (*v1.UpdateRuleResponse, error)
 	ChangeRulePosition(context.Context, *v1.ChangeRulePositionRequest) (*v1.ChangeRulePositionResponse, error)
 	DeleteRule(context.Context, *v1.DeleteRuleRequest) (*v1.DeleteRuleResponse, error)
+	ListRules(context.Context, *v1.ListRulesRequest) (*v1.ListRulesResponse, error)
 }
 
 // RegisterFlagSettingServiceHandler registers svc as the ffp.flagsetting.v1.FlagSettingService
@@ -125,6 +137,7 @@ func RegisterFlagSettingServiceHandler(server *connect.Server, svc FlagSettingSe
 		connect.Method{Spec: flagSettingServiceUpdateRuleSpec(), Handler: adapter.updateRule},
 		connect.Method{Spec: flagSettingServiceChangeRulePositionSpec(), Handler: adapter.changeRulePosition},
 		connect.Method{Spec: flagSettingServiceDeleteRuleSpec(), Handler: adapter.deleteRule},
+		connect.Method{Spec: flagSettingServiceListRulesSpec(), Handler: adapter.listRules},
 	)
 }
 
@@ -153,6 +166,10 @@ func (UnimplementedFlagSettingServiceHandler) ChangeRulePosition(context.Context
 
 func (UnimplementedFlagSettingServiceHandler) DeleteRule(context.Context, *v1.DeleteRuleRequest) (*v1.DeleteRuleResponse, error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, "ffp.flagsetting.v1.FlagSettingService.DeleteRule is not implemented")
+}
+
+func (UnimplementedFlagSettingServiceHandler) ListRules(context.Context, *v1.ListRulesRequest) (*v1.ListRulesResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "ffp.flagsetting.v1.FlagSettingService.ListRules is not implemented")
 }
 
 type flagSettingServiceClient struct {
@@ -202,6 +219,14 @@ func (c *flagSettingServiceClient) ChangeRulePosition(ctx context.Context, req *
 func (c *flagSettingServiceClient) DeleteRule(ctx context.Context, req *v1.DeleteRuleRequest) (*v1.DeleteRuleResponse, error) {
 	var res v1.DeleteRuleResponse
 	if err := c.client.CallUnary(ctx, flagSettingServiceDeleteRuleSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *flagSettingServiceClient) ListRules(ctx context.Context, req *v1.ListRulesRequest) (*v1.ListRulesResponse, error) {
+	var res v1.ListRulesResponse
+	if err := c.client.CallUnary(ctx, flagSettingServiceListRulesSpec(), req, &res); err != nil {
 		return nil, err
 	}
 	return &res, nil
@@ -275,6 +300,18 @@ func (h flagSettingServiceHandler) deleteRule(ctx context.Context, _ connect.Spe
 		return err
 	}
 	res, err := h.svc.DeleteRule(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h flagSettingServiceHandler) listRules(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.ListRulesRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.ListRules(ctx, &req)
 	if err != nil {
 		return err
 	}
