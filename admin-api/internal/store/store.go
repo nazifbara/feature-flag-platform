@@ -17,7 +17,13 @@ type Store struct {
 // ExecTx runs fn in a transaction, committing if it returns nil and rolling back
 // if it fails or panics. Errors aren't mapped to connect errors here.
 func (s *Store) ExecTx(ctx context.Context, fn func(*database.Queries) error) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+	return s.execTxWith(ctx, nil, fn)
+}
+
+// execTxWith is ExecTx with the transaction started with opts, such as an
+// isolation level. nil gives the database's defaults.
+func (s *Store) execTxWith(ctx context.Context, opts *sql.TxOptions, fn func(*database.Queries) error) error {
+	tx, err := s.db.BeginTx(ctx, opts)
 	if err != nil {
 		return err
 	}
