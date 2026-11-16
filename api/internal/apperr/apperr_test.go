@@ -1,4 +1,4 @@
-package ffserrors
+package apperr
 
 import (
 	"context"
@@ -12,7 +12,7 @@ import (
 	"github.com/lib/pq"
 )
 
-func TestFromDBErr(t *testing.T) {
+func TestFromDB(t *testing.T) {
 	tests := map[string]struct {
 		err  error
 		want connect.Code
@@ -46,24 +46,24 @@ func TestFromDBErr(t *testing.T) {
 	const message = "can't save the thing"
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			got := FromDBErr(test.err, message)
+			got := FromDB(test.err, message)
 			if got == nil {
-				t.Fatalf("FromDBErr(%v) = nil, want code %v", test.err, test.want)
+				t.Fatalf("FromDB(%v) = nil, want code %v", test.err, test.want)
 			}
 			connectErr, ok := got.(*connect.Error)
 			if !ok {
-				t.Fatalf("FromDBErr(%v) = %T, want *connect.Error", test.err, got)
+				t.Fatalf("FromDB(%v) = %T, want *connect.Error", test.err, got)
 			}
 			if connectErr.Code() != test.want {
-				t.Errorf("FromDBErr(%v) code = %v, want %v", test.err, connectErr.Code(), test.want)
+				t.Errorf("FromDB(%v) code = %v, want %v", test.err, connectErr.Code(), test.want)
 			}
 			// The caller's message replaces the database's.
 			if want := connect.NewError(test.want, message).Error(); connectErr.Error() != want {
-				t.Errorf("FromDBErr(%v) = %q, want %q", test.err, connectErr.Error(), want)
+				t.Errorf("FromDB(%v) = %q, want %q", test.err, connectErr.Error(), want)
 			}
 			// The original error is kept as the cause for logging.
 			if !errors.Is(got, test.err) {
-				t.Errorf("FromDBErr(%v) = %v, want it to wrap the original error", test.err, got)
+				t.Errorf("FromDB(%v) = %v, want it to wrap the original error", test.err, got)
 			}
 		})
 	}
@@ -123,10 +123,10 @@ func TestUserFacingConstraintsExist(t *testing.T) {
 	}
 }
 
-// A connect.Error already says what the client should see, so FromDBErr keeps
+// A connect.Error already says what the client should see, so FromDB keeps
 // its code and message instead of replacing them. Whatever wrapped it is kept as
 // a cause, so it can still be logged.
-func TestFromDBErrKeepsConnectErrors(t *testing.T) {
+func TestFromDBKeepsConnectErrors(t *testing.T) {
 	invalid := connect.NewError(connect.CodeInvalidArgument, "can't create a rule with a position outside [0, 2]")
 	rollbackErr := errors.New("rollback failed")
 	tests := map[string]struct {
@@ -156,20 +156,20 @@ func TestFromDBErrKeepsConnectErrors(t *testing.T) {
 	}
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			got := FromDBErr(test.err, "can't save the thing")
+			got := FromDB(test.err, "can't save the thing")
 			connectErr, ok := got.(*connect.Error)
 			if !ok {
-				t.Fatalf("FromDBErr(%v) = %T, want *connect.Error", test.err, got)
+				t.Fatalf("FromDB(%v) = %T, want *connect.Error", test.err, got)
 			}
 			if connectErr.Code() != test.want.Code() || connectErr.Message() != test.want.Message() {
-				t.Errorf("FromDBErr(%v) = %v, want %v", test.err, got, test.want)
+				t.Errorf("FromDB(%v) = %v, want %v", test.err, got, test.want)
 			}
 			if !errors.Is(got, test.err) {
-				t.Errorf("FromDBErr(%v) = %v, want it to wrap the original error", test.err, got)
+				t.Errorf("FromDB(%v) = %v, want it to wrap the original error", test.err, got)
 			}
 			for _, cause := range test.causes {
 				if !errors.Is(got, cause) {
-					t.Errorf("FromDBErr(%v) lost the cause %v", test.err, cause)
+					t.Errorf("FromDB(%v) lost the cause %v", test.err, cause)
 				}
 			}
 		})
@@ -178,8 +178,8 @@ func TestFromDBErrKeepsConnectErrors(t *testing.T) {
 	// Nothing wraps it, so there is nothing to keep and it comes back as it
 	// is, not as its own cause.
 	t.Run("as is", func(t *testing.T) {
-		if got := FromDBErr(invalid, "can't save the thing"); got != invalid {
-			t.Fatalf("FromDBErr(%v) = %v, want the same error back", invalid, got)
+		if got := FromDB(invalid, "can't save the thing"); got != invalid {
+			t.Fatalf("FromDB(%v) = %v, want the same error back", invalid, got)
 		}
 	})
 }

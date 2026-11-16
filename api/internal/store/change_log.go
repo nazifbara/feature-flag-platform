@@ -4,8 +4,8 @@ import (
 	"context"
 
 	"connectrpc.com/connect/v2"
+	"github.com/nazifbara/feature-flag-platform/api/internal/apperr"
 	"github.com/nazifbara/feature-flag-platform/api/internal/database"
-	"github.com/nazifbara/feature-flag-platform/api/internal/ffserrors"
 )
 
 // maxChangesBehind is the furthest an SDK can be behind and still catch up from
@@ -45,7 +45,7 @@ func (s *Store) ChangeSince(ctx context.Context, args database.ChangeSinceParams
 		return nil
 	})
 	if err != nil {
-		return nil, ffserrors.FromDBErr(err, "can't get the change logs")
+		return nil, apperr.FromDB(err, "can't get the change logs")
 	}
 	return changes, nil
 }

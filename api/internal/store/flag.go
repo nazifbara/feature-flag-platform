@@ -9,8 +9,8 @@ import (
 	"uuid"
 
 	"connectrpc.com/connect/v2"
+	"github.com/nazifbara/feature-flag-platform/api/internal/apperr"
 	"github.com/nazifbara/feature-flag-platform/api/internal/database"
-	"github.com/nazifbara/feature-flag-platform/api/internal/ffserrors"
 	"github.com/nazifbara/feature-flag-platform/api/internal/utils"
 )
 
@@ -82,7 +82,7 @@ func (s *Store) CreateFlag(ctx context.Context, key string) (database.Flag, erro
 		return q.ChangeLogFlagCreated(ctx, f.ID)
 	})
 	if err != nil {
-		return database.Flag{}, ffserrors.FromDBErr(err, "can't create the flag")
+		return database.Flag{}, apperr.FromDB(err, "can't create the flag")
 	}
 	return flag, nil
 }
@@ -91,7 +91,7 @@ func (s *Store) CreateFlag(ctx context.Context, key string) (database.Flag, erro
 func (s *Store) GetFlag(ctx context.Context, id uuid.UUID) (database.Flag, error) {
 	flag, err := s.Queries.GetFlag(ctx, id)
 	if err != nil {
-		return database.Flag{}, ffserrors.FromDBErr(err, "can't get the flag")
+		return database.Flag{}, apperr.FromDB(err, "can't get the flag")
 	}
 	return flag, nil
 }
@@ -129,7 +129,7 @@ func (s *Store) UpdateFlag(ctx context.Context, id uuid.UUID, key string) (datab
 		return q.ChangeLogFlagUpdated(ctx, database.ChangeLogFlagUpdatedParams{OldKey: currentFlag.Key, FlagID: f.ID})
 	})
 	if err != nil {
-		return database.Flag{}, ffserrors.FromDBErr(err, "can't update the flag")
+		return database.Flag{}, apperr.FromDB(err, "can't update the flag")
 	}
 	return flag, err
 }
@@ -154,7 +154,7 @@ func (s *Store) DeleteFlag(ctx context.Context, id uuid.UUID) (database.Flag, er
 		return q.ChangeLogFlagDeleted(ctx, f.Key)
 	})
 	if err != nil {
-		return database.Flag{}, ffserrors.FromDBErr(err, "can't delete the flag")
+		return database.Flag{}, apperr.FromDB(err, "can't delete the flag")
 	}
 	return flag, nil
 }
@@ -173,7 +173,7 @@ func (s *Store) ListFlags(ctx context.Context, cursor *FlagsCursor) ([]database.
 	}
 	flags, err := s.Queries.ListFlags(ctx, params)
 	if err != nil {
-		return nil, nil, ffserrors.FromDBErr(err, "can't list flags")
+		return nil, nil, apperr.FromDB(err, "can't list flags")
 	}
 	var nexCursor *FlagsCursor
 	if len(flags) > MaxFlagsPerPage {
@@ -217,7 +217,7 @@ func (s *Store) ArchiveFlag(ctx context.Context, id uuid.UUID) (database.Flag, e
 		return nil
 	})
 	if err != nil {
-		return flag, ffserrors.FromDBErr(err, "can't archive flag")
+		return flag, apperr.FromDB(err, "can't archive flag")
 	}
 	return flag, nil
 }
@@ -253,7 +253,7 @@ func (s *Store) UnarchiveFlag(ctx context.Context, id uuid.UUID) (database.Flag,
 		return nil
 	})
 	if err != nil {
-		return flag, ffserrors.FromDBErr(err, "can't unarchive flag")
+		return flag, apperr.FromDB(err, "can't unarchive flag")
 	}
 	return flag, nil
 }

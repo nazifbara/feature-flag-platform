@@ -5,8 +5,8 @@ import (
 	"uuid"
 
 	"connectrpc.com/connect/v2"
+	"github.com/nazifbara/feature-flag-platform/api/internal/apperr"
 	"github.com/nazifbara/feature-flag-platform/api/internal/database"
-	"github.com/nazifbara/feature-flag-platform/api/internal/ffserrors"
 )
 
 // checkFallthrough checks f is a fraction of traffic, in [0, 1].
@@ -22,7 +22,7 @@ func checkFallthrough(f float32) error {
 func (s *Store) GetFlagSetting(ctx context.Context, arg database.GetFlagSettingParams) (database.FlagSetting, error) {
 	setting, err := s.Queries.GetFlagSetting(ctx, arg)
 	if err != nil {
-		return database.FlagSetting{}, ffserrors.FromDBErr(err, "can't get the flag setting")
+		return database.FlagSetting{}, apperr.FromDB(err, "can't get the flag setting")
 	}
 	return setting, nil
 }
@@ -40,7 +40,7 @@ type FlagSettingUpdate struct {
 func (s *Store) GetFlagSettingByID(ctx context.Context, id uuid.UUID) (database.FlagSetting, error) {
 	setting, err := s.Queries.GetFlagSettingByID(ctx, id)
 	if err != nil {
-		return database.FlagSetting{}, ffserrors.FromDBErr(err, "can't get the flag setting")
+		return database.FlagSetting{}, apperr.FromDB(err, "can't get the flag setting")
 	}
 	return setting, nil
 }
@@ -100,7 +100,7 @@ func (s *Store) UpdateFlagSetting(ctx context.Context, arg FlagSettingUpdate) (d
 		return q.ChangeLogSettingUpdated(ctx, stg.ID)
 	})
 	if err != nil {
-		return database.FlagSetting{}, ffserrors.FromDBErr(err, "can't update the flag setting")
+		return database.FlagSetting{}, apperr.FromDB(err, "can't update the flag setting")
 	}
 	return setting, nil
 }
@@ -110,7 +110,7 @@ func (s *Store) UpdateFlagSetting(ctx context.Context, arg FlagSettingUpdate) (d
 func (s *Store) ListSettingsByFlag(ctx context.Context, flagID uuid.UUID) ([]database.FlagSetting, error) {
 	settings, err := s.Queries.ListSettingsByFlag(ctx, flagID)
 	if err != nil {
-		return nil, ffserrors.FromDBErr(err, "can't list the flag's settings")
+		return nil, apperr.FromDB(err, "can't list the flag's settings")
 	}
 	return settings, nil
 }
@@ -120,7 +120,7 @@ func (s *Store) ListSettingsByFlag(ctx context.Context, flagID uuid.UUID) ([]dat
 func (s *Store) ListSettingsByEnv(ctx context.Context, environmentID uuid.UUID) ([]database.ListSettingsByEnvRow, error) {
 	settings, err := s.Queries.ListSettingsByEnv(ctx, environmentID)
 	if err != nil {
-		return nil, ffserrors.FromDBErr(err, "can't list the environment's settings")
+		return nil, apperr.FromDB(err, "can't list the environment's settings")
 	}
 	return settings, nil
 }

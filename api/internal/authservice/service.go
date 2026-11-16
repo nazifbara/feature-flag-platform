@@ -6,8 +6,8 @@ import (
 	"connectrpc.com/connect/v2"
 	"github.com/alexedwards/argon2id"
 
+	"github.com/nazifbara/feature-flag-platform/api/internal/apperr"
 	"github.com/nazifbara/feature-flag-platform/api/internal/database"
-	"github.com/nazifbara/feature-flag-platform/api/internal/ffserrors"
 	"github.com/nazifbara/feature-flag-platform/api/internal/store"
 	authv1 "github.com/nazifbara/feature-flag-platform/gen/go/ffp/auth/v1"
 )
@@ -43,7 +43,7 @@ func (s *Service) SignUp(
 			},
 		)
 		if err != nil {
-			return ffserrors.FromDBErr(err, "can't sign up")
+			return apperr.FromDB(err, "can't sign up")
 		}
 
 		_, err = q.CreateUser(
@@ -56,7 +56,7 @@ func (s *Service) SignUp(
 			},
 		)
 		if err != nil {
-			return ffserrors.FromDBErr(err, "can't sign up")
+			return apperr.FromDB(err, "can't sign up")
 		}
 
 		return nil
