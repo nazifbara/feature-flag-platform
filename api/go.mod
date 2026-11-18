@@ -9,9 +9,13 @@ require (
 	github.com/alexedwards/argon2id v1.0.0
 	github.com/google/go-cmp v0.7.0
 	github.com/lib/pq v1.12.3
+	github.com/lmittmann/tint v1.2.1
+	github.com/mattn/go-isatty v0.0.24
 	github.com/nazifbara/feature-flag-platform/evaluator v0.0.0
 	github.com/nazifbara/feature-flag-platform/gen/go v0.0.0
+	github.com/pkg/errors v0.9.1
 	google.golang.org/protobuf v1.36.12
+	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 )
 
 require (
