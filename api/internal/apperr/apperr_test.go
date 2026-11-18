@@ -5,10 +5,13 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"testing"
+	"time"
 
 	connect "connectrpc.com/connect/v2"
+	"github.com/google/go-cmp/cmp"
 	"github.com/lib/pq"
 )
 
@@ -183,3 +186,122 @@ func TestFromDBKeepsConnectErrors(t *testing.T) {
 		}
 	})
 }
+
+func TestWithAttrs(t *testing.T) {
+	base := errors.New("boom")
+	err := WithAttrs(base, "rule_id", 7)
+	if err.Error() != base.Error() {
+		t.Errorf("Error() = %q, want %q", err.Error(), base.Error())
+	}
+	if !errors.Is(err, base) {
+		t.Errorf("errors.Is(%v, base) = false, want true", err)
+	}
+	want := []slog.Attr{slog.Int("rule_id", 7)}
+	if diff := cmp.Diff(want, Attrs(err), cmp.Comparer(attrsEqual)); diff != "" {
+		t.Errorf("Attrs mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// Wrapping a success keeps it a success.
+func TestWithAttrsNil(t *testing.T) {
+	if err := WithAttrs(nil, "rule_id", 7); err != nil {
+		t.Errorf("WithAttrs(nil) = %#v, want nil", err)
+	}
+}
+
+func TestWithAttrsArgs(t *testing.T) {
+	tests := map[string]struct {
+		args []any
+		want []slog.Attr
+	}{
+		"none":           {nil, nil},
+		"key and value":  {[]any{"rule_id", 7, "flag", "dark-mode"}, []slog.Attr{slog.Int("rule_id", 7), slog.String("flag", "dark-mode")}},
+		"attr":           {[]any{slog.Bool("retry", true)}, []slog.Attr{slog.Bool("retry", true)}},
+		"attr then pair": {[]any{slog.Bool("retry", true), "rule_id", 7}, []slog.Attr{slog.Bool("retry", true), slog.Int("rule_id", 7)}},
+		"key at the end": {[]any{"rule_id", 7, "dangling"}, []slog.Attr{slog.Int("rule_id", 7), slog.String("!BADKEY", "dangling")}},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			got := Attrs(WithAttrs(errors.New("boom"), test.args...))
+			if diff := cmp.Diff(test.want, got, cmp.Comparer(attrsEqual)); diff != "" {
+				t.Errorf("Attrs mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// Values can be of any type; only keys must be strings.
+func TestWithAttrsValueTypes(t *testing.T) {
+	values := []any{7, true, 1.5, nil, errors.New("inner"), []string{"a"}, struct{ ID int }{7}}
+	for _, value := range values {
+		t.Run(fmt.Sprintf("%T", value), func(t *testing.T) {
+			got := Attrs(WithAttrs(errors.New("boom"), "v", value))
+			want := []slog.Attr{slog.Any("v", value)}
+			if diff := cmp.Diff(want, got, cmp.Comparer(attrsEqual)); diff != "" {
+				t.Errorf("Attrs mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// A value without a key is logged under "!BADKEY", like slog does, and the
+// arguments after it are still read.
+func TestWithAttrsBadArgs(t *testing.T) {
+	tests := map[string]struct {
+		args []any
+		want []slog.Attr
+	}{
+		"value, no key":   {[]any{42}, []slog.Attr{slog.Int("!BADKEY", 42)}},
+		"value then pair": {[]any{42, "rule_id", 7}, []slog.Attr{slog.Int("!BADKEY", 42), slog.Int("rule_id", 7)}},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			// A bad argument must not stall the caller, so run it with a deadline.
+			// A stalled call keeps growing its slice, so the deadline is short.
+			done := make(chan []slog.Attr, 1)
+			go func() { done <- Attrs(WithAttrs(errors.New("boom"), test.args...)) }()
+			select {
+			case got := <-done:
+				if diff := cmp.Diff(test.want, got, cmp.Comparer(attrsEqual)); diff != "" {
+					t.Errorf("Attrs mismatch (-want +got):\n%s", diff)
+				}
+			case <-time.After(100 * time.Millisecond):
+				t.Fatalf("WithAttrs(%v) didn't return", test.args)
+			}
+		})
+	}
+}
+
+func TestAttrs(t *testing.T) {
+	inner := WithAttrs(errors.New("boom"), "rule_id", 7)
+	tests := map[string]struct {
+		err  error
+		want []slog.Attr
+	}{
+		"nil":         {nil, nil},
+		"plain error": {errors.New("boom"), nil},
+		// Attributes are found through any wrapping.
+		"wrapped":    {fmt.Errorf("creating: %w", inner), []slog.Attr{slog.Int("rule_id", 7)}},
+		"in a cause": {connect.NewError(connect.CodeInternal, "can't create the rule").WithCause(inner), []slog.Attr{slog.Int("rule_id", 7)}},
+		// Outer attributes come first.
+		"stacked": {
+			WithAttrs(fmt.Errorf("creating: %w", inner), "flag", "dark-mode"),
+			[]slog.Attr{slog.String("flag", "dark-mode"), slog.Int("rule_id", 7)},
+		},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			if diff := cmp.Diff(test.want, Attrs(test.err), cmp.Comparer(attrsEqual)); diff != "" {
+				t.Errorf("Attrs(%v) mismatch (-want +got):\n%s", test.err, diff)
+			}
+		})
+	}
+}
+
+// attrsEqual compares attributes by key and value. slog.Attr.Equal can't be
+// used: it panics on values that aren't comparable, like slices.
+func attrsEqual(a, b slog.Attr) bool {
+	return a.Key == b.Key && cmp.Equal(a.Value.Any(), b.Value.Any(), cmp.Comparer(errorsEqual))
+}
+
+func errorsEqual(a, b error) bool { return a == b }

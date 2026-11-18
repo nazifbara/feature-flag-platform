@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"time"
@@ -29,6 +29,7 @@ import (
 
 type server struct {
 	httpServer *http.Server
+	logger     *slog.Logger
 	cancel     context.CancelFunc
 }
 
@@ -40,7 +41,7 @@ func (s *server) start() error {
 		return err
 	}
 
-	log.Printf("server running http://localhost:%d", ln.Addr().(*net.TCPAddr).Port)
+	s.logger.Info("server running http://localhost", slog.Int("port", ln.Addr().(*net.TCPAddr).Port))
 	if err := s.httpServer.Serve(ln); !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
@@ -55,9 +56,9 @@ func (s *server) shutdown(ctx context.Context) error {
 
 // newServer builds a server with the auth, ping and flag services registered,
 // without starting it.
-func newServer(port int, store *store.Store, cancel context.CancelFunc) *server {
+func newServer(port int, store *store.Store, logger *slog.Logger, cancel context.CancelFunc) *server {
 	connectServer := connect.NewServer(
-		interceptor.NewLoggingInterceptor(),
+		interceptor.NewLoggingInterceptor(logger),
 		validate.NewServerInterceptor(),
 	)
 	authv1connect.RegisterAuthServiceHandler(
@@ -83,11 +84,12 @@ func newServer(port int, store *store.Store, cancel context.CancelFunc) *server 
 		ReadHeaderTimeout: 5 * time.Second,
 		Protocols:         p,
 	}
-	s := &server{
+
+	return &server{
 		httpServer: srv,
+		logger:     logger,
 		cancel:     cancel,
 	}
-	return s
 }
 
 // withCORS lets the local frontend call h, and answers preflight requests itself.

@@ -3,12 +3,14 @@ package main
 import (
 	"context"
 	"flag"
-	"log"
+	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"github.com/nazifbara/feature-flag-platform/api/internal/applogger"
 	"github.com/nazifbara/feature-flag-platform/api/internal/store"
 
 	_ "github.com/lib/pq"
@@ -27,12 +29,23 @@ func main() {
 // run serves on httpPort until ctx is done, then shuts the server down within
 // 5 seconds. It returns the process's exit status.
 func run(ctx context.Context, cancel context.CancelFunc, httpPort int) int {
-	store, err := store.New(os.Getenv("DB_URL"))
+	logger, closeLogger, err := applogger.InitializeLogger("")
 	if err != nil {
-		log.Printf("failed to connect to db: %v", err)
+		fmt.Fprintf(os.Stderr, "failed to initialize logger: %v\n", err)
 		return 1
 	}
-	s := newServer(httpPort, store, cancel)
+	defer func() {
+		if err := closeLogger(); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to close the logger properly: %v\n", err)
+		}
+	}()
+
+	store, err := store.New(os.Getenv("DB_URL"))
+	if err != nil {
+		logger.Error("failed to connect to db", slog.Any("error", err))
+		return 1
+	}
+	s := newServer(httpPort, store, logger, cancel)
 	var serverErr error
 	go func() {
 		serverErr = s.start()
@@ -43,13 +56,14 @@ func run(ctx context.Context, cancel context.CancelFunc, httpPort int) int {
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	log.Println("the server is shutting down")
+	logger.Info("the server is shutting down")
 	if err := s.shutdown(shutdownCtx); err != nil {
-		log.Printf("failed to shudown the server %v", err)
+		logger.Error("failed to shutdown the server", slog.Any("error", err))
 		return 1
 	}
 	if serverErr != nil {
-		log.Printf("server error: %v", serverErr)
+		logger.Error("server error", slog.Any("error", serverErr))
+		return 1
 	}
 	return 0
 }
