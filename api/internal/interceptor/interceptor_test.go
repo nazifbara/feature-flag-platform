@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"uuid"
 
 	connect "connectrpc.com/connect/v2"
 	"connectrpc.com/connect/v2/connecthttp"
@@ -52,6 +53,14 @@ func (r recorder) Handle(_ context.Context, rec slog.Record) error {
 // values logged under "error".
 func call(t *testing.T, err error) (status int, body string, logs []map[string]any, errs []any) {
 	t.Helper()
+	status, body, logs, errs, _ = callWithHeader(t, err, nil)
+	return status, body, logs, errs
+}
+
+// callWithHeader is call sending header with the request, and also returns
+// the response's header.
+func callWithHeader(t *testing.T, err error, header http.Header) (status int, body string, logs []map[string]any, errs []any, resHeader http.Header) {
+	t.Helper()
 	var logged bytes.Buffer
 	logger := slog.New(slog.NewMultiHandler(slog.NewJSONHandler(&logged, nil), recorder{&errs}))
 
@@ -62,7 +71,15 @@ func call(t *testing.T, err error) (status int, body string, logs []map[string]a
 	ts := httptest.NewServer(mux)
 	defer ts.Close()
 
-	res, postErr := http.Post(ts.URL+pingv1connect.PingServicePingProcedure, "application/json", strings.NewReader(`{"message":"hi"}`))
+	req, reqErr := http.NewRequest(http.MethodPost, ts.URL+pingv1connect.PingServicePingProcedure, strings.NewReader(`{"message":"hi"}`))
+	if reqErr != nil {
+		t.Fatalf("building the request: %v", reqErr)
+	}
+	for key, values := range header {
+		req.Header[key] = values
+	}
+	req.Header.Set("Content-Type", "application/json")
+	res, postErr := http.DefaultClient.Do(req)
 	if postErr != nil {
 		t.Fatalf("calling the server: %v", postErr)
 	}
@@ -77,9 +94,42 @@ func call(t *testing.T, err error) (status int, body string, logs []map[string]a
 		if err := json.Unmarshal([]byte(line), &entry); err != nil {
 			t.Fatalf("decoding log line %q: %v", line, err)
 		}
+		// Decoding keeps only the last of a repeated key, which would hide
+		// that one was logged twice.
+		if keys := repeatedKeys(t, line); len(keys) > 0 {
+			t.Errorf("log line %q repeats keys %v", line, keys)
+		}
 		logs = append(logs, entry)
 	}
-	return res.StatusCode, string(raw), logs, errs
+	return res.StatusCode, string(raw), logs, errs, res.Header
+}
+
+// repeatedKeys returns the top-level keys that appear more than once in the
+// JSON object line.
+func repeatedKeys(t *testing.T, line string) []string {
+	t.Helper()
+	dec := json.NewDecoder(strings.NewReader(line))
+	if _, err := dec.Token(); err != nil {
+		t.Fatalf("decoding log line %q: %v", line, err)
+	}
+	seen := map[string]bool{}
+	var repeated []string
+	for dec.More() {
+		tok, err := dec.Token()
+		if err != nil {
+			t.Fatalf("decoding log line %q: %v", line, err)
+		}
+		key := tok.(string)
+		if seen[key] {
+			repeated = append(repeated, key)
+		}
+		seen[key] = true
+		var value json.RawMessage
+		if err := dec.Decode(&value); err != nil {
+			t.Fatalf("decoding log line %q: %v", line, err)
+		}
+	}
+	return repeated
 }
 
 func TestLoggingInterceptorLogsFailures(t *testing.T) {
@@ -198,5 +248,134 @@ func TestLoggingInterceptorLogsSuccess(t *testing.T) {
 	}
 	if len(errs) != 0 {
 		t.Errorf("logged errors %v for a successful call, want none", errs)
+	}
+}
+
+func TestLoggingInterceptorRequestID(t *testing.T) {
+	tests := map[string]error{
+		"success": nil,
+		"failure": connect.NewError(connect.CodeInternal, "can't create the rule"),
+	}
+	for name, callErr := range tests {
+		// A client's ID is logged and sent back as is, so it can match its
+		// own logs with the server's.
+		t.Run(name+" with an ID", func(t *testing.T) {
+			const clientID = "0b9b8f4e-3c1d-4a7e-9f2a-5d6c7e8f9a0b"
+			_, _, logs, _, header := callWithHeader(t, callErr, http.Header{"X-Request-Id": {clientID}})
+			if len(logs) != 1 {
+				t.Fatalf("%d log lines, want 1: %v", len(logs), logs)
+			}
+			if logs[0]["request-id"] != clientID {
+				t.Errorf("request-id = %v, want %s", logs[0]["request-id"], clientID)
+			}
+			if got := header.Get("X-Request-Id"); got != clientID {
+				t.Errorf("response X-Request-Id = %q, want %s", got, clientID)
+			}
+		})
+		// Without one, the server makes one up and sends it back.
+		t.Run(name+" without an ID", func(t *testing.T) {
+			_, _, logs, _, header := callWithHeader(t, callErr, nil)
+			if len(logs) != 1 {
+				t.Fatalf("%d log lines, want 1: %v", len(logs), logs)
+			}
+			id, _ := logs[0]["request-id"].(string)
+			if _, err := uuid.Parse(id); err != nil {
+				t.Fatalf("request-id = %q, want a UUID: %v", id, err)
+			}
+			if got := header.Get("X-Request-Id"); got != id {
+				t.Errorf("response X-Request-Id = %q, want the logged %q", got, id)
+			}
+		})
+	}
+}
+
+// Each call without an ID gets its own.
+func TestLoggingInterceptorMakesDistinctRequestIDs(t *testing.T) {
+	_, _, first, _ := call(t, nil)
+	_, _, second, _ := call(t, nil)
+	if len(first) != 1 || len(second) != 1 {
+		t.Fatalf("log lines %v and %v, want one each", first, second)
+	}
+	if first[0]["request-id"] == second[0]["request-id"] {
+		t.Errorf("both calls got request-id %v, want different IDs", first[0]["request-id"])
+	}
+}
+
+// An ID that isn't a UUID is replaced with a new one, which is logged and sent
+// back in its place, so a client's bad header never reaches the logs.
+func TestLoggingInterceptorReplacesInvalidRequestIDs(t *testing.T) {
+	const bad = "req-123"
+	for name, callErr := range map[string]error{
+		"success": nil,
+		"failure": connect.NewError(connect.CodeInternal, "can't create the rule"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, _, logs, _, header := callWithHeader(t, callErr, http.Header{"X-Request-Id": {bad}})
+			served := servedLine(t, logs)
+			id, _ := served["request-id"].(string)
+			parsed, err := uuid.Parse(id)
+			if err != nil {
+				t.Fatalf("request-id = %q, want a UUID: %v", id, err)
+			}
+			if parsed == (uuid.UUID{}) {
+				t.Errorf("request-id = %q, want a new UUID, not the nil one", id)
+			}
+			if got := header.Get("X-Request-Id"); got != id {
+				t.Errorf("response X-Request-Id = %q, want the logged %q", got, id)
+			}
+			for _, entry := range logs {
+				for key, value := range entry {
+					if value == bad {
+						t.Errorf("logged the bad ID under %q in %v", key, entry)
+					}
+				}
+			}
+		})
+	}
+}
+
+// Replaced IDs are new each time, so two bad requests don't share one.
+func TestLoggingInterceptorReplacesInvalidRequestIDsDistinctly(t *testing.T) {
+	header := http.Header{"X-Request-Id": {"req-123"}}
+	_, _, first, _, _ := callWithHeader(t, nil, header)
+	_, _, second, _, _ := callWithHeader(t, nil, header)
+	a, b := servedLine(t, first)["request-id"], servedLine(t, second)["request-id"]
+	if a == b {
+		t.Errorf("both calls got request-id %v, want different IDs", a)
+	}
+}
+
+// servedLine returns the "Served Request" line of logs.
+func servedLine(t *testing.T, logs []map[string]any) map[string]any {
+	t.Helper()
+	for _, entry := range logs {
+		if entry["msg"] == "Served Request" {
+			return entry
+		}
+	}
+	t.Fatalf("no Served Request line in %v", logs)
+	return nil
+}
+
+// Every form uuid.Parse accepts is logged and sent back in the standard one, so
+// one ID is one string in the logs.
+func TestLoggingInterceptorStandardizesRequestIDs(t *testing.T) {
+	const want = "f81d4fae-7dec-11d0-a765-00a0c91e6bf6"
+	for _, sent := range []string{
+		want,
+		"F81D4FAE-7DEC-11D0-A765-00A0C91E6BF6",
+		"{f81d4fae-7dec-11d0-a765-00a0c91e6bf6}",
+		"urn:uuid:f81d4fae-7dec-11d0-a765-00a0c91e6bf6",
+		"f81d4fae7dec11d0a76500a0c91e6bf6",
+	} {
+		t.Run(sent, func(t *testing.T) {
+			_, _, logs, _, header := callWithHeader(t, nil, http.Header{"X-Request-Id": {sent}})
+			if got := servedLine(t, logs)["request-id"]; got != want {
+				t.Errorf("request-id = %v, want %s", got, want)
+			}
+			if got := header.Get("X-Request-Id"); got != want {
+				t.Errorf("response X-Request-Id = %q, want %s", got, want)
+			}
+		})
 	}
 }
