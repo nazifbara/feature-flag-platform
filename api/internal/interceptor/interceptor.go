@@ -9,10 +9,10 @@ import (
 )
 
 // validateRequestID returns id, the client's X-Request-Id header, in the
-// standard UUID form when it parses as one, or a new UUID when it's empty or
-// doesn't.
+// standard UUID form when it parses as one, or a new version 7 UUID when it's
+// empty or doesn't.
 func validateRequestID(id string) string {
-	newID := uuid.New().String()
+	newID := uuid.NewV7().String()
 	if id == "" {
 		return newID
 	}
@@ -26,7 +26,8 @@ func validateRequestID(id string) string {
 // NewLoggingInterceptor logs every call with its request ID, procedure and the
 // caller's address: at info when it succeeds, and at error with the error when
 // it fails. The request ID is the client's X-Request-Id header, replaced with a
-// new UUID when it's missing or isn't a UUID, and is sent back in the response's
+// new version 7 UUID, which sorts by creation time, when it's missing or isn't a
+// UUID, and is sent back in the response's
 // X-Request-Id header. The client gets the error's message,
 // but connect never sends it the cause.
 func NewLoggingInterceptor(logger *slog.Logger) connect.ServerInterceptor {

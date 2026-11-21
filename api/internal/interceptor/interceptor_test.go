@@ -379,3 +379,21 @@ func TestLoggingInterceptorStandardizesRequestIDs(t *testing.T) {
 		})
 	}
 }
+
+// Generated IDs are version 7, so they sort in the order the calls came in.
+func TestLoggingInterceptorMakesOrderedRequestIDs(t *testing.T) {
+	var ids []uuid.UUID
+	for _, header := range []http.Header{nil, {"X-Request-Id": {"req-123"}}, nil} {
+		_, _, logs, _, _ := callWithHeader(t, nil, header)
+		id := uuid.MustParse(servedLine(t, logs)["request-id"].(string))
+		if version := id[6] >> 4; version != 7 {
+			t.Errorf("request-id %s is version %d, want 7", id, version)
+		}
+		ids = append(ids, id)
+	}
+	for i := 1; i < len(ids); i++ {
+		if ids[i-1].Compare(ids[i]) >= 0 {
+			t.Errorf("request-id %s doesn't sort after the earlier %s", ids[i], ids[i-1])
+		}
+	}
+}
