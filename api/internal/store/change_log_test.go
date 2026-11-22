@@ -125,10 +125,7 @@ func TestChangeSince(t *testing.T) {
 		testutil.ResetDB(t, store.db)
 		env := mustCreateEnv(t, store, "production")
 		got, err := store.ChangeSince(context.Background(), database.ChangeSinceParams{EnvironmentID: env.ID, Version: env.Version + 1})
-		connectErr, ok := errors.AsType[*connect.Error](err)
-		if !ok || connectErr.Code() != connect.CodeInvalidArgument {
-			t.Fatalf("ChangeSince(%d) error = %v, want code %v", env.Version+1, err, connect.CodeInvalidArgument)
-		}
+		wantConnectErr(t, err, connect.NewError(connect.CodeInvalidArgument, "version can't be ahead of the environment's"))
 		if got != nil {
 			t.Fatalf("ChangeSince(%d) = %+v on error, want nil", env.Version+1, got)
 		}

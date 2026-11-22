@@ -32,7 +32,7 @@ func (s *Store) ChangeSince(ctx context.Context, args database.ChangeSinceParams
 			return nil
 		}
 		if env.Version-args.Version < 0 {
-			return connect.NewError(connect.CodeInvalidArgument, "current environment version can't exceed lastest vsersion")
+			return connect.NewError(connect.CodeInvalidArgument, "version can't be ahead of the environment's")
 		}
 		if env.Version-args.Version > maxChangesBehind {
 			return connect.NewError(connect.CodeFailedPrecondition, "too old")
