@@ -1,5 +1,5 @@
 -- name: ChangeSince :many
--- Gives an environment's entries past a version, at most 40 of them.
+-- Gives an environment's entries past a version.
 SELECT * FROM change_logs
 WHERE environment_id = sqlc.arg('environment_id') AND target_version > sqlc.arg('version')
 ORDER BY target_version ASC;
