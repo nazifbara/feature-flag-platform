@@ -61,11 +61,37 @@ func call(t *testing.T, err error) (status int, body string, logs []map[string]a
 // the response's header.
 func callWithHeader(t *testing.T, err error, header http.Header) (status int, body string, logs []map[string]any, errs []any, resHeader http.Header) {
 	t.Helper()
+	return serve(t, failingPing{err: err}, header, true)
+}
+
+// idPing answers every call, keeping what GetRequestID gives in its context.
+type idPing struct {
+	called *bool
+	id     *uuid.UUID
+	err    *error
+}
+
+func (p idPing) Ping(ctx context.Context, req *pingv1.PingRequest) (*pingv1.PingResponse, error) {
+	*p.called = true
+	*p.id, *p.err = GetRequestID(ctx)
+	return &pingv1.PingResponse{Message: req.Message}, nil
+}
+
+// serve sends a ping with header to handler through a real server with the
+// logging interceptor, behind the request ID one as in cmd/admin when
+// withRequestID is set, and returns what callWithHeader does.
+func serve(t *testing.T, handler pingv1connect.PingServiceHandler, header http.Header, withRequestID bool) (status int, body string, logs []map[string]any, errs []any, resHeader http.Header) {
+	t.Helper()
 	var logged bytes.Buffer
 	logger := slog.New(slog.NewMultiHandler(slog.NewJSONHandler(&logged, nil), recorder{&errs}))
 
-	server := connect.NewServer(NewLoggingInterceptor(logger))
-	pingv1connect.RegisterPingServiceHandler(server, failingPing{err: err})
+	var server *connect.Server
+	if withRequestID {
+		server = connect.NewServer(NewRequestIDInterceptor(), NewLoggingInterceptor(logger))
+	} else {
+		server = connect.NewServer(NewLoggingInterceptor(logger))
+	}
+	pingv1connect.RegisterPingServiceHandler(server, handler)
 	mux := http.NewServeMux()
 	connecthttp.Mount(mux, server)
 	ts := httptest.NewServer(mux)
@@ -184,8 +210,8 @@ func TestLoggingInterceptorLogsFailures(t *testing.T) {
 			if entry["level"] != "ERROR" {
 				t.Errorf("level = %v, want ERROR", entry["level"])
 			}
-			if entry["msg"] != "Served Request" {
-				t.Errorf("msg = %q, want %q", entry["msg"], "Served Request")
+			if entry["msg"] != "served request" {
+				t.Errorf("msg = %q, want %q", entry["msg"], "served request")
 			}
 			// The whole error is logged as an error, so the logger can expand
 			// it, and nothing is lost: its wrapping, code, message or cause.
@@ -237,8 +263,8 @@ func TestLoggingInterceptorLogsSuccess(t *testing.T) {
 	if entry["level"] != "INFO" {
 		t.Errorf("level = %v, want INFO", entry["level"])
 	}
-	if entry["msg"] != "Served Request" {
-		t.Errorf("msg = %q, want %q", entry["msg"], "Served Request")
+	if entry["msg"] != "served request" {
+		t.Errorf("msg = %q, want %q", entry["msg"], "served request")
 	}
 	if entry["procedure"] != pingv1connect.PingServicePingProcedure {
 		t.Errorf("procedure = %v, want %q", entry["procedure"], pingv1connect.PingServicePingProcedure)
@@ -345,15 +371,15 @@ func TestLoggingInterceptorReplacesInvalidRequestIDsDistinctly(t *testing.T) {
 	}
 }
 
-// servedLine returns the "Served Request" line of logs.
+// servedLine returns the "served request" line of logs.
 func servedLine(t *testing.T, logs []map[string]any) map[string]any {
 	t.Helper()
 	for _, entry := range logs {
-		if entry["msg"] == "Served Request" {
+		if entry["msg"] == "served request" {
 			return entry
 		}
 	}
-	t.Fatalf("no Served Request line in %v", logs)
+	t.Fatalf("no served request line in %v", logs)
 	return nil
 }
 
@@ -395,5 +421,129 @@ func TestLoggingInterceptorMakesOrderedRequestIDs(t *testing.T) {
 		if ids[i-1].Compare(ids[i]) >= 0 {
 			t.Errorf("request-id %s doesn't sort after the earlier %s", ids[i], ids[i-1])
 		}
+	}
+}
+
+// Handlers read the call's request ID from their context, to record it with
+// what the call changes, so it must be the one logged and sent back: the
+// client's in the standard form, or the one made up in its place.
+func TestRequestIDInterceptorPutsIDInContext(t *testing.T) {
+	const clientID = "f81d4fae-7dec-11d0-a765-00a0c91e6bf6"
+	tests := map[string]struct {
+		header http.Header
+		want   string // "" when a new ID is made up
+	}{
+		"client's ID":             {header: http.Header{"X-Request-Id": {clientID}}, want: clientID},
+		"client's ID, other form": {header: http.Header{"X-Request-Id": {"F81D4FAE-7DEC-11D0-A765-00A0C91E6BF6"}}, want: clientID},
+		"no ID":                   {},
+		"invalid ID":              {header: http.Header{"X-Request-Id": {"req-123"}}},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			var called bool
+			var id uuid.UUID
+			var idErr error
+			status, _, logs, _, header := serve(t, idPing{&called, &id, &idErr}, test.header, true)
+			if status != http.StatusOK || !called {
+				t.Fatalf("status = %d, handler called = %v, want %d and called", status, called, http.StatusOK)
+			}
+			if idErr != nil {
+				t.Fatalf("GetRequestID() in the handler: %v", idErr)
+			}
+			if test.want != "" && id.String() != test.want {
+				t.Errorf("handler's request ID = %s, want %s", id, test.want)
+			}
+			if test.want == "" {
+				if version := id[6] >> 4; version != 7 {
+					t.Errorf("handler's request ID %s is version %d, want a new version 7 UUID", id, version)
+				}
+			}
+			if got := servedLine(t, logs)["request-id"]; got != id.String() {
+				t.Errorf("logged request-id = %v, want the handler's %s", got, id)
+			}
+			if got := header.Get("X-Request-Id"); got != id.String() {
+				t.Errorf("response X-Request-Id = %q, want the handler's %s", got, id)
+			}
+		})
+	}
+}
+
+// Code run outside a call has no request ID, and must be told so rather than
+// get one that looks real.
+func TestGetRequestIDWithoutOne(t *testing.T) {
+	id, err := GetRequestID(context.Background())
+	if err == nil {
+		t.Fatalf("GetRequestID() = %s, want an error", id)
+	}
+	if id != uuid.Nil() {
+		t.Errorf("GetRequestID() = %s on error, want the nil UUID", id)
+	}
+}
+
+// A server with the logging interceptor but not the request ID one in front of
+// it is misconfigured, so its calls fail as internal before reaching the
+// handler, and are logged at error so the misconfiguration shows.
+func TestLoggingInterceptorWithoutRequestID(t *testing.T) {
+	var called bool
+	var id uuid.UUID
+	var idErr error
+	status, body, logs, errs, header := serve(t, idPing{&called, &id, &idErr}, nil, false)
+	if len(logs) != 1 {
+		t.Fatalf("%d log lines, want 1: %v", len(logs), logs)
+	}
+	entry := logs[0]
+	if entry["level"] != "ERROR" {
+		t.Errorf("level = %v, want ERROR", entry["level"])
+	}
+	if entry["msg"] != "request couldn't be processed" {
+		t.Errorf("msg = %q, want %q", entry["msg"], "request couldn't be processed")
+	}
+	if entry["procedure"] != pingv1connect.PingServicePingProcedure {
+		t.Errorf("procedure = %v, want %q", entry["procedure"], pingv1connect.PingServicePingProcedure)
+	}
+	if addr, _ := entry["caller-address"].(string); addr == "" {
+		t.Errorf("caller-address = %v, want an address", entry["caller-address"])
+	}
+	if got, ok := entry["request-id"]; ok {
+		t.Errorf("request-id = %v, want none logged", got)
+	}
+	if len(errs) != 1 {
+		t.Fatalf("logged %d errors, want 1: %v", len(errs), errs)
+	}
+	if _, ok := errs[0].(error); !ok {
+		t.Errorf("error = %T %v, want an error", errs[0], errs[0])
+	}
+	if got := header.Get("X-Request-Id"); got != "" {
+		t.Errorf("response X-Request-Id = %q, want none", got)
+	}
+	if status != http.StatusInternalServerError {
+		t.Errorf("status = %d, want %d", status, http.StatusInternalServerError)
+	}
+	var res struct{ Code string }
+	if err := json.Unmarshal([]byte(body), &res); err != nil {
+		t.Fatalf("decoding response %q: %v", body, err)
+	}
+	if res.Code != connect.CodeInternal.String() {
+		t.Errorf("code = %q, want %q", res.Code, connect.CodeInternal.String())
+	}
+	if called {
+		t.Errorf("the handler was called, want the call stopped before it")
+	}
+}
+
+// Only NewRequestIDInterceptor sets the ID: a value stored by another package,
+// even under the same name, isn't taken for it.
+func TestGetRequestIDIgnoresOtherKeys(t *testing.T) {
+	type otherKey string
+	want := uuid.NewV7()
+	for name, ctx := range map[string]context.Context{
+		"string key":        context.WithValue(context.Background(), "request-id", want),
+		"other package key": context.WithValue(context.Background(), otherKey("request-id"), want),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if id, err := GetRequestID(ctx); err == nil {
+				t.Errorf("GetRequestID() = %s, want an error", id)
+			}
+		})
 	}
 }

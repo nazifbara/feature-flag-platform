@@ -58,6 +58,7 @@ func (s *server) shutdown(ctx context.Context) error {
 // without starting it.
 func newServer(port int, store *store.Store, logger *slog.Logger, cancel context.CancelFunc) *server {
 	connectServer := connect.NewServer(
+		interceptor.NewRequestIDInterceptor(),
 		interceptor.NewLoggingInterceptor(logger),
 		validate.NewServerInterceptor(),
 	)
